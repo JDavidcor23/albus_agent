@@ -1,0 +1,16 @@
+node_modules
+dist
+out
+.DS_Store
+*.log*
+
+# Entorno
+.env
+.env.local
+
+# artefactos de inspeccion visual
+.playwright-mcp/
+*.png
+
+# modelos de tesseract (binarios grandes, se descargan)
+*.traineddata

@@ -1,0 +1,17 @@
+{
+  "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
+  // `scripts/**` va incluido a propósito: importan tipos de src/main y quedaban
+  // fuera del chequeo. Agregar un campo requerido a PendingItem los rompía en
+  // silencio y `npm run typecheck` seguía en verde.
+  "include": [
+    "electron.vite.config.*",
+    "src/main/**/*",
+    "src/preload/**/*",
+    "src/shared/**/*",
+    "scripts/**/*"
+  ],
+  "compilerOptions": {
+    "composite": true,
+    "types": ["electron-vite/node"]
+  }
+}
