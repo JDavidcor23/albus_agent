@@ -92,7 +92,11 @@ export async function saveTasks(
       title: t.title,
       detail: t.detail,
       source,
-      confidence: t.confidence
+      confidence: t.confidence,
+      // Idempotencia por esquema: el unique parcial (user_id, dedupe_key) es lo
+      // que hace que volver a subir la misma captura en otra nota no duplique.
+      // null cuando la cosa no tiene identidad repetible — ver 0003.
+      dedupe_key: t.dedupeKey ?? null
     })
 
     if (error) {

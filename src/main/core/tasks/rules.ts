@@ -1,4 +1,5 @@
 import type { DetectedTask, TaskCandidate } from './types'
+import { esCifrado, etiquetaDe, identidadDe } from './qr-identity'
 
 /**
  * Pendientes que se deciden por REGLA, sin preguntarle a ningún modelo.
@@ -14,6 +15,9 @@ import type { DetectedTask, TaskCandidate } from './types'
  * O sea: un QR es una acción que todavía no tomaste. Nace pendiente y solo se
  * cierra a mano. Eso NO es una inferencia — es una regla, y las reglas van en
  * código.
+ *
+ * Qué ES un QR y cuándo dos son el mismo vive en `qr-identity.ts`. Acá solo se
+ * decide qué pendiente escribir.
  */
 
 /** Un QR de LinkedIn no es una acción: es un contacto. Ese lo maneja el modelo. */
@@ -29,50 +33,38 @@ function codigosDe(payload: Record<string, unknown>): string[] {
   return codes.filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
 }
 
-/**
- * Un QR cifrado no se puede mostrar: no le dice nada a nadie.
- * `U2FsdGVkX1` es el base64 de "Salted__", la firma de OpenSSL — así vienen las
- * entradas de evento, que solo sirven escaneadas por la app del organizador.
- */
-function esIlegible(code: string): boolean {
-  return code.startsWith('U2FsdGVkX1') || !/^[\x20-\x7E]+$/.test(code)
-}
-
-/** Discriminador corto y estable. Sin esto dos QR de la misma nota colisionan. */
-function sufijo(code: string): string {
-  let h = 0
-  for (let i = 0; i < code.length; i++) h = (Math.imul(31, h) + code.charCodeAt(i)) | 0
-  return (h >>> 0).toString(36).slice(0, 4)
-}
-
 function recortar(texto: string, max: number): string {
   const limpio = texto.replace(/\s+/g, ' ').trim()
   return limpio.length > max ? `${limpio.slice(0, max)}…` : limpio
 }
 
 /**
- * El título sale del CÓDIGO cuando se puede leer, y recién si no, de la nota.
+ * El título de un QR cifrado sale de la NOTA, y sin ningún discriminador.
  *
- * Al revés no sirve: el QR de meetup lleva la URL del grupo — eso es específico y
- * accionable. La nota de esa misma captura decía "Screenshots fotos y videos de
- * aws serverless día también hay links de linkedin...", que como título es ruido.
+ * La versión anterior le pegaba un hash del código (`(101v)`, `(1cp6)`) para que
+ * dos QR de la misma nota no colisionaran. Era exactamente al revés: colisionar
+ * es lo que hace que dos capturas de la misma entrada sean un solo pendiente.
+ *
+ * Sin nota tampoco hay hash. Si la identidad ya colapsó todos los cifrados de la
+ * nota en uno, no hay con qué colisionar.
  */
-function etiquetaDe(code: string, contexto: string): string {
-  if (!esIlegible(code)) return recortar(code, 80)
-
-  const nota = recortar(contexto, 60)
-  // Cifrado: la nota es lo único que hay, más un sufijo para no colisionar con
-  // el otro QR de la misma nota.
-  return nota.length > 0 ? `${nota} (${sufijo(code)})` : `código QR ${sufijo(code)}`
+function tituloDeCifrado(body: string): string {
+  const nota = recortar(body, 70)
+  return nota.length > 0 ? `Usar el QR de: ${nota}` : 'Usar el código QR de esta nota'
 }
 
 /**
  * Pendientes deterministas de una entry.
  *
- * Deduplica por CONTENIDO del QR, no por adjunto: la misma pantalla fotografiada
- * dos veces es una sola cosa por hacer. En los datos reales había 5 adjuntos con
- * QR y solo 3 payloads distintos — sin deduplicar arrancabas con dos tareas
- * repetidas el primer día.
+ * Deduplica por IDENTIDAD del código, no por adjunto ni por bytes:
+ *
+ *   - un QR legible se identifica por su URL normalizada, así que la misma
+ *     pantalla fotografiada dos veces da un solo pendiente;
+ *   - todos los QR cifrados de una nota comparten identidad y colapsan en uno,
+ *     porque la sal hace imposible distinguirlos y son la misma entrada.
+ *
+ * En los datos reales había 5 adjuntos con QR, 3 códigos distintos y 2 eventos
+ * repetidos. Con esto quedan 2 pendientes: el grupo de Meetup y la entrada.
  */
 export function deterministicTasks(candidate: TaskCandidate): DetectedTask[] {
   const vistos = new Set<string>()
@@ -83,12 +75,26 @@ export function deterministicTasks(candidate: TaskCandidate): DetectedTask[] {
     if (esContacto(a.payload)) continue
 
     for (const code of codigosDe(a.payload)) {
-      if (vistos.has(code)) continue
-      vistos.add(code)
+      const identidad = identidadDe(code)
+      if (vistos.has(identidad)) continue
+      vistos.add(identidad)
+
+      const etiqueta = etiquetaDe(code)
+      const cifrado = esCifrado(code)
 
       out.push({
-        title: `Usar el QR de: ${etiquetaDe(code, candidate.body)}`,
-        detail: esIlegible(code) ? candidate.body.trim() || null : code,
+        title: etiqueta !== null ? `Usar el QR de ${etiqueta}` : tituloDeCifrado(candidate.body),
+
+        // Sin volcado de datos: el título ya dice qué es, y el ciphertext no le
+        // dice nada a nadie. Para un QR cifrado se explica POR QUÉ no hay más —
+        // si no, parece que falta información cuando en realidad no existe.
+        detail: cifrado ? 'QR cifrado: solo lo puede leer la app del organizador.' : null,
+
+        // Solo los legibles deduplican entre notas distintas. La identidad de un
+        // cifrado es una constante: hacerla única por usuario dejaría al usuario
+        // con un solo pendiente de entrada de evento para siempre.
+        dedupeKey: cifrado ? null : identidad,
+
         // 1.0 y no menos: no es una inferencia sobre la que se pueda dudar,
         // es la regla que pidió el usuario.
         confidence: 1

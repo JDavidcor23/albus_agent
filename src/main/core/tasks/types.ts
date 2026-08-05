@@ -9,10 +9,23 @@ export type TaskStatus = 'open' | 'done' | 'dismissed'
 export interface DetectedTask {
   /** Accionable y en primera persona: "Postularme a Globant", no "Oferta". */
   title: string
-  /** El texto de la nota del que salió, para poder auditarlo. */
+  /** Por qué esto es un pendiente, en una línea legible. Nunca un volcado. */
   detail: string | null
   /** 0..1. Un "tengo que X" explícito vale más que una inferencia. */
   confidence: number
+
+  /**
+   * Identidad estable de la COSA, para no duplicarla entre notas distintas.
+   *
+   * `null` = deduplicar solo dentro de la nota. Es el default correcto para todo
+   * lo que detecta el modelo: "Pagar el gym" en la nota de enero y en la de
+   * febrero son dos pagos, no uno, y colapsarlos por título sería perder uno.
+   *
+   * Lo setea solo lo que tiene identidad real y repetible — hoy, un QR legible:
+   * volver a subir la misma captura del mismo grupo de Meetup es la misma cosa
+   * por hacer, sin importar en qué nota la guardaste.
+   */
+  dedupeKey?: string | null
 }
 
 export interface Task extends DetectedTask {
