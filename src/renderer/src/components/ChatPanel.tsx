@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { esUrlAbrible, type TaskDetail, type TaskRow } from '../../../shared/ipc'
+import { urlDeCalendario } from '../../../shared/google-calendar'
 
 /**
  * Los emails y links ya vienen resueltos del main, y el OCR ya viene limpio.
@@ -220,6 +221,21 @@ function Tarjeta({
 
         <div className="task-actions" onClick={(e) => e.stopPropagation()}>
           <Origen source={task.source} confidence={task.confidence} />
+
+          {/* Antes de "hecho" y "no va" a propósito: agendar es construir algo con
+              el pendiente, cerrarlo es terminarlo. Las acciones terminales quedan
+              últimas y en el lugar donde el usuario ya las tiene aprendidas. */}
+          <button
+            type="button"
+            className="task-btn task-btn-ghost"
+            title="Abre Google Calendar con el evento precargado. Vos apretás Guardar."
+            onClick={() =>
+              onAbrir(urlDeCalendario({ title: task.title, details: task.detail }))
+            }
+          >
+            + calendar
+          </button>
+
           <button type="button" className="task-btn" onClick={() => onCerrar(task.id, 'done')}>
             hecho
           </button>

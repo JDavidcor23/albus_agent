@@ -195,6 +195,11 @@ export interface TaskDetail {
 export const HOSTS_ABRIBLES: readonly string[] = [
   'drive.google.com',
   'docs.google.com',
+  // Para el botón de agendar. Es una allowlist, así que agregar un host es una
+  // decisión consciente: abre el navegador del sistema con lo que le pasemos.
+  // Acá el destino es el formulario de Google, y lo que viaja en la URL es el
+  // título del pendiente — nada de lo que hay en la base.
+  'calendar.google.com',
   'www.linkedin.com',
   'linkedin.com',
   'www.meetup.com',
