@@ -30,15 +30,45 @@ export interface EventoDeCalendario {
   details?: string | null
   /** Dónde. Opcional. */
   location?: string | null
+  /** `yyyy-mm-dd`. Si falta, Google abre el formulario en el día de hoy. */
+  date?: string | null
 }
 
 /**
- * Google Calendar con el evento precargado y sin fecha.
+ * El rango de un evento de DÍA COMPLETO, en el formato de Google: `20260826/20260827`.
  *
- * Sin fecha a propósito: los pendientes de Albus no la tienen todavía. Google
- * abre el formulario con el día de hoy preseleccionado y el usuario lo cambia —
- * que es mejor que mandarle una fecha inventada, porque una fecha equivocada en un
- * calendario no se nota hasta que te perdés el evento.
+ * El fin es EXCLUSIVO — un evento de un día va del 26 al 27. Poner el mismo día
+ * en los dos extremos produce un evento de duración cero que Google muestra raro.
+ *
+ * Día completo y no una hora inventada: "el 27 de agosto" no dice a qué hora, y
+ * agendarlo a las 9:00 porque hay que poner algo es meterle al calendario del
+ * usuario una precisión que el dato no tiene.
+ *
+ * La fecha se avanza con UTC a propósito: `new Date(iso)` interpreta
+ * "2026-08-26" como medianoche UTC, y sumarle un día con métodos locales cerca
+ * de un cambio de horario puede saltar dos días o ninguno.
+ */
+function rangoDeDiaCompleto(fecha: string): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(fecha.trim())
+  if (m === null) return null
+
+  const inicio = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  if (Number.isNaN(inicio)) return null
+
+  const fin = new Date(inicio + 86400000)
+  const compacto = (d: Date): string =>
+    `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`
+
+  return `${m[1]}${m[2]}${m[3]}/${compacto(fin)}`
+}
+
+/**
+ * Google Calendar con el evento precargado.
+ *
+ * Si el pendiente tiene fecha, va como evento de día completo. Si no, Google abre
+ * el formulario con hoy preseleccionado y el usuario elige — que es mejor que
+ * inventarle una, porque una fecha equivocada en un calendario no se nota hasta
+ * que te perdés el evento.
  *
  * `URLSearchParams` y no concatenación: un título con `&`, `#` o un acento rompe
  * la URL armada a mano, y los títulos vienen de un modelo — o sea, de cualquier lado.
@@ -51,6 +81,11 @@ export function urlDeCalendario(evento: EventoDeCalendario): string {
 
   const lugar = evento.location?.trim()
   if (lugar !== undefined && lugar.length > 0) params.set('location', lugar)
+
+  // Una fecha con forma inesperada se omite en silencio: el botón sigue abriendo
+  // el formulario. Un `dates` inválido hace que Google ignore TODO el template.
+  const rango = evento.date != null ? rangoDeDiaCompleto(evento.date) : null
+  if (rango !== null) params.set('dates', rango)
 
   return `${BASE}?${params.toString()}`
 }

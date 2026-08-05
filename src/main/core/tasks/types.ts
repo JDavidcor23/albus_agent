@@ -35,6 +35,16 @@ export interface Task extends DetectedTask {
   source: string
   createdAt: string
   closedAt: string | null
+
+  /**
+   * Cuándo hay que actuar, en ISO `yyyy-mm-dd`. Solo lo usa el botón de Calendar.
+   *
+   * Va en `Task` y NO en `DetectedTask` a propósito: hoy nada lo ESCRIBE. Las tres
+   * fechas que existen las dejó una corrida anterior de la detección. Mientras la
+   * extracción de fechas no vuelva, este campo se lee pero no se llena — y ponerlo
+   * en `DetectedTask` sugeriría lo contrario.
+   */
+  dueDate: string | null
 }
 
 /** Lo que la cascada sacó de un adjunto. Sin píxeles: solo el resultado. */

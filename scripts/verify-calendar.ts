@@ -17,12 +17,16 @@ async function main(): Promise<void> {
   let fallas = 0
 
   for (const t of tasks) {
-    const url = urlDeCalendario({ title: t.title, details: t.detail })
+    const url = urlDeCalendario({ title: t.title, details: t.detail, date: t.dueDate })
     const ok = esUrlAbrible(url)
     if (!ok) fallas++
 
     const params = new URL(url).searchParams
-    console.log(`  ${ok ? 'OK  ' : 'FALLA'}  ${params.get('text')?.slice(0, 58)}`)
+    const fechas = params.get('dates')
+    console.log(
+      `  ${ok ? 'OK  ' : 'FALLA'}  ${fechas !== null ? fechas : '  sin fecha       '}  ` +
+        `${params.get('text')?.slice(0, 52)}`
+    )
     if (!ok) console.log(`         ${url}`)
   }
 

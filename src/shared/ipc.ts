@@ -130,6 +130,14 @@ export interface TaskRow {
   source: string
   confidence: number
   createdAt: string
+  /**
+   * `yyyy-mm-dd`, o `null`. HOY solo alimenta el botón de Calendar.
+   *
+   * NO ordena la lista y NO se muestra en la tarjeta: eso se probó, se revirtió,
+   * y volver a meterlo es una decisión del usuario, no un efecto colateral de
+   * tener el dato disponible.
+   */
+  dueDate: string | null
 }
 
 /**

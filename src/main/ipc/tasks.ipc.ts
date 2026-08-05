@@ -41,7 +41,9 @@ function aRow(t: Task): TaskRow {
     status: t.status,
     source: t.source,
     confidence: t.confidence,
-    createdAt: t.createdAt
+    createdAt: t.createdAt,
+    // Solo para el botón de agendar. No ordena la lista ni se pinta en la tarjeta.
+    dueDate: t.dueDate
   }
 }
 

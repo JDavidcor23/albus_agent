@@ -24,7 +24,8 @@ const TaskRowSchema = z.object({
   source: z.string(),
   confidence: z.number(),
   created_at: z.string(),
-  closed_at: z.string().nullable()
+  closed_at: z.string().nullable(),
+  due_date: z.string().nullable()
 })
 
 /**
@@ -140,9 +141,16 @@ export async function markAnalyzedWithNoTasks(candidate: TaskCandidate): Promise
 export async function listTasks(status: TaskStatus | 'all' = 'open'): Promise<Task[]> {
   const supabase = getSupabaseClient()
 
+  // El orden sigue siendo por `confidence`, a propósito.
+  //
+  // `due_date` se trae porque lo necesita el botón de agendar, NO para ordenar.
+  // Ordenar por fecha se probó y el usuario lo revirtió: el dato disponible no
+  // autoriza el cambio de comportamiento.
   let query = supabase
     .from('tasks')
-    .select('id, entry_id, title, detail, status, source, confidence, created_at, closed_at')
+    .select(
+      'id, entry_id, title, detail, status, source, confidence, created_at, closed_at, due_date'
+    )
     .neq('source', 'centinela')
     .order('confidence', { ascending: false })
 
@@ -165,7 +173,8 @@ export async function listTasks(status: TaskStatus | 'all' = 'open'): Promise<Ta
       source: r.source,
       confidence: r.confidence,
       createdAt: r.created_at,
-      closedAt: r.closed_at
+      closedAt: r.closed_at,
+      dueDate: r.due_date
     })
   }
   return out
@@ -183,6 +192,7 @@ const DetalleSchema = z.object({
   confidence: z.number(),
   created_at: z.string(),
   closed_at: z.string().nullable(),
+  due_date: z.string().nullable(),
   entries: z
     .object({
       body: z.string().nullable(),
@@ -311,7 +321,7 @@ export async function getTaskDetail(id: string): Promise<{
     .from('tasks')
     .select(
       'id, entry_id, user_id, title, detail, status, source, confidence, created_at, closed_at,' +
-        ' entries ( body, extractions ( attachment_path, kind, payload ) )'
+        ' due_date, entries ( body, extractions ( attachment_path, kind, payload ) )'
     )
     .eq('id', id)
     .maybeSingle()
@@ -374,7 +384,8 @@ export async function getTaskDetail(id: string): Promise<{
       source: r.source,
       confidence: r.confidence,
       createdAt: r.created_at,
-      closedAt: r.closed_at
+      closedAt: r.closed_at,
+      dueDate: r.due_date
     },
     noteBody: (r.entries?.body ?? '').trim(),
     noteSummary,

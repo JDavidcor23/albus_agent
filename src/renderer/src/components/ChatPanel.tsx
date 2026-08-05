@@ -230,7 +230,15 @@ function Tarjeta({
             className="task-btn task-btn-ghost"
             title="Abre Google Calendar con el evento precargado. Vos apretás Guardar."
             onClick={() =>
-              onAbrir(urlDeCalendario({ title: task.title, details: task.detail }))
+              onAbrir(
+                urlDeCalendario({
+                  title: task.title,
+                  details: task.detail,
+                  // Cuando el pendiente tiene fecha, va precargada como evento de
+                  // día completo. Es el único lugar donde `dueDate` se usa.
+                  date: task.dueDate
+                })
+              )
             }
           >
             + calendar
