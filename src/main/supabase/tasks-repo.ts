@@ -24,8 +24,7 @@ const TaskRowSchema = z.object({
   source: z.string(),
   confidence: z.number(),
   created_at: z.string(),
-  closed_at: z.string().nullable(),
-  due_date: z.string().nullable()
+  closed_at: z.string().nullable()
 })
 
 /**
@@ -100,8 +99,7 @@ export async function saveTasks(
       // Idempotencia por esquema: el unique parcial (user_id, dedupe_key) es lo
       // que hace que volver a subir la misma captura en otra nota no duplique.
       // null cuando la cosa no tiene identidad repetible — ver 0003.
-      dedupe_key: t.dedupeKey ?? null,
-      due_date: t.dueDate ?? null
+      dedupe_key: t.dedupeKey ?? null
     })
 
     if (error) {
@@ -139,26 +137,13 @@ export async function markAnalyzedWithNoTasks(candidate: TaskCandidate): Promise
   }
 }
 
-/**
- * Los pendientes, ordenados por CUÁNDO HAY QUE HACERLOS.
- *
- * Antes ordenaba por `confidence`, que mide cuán seguro estaba el modelo. Con 20
- * tareas y 5 valores distintos, 11 quedaban empatadas y su orden era el que
- * Postgres devolviera — y las dos únicas con fecha real caían 15° y última.
- *
- * `confidence` sigue siendo el segundo criterio: entre dos cosas sin fecha, una
- * regla ("usar este QR") pesa más que una inferencia ("quizás quieras postularte").
- */
 export async function listTasks(status: TaskStatus | 'all' = 'open'): Promise<Task[]> {
   const supabase = getSupabaseClient()
 
   let query = supabase
     .from('tasks')
-    .select(
-      'id, entry_id, title, detail, status, source, confidence, created_at, closed_at, due_date'
-    )
+    .select('id, entry_id, title, detail, status, source, confidence, created_at, closed_at')
     .neq('source', 'centinela')
-    .order('due_date', { ascending: true, nullsFirst: false })
     .order('confidence', { ascending: false })
 
   if (status !== 'all') query = query.eq('status', status)
@@ -180,8 +165,7 @@ export async function listTasks(status: TaskStatus | 'all' = 'open'): Promise<Ta
       source: r.source,
       confidence: r.confidence,
       createdAt: r.created_at,
-      closedAt: r.closed_at,
-      dueDate: r.due_date
+      closedAt: r.closed_at
     })
   }
   return out
@@ -199,7 +183,6 @@ const DetalleSchema = z.object({
   confidence: z.number(),
   created_at: z.string(),
   closed_at: z.string().nullable(),
-  due_date: z.string().nullable(),
   entries: z
     .object({
       body: z.string().nullable(),
@@ -328,7 +311,7 @@ export async function getTaskDetail(id: string): Promise<{
     .from('tasks')
     .select(
       'id, entry_id, user_id, title, detail, status, source, confidence, created_at, closed_at,' +
-        ' due_date, entries ( body, extractions ( attachment_path, kind, payload ) )'
+        ' entries ( body, extractions ( attachment_path, kind, payload ) )'
     )
     .eq('id', id)
     .maybeSingle()
@@ -391,8 +374,7 @@ export async function getTaskDetail(id: string): Promise<{
       source: r.source,
       confidence: r.confidence,
       createdAt: r.created_at,
-      closedAt: r.closed_at,
-      dueDate: r.due_date
+      closedAt: r.closed_at
     },
     noteBody: (r.entries?.body ?? '').trim(),
     noteSummary,

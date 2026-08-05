@@ -72,7 +72,7 @@ async function main(): Promise<void> {
   console.log('='.repeat(74))
 
   console.log('\n--- REGLAS (gratis, sin modelo) ---')
-  const porRegla = deterministicTasks(elegido, hoy)
+  const porRegla = deterministicTasks(elegido)
   if (porRegla.length === 0) console.log('  (ninguna aplica)')
   for (const t of porRegla) console.log(`  • ${t.title}`)
 

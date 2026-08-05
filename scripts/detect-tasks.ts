@@ -64,7 +64,7 @@ async function main(): Promise<void> {
   // Secuencial a propósito: son CLIs locales, en paralelo se pisan.
   for (const [i, c] of candidatos.entries()) {
     // Primero las reglas: son gratis y no dependen de que el CLI esté vivo.
-    const porRegla = deterministicTasks(c, hoy)
+    const porRegla = deterministicTasks(c)
     const yaCubiertos = titulosDeterministas(porRegla)
 
     const { tasks, summary } = await detectTasks(provider, model, c, hoy)
@@ -92,14 +92,11 @@ async function main(): Promise<void> {
     totalTasks += detectados.length
     console.log(`  ${String(i + 1).padStart(2)}. ${etiqueta}`)
     if (summary !== null) console.log(`      ~ ${summary}`)
-    const fecha = (t: { dueDate?: string | null }): string =>
-      t.dueDate ? ` (vence ${t.dueDate})` : ''
-
     for (const t of porRegla) {
-      console.log(`      -> [regla] ${t.title}${fecha(t)}`)
+      console.log(`      -> [regla] ${t.title}`)
     }
     for (const t of porModelo) {
-      console.log(`      -> [ia ${t.confidence.toFixed(2)}] ${t.title}${fecha(t)}`)
+      console.log(`      -> [ia ${t.confidence.toFixed(2)}] ${t.title}`)
     }
 
     if (APPLY) {

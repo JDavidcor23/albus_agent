@@ -50,7 +50,7 @@ async function main(): Promise<void> {
     adjuntosQr += qrs.length
     codigos += todosLosCodigos.length
 
-    const tasks = deterministicTasks(c, new Date().toISOString().slice(0, 10))
+    const tasks = deterministicTasks(c)
     pendientes += tasks.length
 
     console.log('='.repeat(74))
@@ -79,7 +79,6 @@ async function main(): Promise<void> {
     for (const t of tasks) {
       console.log(`    • ${t.title}`)
       console.log(`      detail : ${t.detail ?? '(ninguno)'}`)
-      console.log(`      vence  : ${t.dueDate ?? 'sin fecha'}`)
       console.log(`      dedupe : ${t.dedupeKey ?? 'null (solo dentro de la nota)'}`)
     }
     console.log()

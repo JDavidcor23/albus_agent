@@ -26,7 +26,6 @@ function task(id: string, title: string, source = 'cli:agy'): Task {
     entryId: 'e',
     title,
     detail: null,
-    dueDate: null,
     status: 'open',
     source,
     confidence: 0.9,

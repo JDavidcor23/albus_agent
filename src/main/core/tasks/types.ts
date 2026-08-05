@@ -15,16 +15,6 @@ export interface DetectedTask {
   confidence: number
 
   /**
-   * Cuándo hay que ACTUAR, en ISO `yyyy-mm-dd`. `null` = no tiene fecha.
-   *
-   * Es lo que ordena la lista. Antes ordenaba por `confidence`, que mide cuán
-   * seguro estaba el modelo — no cuánto importa: con 20 tareas y 5 valores
-   * distintos de confianza, "Pagar la cuota del carro de agosto" quedaba 15° y
-   * la entrada de un evento del 27 de agosto, última.
-   */
-  dueDate?: string | null
-
-  /**
    * Identidad estable de la COSA, para no duplicarla entre notas distintas.
    *
    * `null` = deduplicar solo dentro de la nota. Es el default correcto para todo
@@ -45,7 +35,6 @@ export interface Task extends DetectedTask {
   source: string
   createdAt: string
   closedAt: string | null
-  dueDate: string | null
 }
 
 /** Lo que la cascada sacó de un adjunto. Sin píxeles: solo el resultado. */

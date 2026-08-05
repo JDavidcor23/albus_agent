@@ -41,8 +41,7 @@ function aRow(t: Task): TaskRow {
     status: t.status,
     source: t.source,
     confidence: t.confidence,
-    createdAt: t.createdAt,
-    dueDate: t.dueDate
+    createdAt: t.createdAt
   }
 }
 
