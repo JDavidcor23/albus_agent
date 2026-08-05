@@ -759,11 +759,17 @@ body::before {
   gap: 18px;
 }
 
+/* El turno ocupa todo el ancho disponible.
+   El límite de 62ch vive en `.chat-texto`, sobre el TEXTO, no acá.
+   Estando en el contenedor apretaba también las tarjetas: su `width: 100%` era
+   100% de 62 caracteres, así que se veían angostas sin razón. Un límite de
+   longitud de línea es una regla de lectura de prosa, no de layout. */
 .chat-turno {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-width: 62ch;
+  width: 100%;
+  min-width: 0;
 }
 
 .chat-vos {
@@ -788,6 +794,8 @@ body::before {
 .chat-texto {
   font-size: 0.85rem;
   white-space: pre-wrap;
+  /* Acá sí: es prosa y se lee en renglones. */
+  max-width: 62ch;
 }
 
 .chat-pensando {
@@ -859,7 +867,10 @@ body::before {
   flex-shrink: 0;
 }
 
-/* Una regla no es una corazonada: se ven distinto a propósito. */
+/* Solo aparece en los pendientes que la IA DEDUJO y de los que dudó.
+   Antes decía "ia · 100%" en las 20 tarjetas: el porcentaje era la confianza del
+   modelo en sí mismo, o sea debug en una pantalla de lectura. Un indicador que
+   aparece siempre no indica nada. */
 .task-src {
   font-size: 0.62rem;
   color: var(--muted);
@@ -867,8 +878,10 @@ body::before {
   white-space: nowrap;
 }
 
-.task-src-regla {
-  color: var(--qr);
+.task-src-dudoso {
+  color: var(--none);
+  font-style: italic;
+  cursor: help;
 }
 
 .task-btn {
@@ -1026,6 +1039,43 @@ body::before {
   font-size: 0.95rem;
   color: var(--ink);
   line-height: 1.45;
+  /* Sin esto, una URL de 300 caracteres sin un solo espacio no tiene dónde
+     cortar y empuja la tarjeta más allá de su borde. `.task-ocr` ya lo tenía;
+     acá faltaba. `min-width: 0` es lo que permite que un hijo de flex se
+     encoja por debajo de su contenido — sin él, `word-break` no alcanza. */
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Un link dentro del texto de la nota. Es prosa, así que va en línea y no como
+   un botón con caja: interrumpir el párrafo con un recuadro se lee peor. */
+.task-link-inline {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--qr);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid transparent;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  overflow-wrap: anywhere;
+  transition: border-color 140ms ease;
+}
+
+.task-link-inline:hover {
+  border-bottom-color: var(--qr);
+}
+
+/* Una URL que el allowlist del main NO deja abrir. Se muestra pero no finge ser
+   un botón: prometer un click que va a fallar es peor que no ofrecerlo. */
+.task-url-plana {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--muted);
+  user-select: all;
+  overflow-wrap: anywhere;
 }
 
 /* El texto de las capturas: monoespaciado y con scroll propio.

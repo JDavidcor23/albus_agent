@@ -23,6 +23,72 @@ const NOMBRE_FUENTE: Record<string, string> = {
 /** Arriba de esto, una nota sin resumen se muestra recortada con "ver todo". */
 const LARGO_COMODO = 320
 
+const RE_URL_EN_TEXTO = /https?:\/\/[^\s<>"')\]]+/g
+
+/**
+ * Cuánto de una URL se muestra.
+ *
+ * La nota real traía un link de LinkedIn de 300 caracteres — un wrapper
+ * `/safety/go/?url=…` con el destino codificado y un hash gigante. Pintado entero
+ * tapaba la nota; y aunque se pueda cortar por CSS, seis renglones de hash no le
+ * dicen nada a nadie. El completo queda en el `title` del elemento.
+ */
+function recortarUrl(url: string): string {
+  return url.length > 62 ? `${url.slice(0, 62)}…` : url
+}
+
+/**
+ * El texto de una nota con sus URLs clickeables.
+ *
+ * Hasta ahora el body se pintaba como texto plano, así que un link había que
+ * seleccionarlo y copiarlo a mano. Las URLs se detectan sobre el texto y solo se
+ * vuelven botón las que el allowlist del main va a aceptar — el resto queda como
+ * texto seleccionable, porque un botón que falla al clickearlo es peor que un
+ * texto que se copia.
+ */
+function ConLinks({
+  texto,
+  onAbrir
+}: {
+  texto: string
+  onAbrir: (url: string) => void
+}): React.JSX.Element {
+  const partes: React.ReactNode[] = []
+  let cursor = 0
+
+  for (const m of texto.matchAll(RE_URL_EN_TEXTO)) {
+    const desde = m.index
+    if (desde === undefined) continue
+
+    if (desde > cursor) partes.push(texto.slice(cursor, desde))
+
+    const url = m[0]
+    partes.push(
+      esUrlAbrible(url) ? (
+        <button
+          key={desde}
+          type="button"
+          className="task-link-inline"
+          title={url}
+          onClick={() => onAbrir(url)}
+        >
+          {recortarUrl(url)}
+        </button>
+      ) : (
+        <span key={desde} className="task-url-plana" title={url}>
+          {recortarUrl(url)}
+        </span>
+      )
+    )
+
+    cursor = desde + url.length
+  }
+
+  if (cursor < texto.length) partes.push(texto.slice(cursor))
+
+  return <>{partes}</>
+}
+
 function plural(n: number, singular: string, plural_: string): string {
   return `${n} ${n === 1 ? singular : plural_}`
 }
@@ -38,12 +104,39 @@ interface Props {
   onError: (mensaje: string) => void
 }
 
-/** Una regla no es una corazonada: se distingue en la tarjeta. */
-function Origen({ source, confidence }: { source: string; confidence: number }): React.JSX.Element {
-  if (source.startsWith('regla')) {
-    return <span className="task-src task-src-regla">regla</span>
-  }
-  return <span className="task-src">ia · {Math.round(confidence * 100)}%</span>
+/**
+ * Debajo de esto, el pendiente es una lectura del modelo más que de la nota.
+ *
+ * 0.8 y no otro número: en los datos reales las confianzas caen en 1.00 (reglas),
+ * 0.95, 0.90, 0.80 y 0.70. El corte deja marcadas 4 de 20 — las tres vacantes de
+ * LinkedIn, donde la nota decía solo "Trabajo", y el evento de cripto.
+ */
+const CONFIANZA_DUDOSA = 0.8
+
+/**
+ * Marca SOLO los pendientes dudosos.
+ *
+ * Antes mostraba `ia · 100%` en cada tarjeta. Ese porcentaje es la confianza que
+ * el modelo declara de sí mismo, y el usuario preguntó literalmente qué era —
+ * con razón: sobre 20 pendientes había 5 valores distintos y ninguno predecía
+ * nada que a él le sirviera. Era información de debug en una pantalla de lectura.
+ *
+ * Lo que sí importa es saber cuándo un pendiente es una DEDUCCIÓN que puede estar
+ * equivocada. Eso se marca donde hay duda, y en ningún otro lado: un indicador
+ * que aparece en las 20 tarjetas no distingue nada.
+ */
+function Origen({ source, confidence }: { source: string; confidence: number }): React.JSX.Element | null {
+  if (source.startsWith('regla')) return null
+  if (confidence >= CONFIANZA_DUDOSA) return null
+
+  return (
+    <span
+      className="task-src task-src-dudoso"
+      title="La IA dedujo este pendiente de lo que guardaste, no de algo que escribiste. Revisalo."
+    >
+      deducido
+    </span>
+  )
 }
 
 /**
@@ -54,7 +147,15 @@ function Origen({ source, confidence }: { source: string; confidence: number }):
  * Sin resumen (nota vieja, o modelo que no lo devolvió) se recorta y se ofrece
  * el mismo botón: nunca se esconde lo que el usuario escribió.
  */
-function Nota({ body, summary }: { body: string; summary: string | null }): React.JSX.Element {
+function Nota({
+  body,
+  summary,
+  onAbrir
+}: {
+  body: string
+  summary: string | null
+  onAbrir: (url: string) => void
+}): React.JSX.Element {
   const [abierto, setAbierto] = useState(false)
 
   const resumida = summary !== null && summary.length < body.length
@@ -68,7 +169,9 @@ function Nota({ body, summary }: { body: string; summary: string | null }): Reac
       <span className="task-block-label">
         {resumida && !abierto ? 'lo que escribiste, en corto' : 'lo que escribiste'}
       </span>
-      <p className="task-note">{visible}</p>
+      <p className="task-note">
+        <ConLinks texto={visible} onAbrir={onAbrir} />
+      </p>
       {hayMas && (
         <button type="button" className="task-toggle" onClick={() => setAbierto(!abierto)}>
           {abierto ? 'ver en corto ▴' : `ver la nota completa (${body.length} caracteres) ▾`}
@@ -142,7 +245,7 @@ function Detalle({
   return (
     <div className="task-expand">
       {detalle.noteBody.length > 0 && (
-        <Nota body={detalle.noteBody} summary={detalle.noteSummary} />
+        <Nota body={detalle.noteBody} summary={detalle.noteSummary} onAbrir={onAbrir} />
       )}
 
       {(emails.length > 0 || urls.length > 0) && (
