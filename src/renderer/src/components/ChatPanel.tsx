@@ -45,6 +45,54 @@ function Origen({ source, confidence }: { source: string; confidence: number }):
   return <span className="task-src">ia · {Math.round(confidence * 100)}%</span>
 }
 
+const MES_CORTO = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+
+/**
+ * Cuándo hay que hacerlo, en palabras.
+ *
+ * Relativo hasta una semana y absoluto después. "en 3 días" se entiende sin
+ * calcular nada; "el 4 de noviembre" tampoco necesita cuenta. Lo que no sirve es
+ * "en 91 días", que obliga a traducirlo a una fecha mentalmente.
+ *
+ * La fecha se parsea a mano y no con `new Date(iso)`: ese constructor interpreta
+ * "2026-08-27" como UTC medianoche, que en Bogotá es el 26 a las 19:00 — la tarea
+ * aparecería vencida un día antes.
+ */
+function Vencimiento({ dueDate }: { dueDate: string }): React.JSX.Element | null {
+  const [a, m, d] = dueDate.split('-').map(Number)
+  if (!a || !m || !d) return null
+
+  const vence = new Date(a, m - 1, d)
+  const hoy = new Date()
+  hoy.setHours(0, 0, 0, 0)
+
+  const dias = Math.round((vence.getTime() - hoy.getTime()) / 86400000)
+
+  let texto: string
+  let clase = 'task-due'
+  if (dias < 0) {
+    texto = 'vencido'
+    clase += ' task-due-vencido'
+  } else if (dias === 0) {
+    texto = 'hoy'
+    clase += ' task-due-urgente'
+  } else if (dias === 1) {
+    texto = 'mañana'
+    clase += ' task-due-urgente'
+  } else if (dias <= 7) {
+    texto = `en ${dias} días`
+    clase += ' task-due-urgente'
+  } else {
+    texto = `${d} ${MES_CORTO[m - 1]}`
+  }
+
+  return (
+    <span className={clase} title={dueDate}>
+      {texto}
+    </span>
+  )
+}
+
 /**
  * Lo que escribiste, empezando por el resumen.
  *
@@ -219,6 +267,7 @@ function Tarjeta({
         </button>
 
         <div className="task-actions" onClick={(e) => e.stopPropagation()}>
+          {task.dueDate !== null && <Vencimiento dueDate={task.dueDate} />}
           <Origen source={task.source} confidence={task.confidence} />
           <button type="button" className="task-btn" onClick={() => onCerrar(task.id, 'done')}>
             hecho

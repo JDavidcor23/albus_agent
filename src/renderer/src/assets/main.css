@@ -871,6 +871,33 @@ body::before {
   color: var(--qr);
 }
 
+/* Cuándo hay que hacerlo. Es lo que ordena la lista, así que se lee antes que el
+   origen: primero cuándo, después de dónde salió. */
+.task-due {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+/* Dentro de una semana. Se destaca sin gritar: si todo grita, nada se lee. */
+.task-due-urgente {
+  color: var(--brass);
+  border-color: var(--line-brass);
+}
+
+/* Vencido NO se cierra solo: cerrar algo que el usuario todavía necesita es peor
+   que mostrarlo tarde. Se marca y él decide. */
+.task-due-vencido {
+  color: var(--none);
+  border-color: var(--none);
+  border-style: dashed;
+}
+
 .task-btn {
   font-family: var(--font-mono);
   font-size: 0.68rem;

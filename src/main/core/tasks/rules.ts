@@ -1,5 +1,7 @@
 import type { DetectedTask, TaskCandidate } from './types'
 import { esCifrado, etiquetaDe, identidadDe } from './qr-identity'
+import { fechaLimiteDe } from './due-date'
+import { fusionarCapturas } from '../extraction/clean-ocr'
 
 /**
  * Pendientes que se deciden por REGLA, sin preguntarle a ningún modelo.
@@ -47,10 +49,15 @@ function recortar(texto: string, max: number): string {
  *
  * Sin nota tampoco hay hash. Si la identidad ya colapsó todos los cifrados de la
  * nota en uno, no hay con qué colisionar.
+ *
+ * Se le saca el "código QR" del principio: la nota decía "Código QR del evento de
+ * cripto..." y el título salía "Usar el QR de: Código QR del evento..." — decía
+ * QR dos veces en once caracteres.
  */
 function tituloDeCifrado(body: string): string {
-  const nota = recortar(body, 70)
-  return nota.length > 0 ? `Usar el QR de: ${nota}` : 'Usar el código QR de esta nota'
+  const sinPrefijo = body.replace(/^\s*(?:c[óo]digo\s+)?qr\s*(?:de[l]?\s+)?/i, '')
+  const nota = recortar(sinPrefijo, 70)
+  return nota.length > 0 ? `Usar el QR del ${nota}` : 'Usar el código QR de esta nota'
 }
 
 /**
@@ -66,9 +73,25 @@ function tituloDeCifrado(body: string): string {
  * En los datos reales había 5 adjuntos con QR, 3 códigos distintos y 2 eventos
  * repetidos. Con esto quedan 2 pendientes: el grupo de Meetup y la entrada.
  */
-export function deterministicTasks(candidate: TaskCandidate): DetectedTask[] {
+export function deterministicTasks(candidate: TaskCandidate, hoy: string): DetectedTask[] {
   const vistos = new Set<string>()
   const out: DetectedTask[] = []
+
+  // La fecha se busca en la nota Y en el OCR de las capturas: la nota decía
+  // "27 y 28 de agosto" y la captura del ticket, "26 Agosto: Business Day".
+  // Gana la más temprana, que es cuando hay que tener la entrada a mano.
+  //
+  // El OCR va LIMPIO, y esto no es cosmético. Con el crudo, la línea
+  // "/ No 1/4 ARE HERAT RE AENA NR NL Nags mr" — basura de una foto — se leyó
+  // como el 1 de abril y mandó al tope de la lista un pendiente sin fecha real.
+  // El mismo `esLegible` que decide si mostrarle el texto al usuario decide si
+  // creerle una fecha: si no se puede leer, no se le cree.
+  const ocrLimpio = fusionarCapturas(
+    candidate.attachments
+      .map((a) => (typeof a.payload.text === 'string' ? a.payload.text : ''))
+      .filter((t) => t.length > 0)
+  )
+  const fecha = fechaLimiteDe(`${candidate.body}\n${ocrLimpio}`, hoy)
 
   for (const a of candidate.attachments) {
     if (a.kind !== 'qr') continue
@@ -88,7 +111,13 @@ export function deterministicTasks(candidate: TaskCandidate): DetectedTask[] {
         // Sin volcado de datos: el título ya dice qué es, y el ciphertext no le
         // dice nada a nadie. Para un QR cifrado se explica POR QUÉ no hay más —
         // si no, parece que falta información cuando en realidad no existe.
-        detail: cifrado ? 'QR cifrado: solo lo puede leer la app del organizador.' : null,
+        //
+        // Corto a propósito: la tarjeta corta el subtítulo a ~44 caracteres, y la
+        // versión anterior ("...solo lo puede leer la app del organizador.") se
+        // cortaba justo en "del …", que es peor que no decir nada.
+        detail: cifrado ? 'cifrado, lo lee la app del organizador' : null,
+
+        dueDate: fecha,
 
         // Solo los legibles deduplican entre notas distintas. La identidad de un
         // cifrado es una constante: hacerla única por usuario dejaría al usuario

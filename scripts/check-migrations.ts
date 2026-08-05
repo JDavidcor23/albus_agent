@@ -22,6 +22,12 @@ const CHEQUEOS: Chequeo[] = [
     descripcion: 'identidad de un pendiente, para no duplicarlo entre notas',
     tabla: 'tasks',
     columna: 'dedupe_key'
+  },
+  {
+    migracion: '0004_task_due_date.sql',
+    descripcion: 'cuándo hay que actuar — es lo que ordena la lista',
+    tabla: 'tasks',
+    columna: 'due_date'
   }
 ]
 

@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { LlmProvider } from '../extraction/llm-port'
 import { esLegible, limpiarOcr } from '../extraction/clean-ocr'
 import { esCifrado, etiquetaDe } from './qr-identity'
+import { normalizarFechaIso } from './due-date'
 import type { AttachmentInfo, DetectedTask, TaskCandidate } from './types'
 
 /**
@@ -59,7 +60,9 @@ const RespuestaSchema = z.object({
       z.object({
         title: z.string().min(1),
         detail: z.string().optional(),
-        confidence: z.number().min(0).max(1)
+        confidence: z.number().min(0).max(1),
+        /** Se valida con `normalizarFechaIso`: un modelo inventa formatos. */
+        dueDate: z.unknown().optional()
       })
     )
     .default([]),
@@ -89,7 +92,7 @@ const INSTRUCCIONES = `Leés notas cortas que una persona se escribe a sí misma
 en su app de notas. Tu única tarea es decidir si queda ALGO POR HACER.
 
 Respondé SOLO con un objeto JSON, sin markdown y sin explicaciones:
-{"summary": "...", "tasks": [{"title": "...", "detail": "...", "confidence": 0.9}]}
+{"summary": "...", "tasks": [{"title": "...", "detail": "...", "confidence": 0.9, "dueDate": "2026-08-27"}]}
 
 Si no hay nada pendiente, devolvé {"summary": "...", "tasks": []}. Eso es una
 respuesta correcta y frecuente — el resumen se devuelve igual.
@@ -134,7 +137,25 @@ Accionable y en primera persona, empezando con verbo en infinitivo.
 Si no sabés el nombre propio, describilo: "Postularme a la oferta de LinkedIn de <rol>".
 
 DETAIL
-El pedazo de la nota que te hizo pensar que hay algo pendiente. Textual, corto.
+El pedazo de la nota que te hizo pensar que hay algo pendiente. Textual, corto,
+máximo 44 caracteres — se muestra en una sola línea debajo del título.
+
+Si lo único que podés poner es el título otra vez, dejalo vacío. "Hacer cursos de
+IA" con subtítulo "Hacer cursos de ia" ocupa el doble de alto para no decir nada.
+Vacío es la respuesta correcta y frecuente.
+
+DUEDATE
+Cuándo hay que ACTUAR, en formato "2026-08-27". null si la nota no da ninguna
+fecha — que es lo normal.
+
+Es lo que ordena la lista, así que importa más que el confidence:
+  "Pagar la cuota del carro de agosto"  -> el último día de agosto
+  "el evento es el 27 y 28 de agosto"   -> "2026-08-27", el primer día
+  "hacer cursos de ia"                  -> null, es una intención sin fecha
+
+De un rango, el PRIMER día: es cuando hay que estar listo, no cuando termina.
+NO inventes fechas. Una fecha inventada manda una tarea al tope de la lista y
+tapa las reales. Ante la duda, null.
 
 CONFIDENCE
   0.9-1.0  la persona escribió el verbo: "revisar", "tengo que", "hay que", "falta"
@@ -145,6 +166,38 @@ REGLA DE ORO
 Ante la duda, NO lo inventes. Una lista con 3 pendientes reales sirve; una con 20
 donde 15 son ruido se deja de leer a la semana. Preferí perderte uno antes que
 llenar la lista.`
+
+/**
+ * ¿El subtítulo solo repite el título?
+ *
+ * Sobre los datos reales, 10 de 19 pendientes tenían un `detail` que era el
+ * título otra vez en minúscula: "Hacer cursos de IA" / "Hacer cursos de ia". En
+ * la tarjeta, ese subtítulo duplica el alto sin agregar una palabra.
+ *
+ * Se descarta al DETECTAR y no al mostrar: guardar ruido para después esconderlo
+ * es peor que no guardarlo — la próxima pantalla que lea `detail` vuelve a
+ * mostrarlo.
+ */
+function esRedundante(title: string, detail: string): boolean {
+  const palabras = (s: string): Set<string> =>
+    new Set(
+      s
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[̀-ͯ]/g, '')
+        .split(/[^a-z0-9]+/)
+        .filter((w) => w.length >= 3)
+    )
+
+  const delDetalle = palabras(detail)
+  if (delDetalle.size === 0) return true
+
+  const delTitulo = palabras(title)
+  let comunes = 0
+  for (const w of delDetalle) if (delTitulo.has(w)) comunes++
+
+  return comunes / delDetalle.size >= 0.6
+}
 
 /** Saca el JSON aunque el modelo lo haya envuelto en markdown o prosa. */
 function extraerJson(bruto: string): unknown {
@@ -203,11 +256,22 @@ export async function detectTasks(
 
     return {
       tasks: parsed.tasks
-        .map((t) => ({
-          title: t.title.trim(),
-          detail: t.detail?.trim() || null,
-          confidence: t.confidence
-        }))
+        .map((t) => {
+          const title = t.title.trim()
+          const detail = t.detail?.trim() || null
+
+          // El modelo puede devolver la fecha en cualquier formato, o inventarla.
+          // Se valida acá, y una fecha ya pasada se descarta: mandaría la tarea al
+          // tope de la lista como si fuera lo más urgente.
+          const fecha = normalizarFechaIso(t.dueDate)
+
+          return {
+            title,
+            detail: detail !== null && !esRedundante(title, detail) ? detail : null,
+            confidence: t.confidence,
+            dueDate: fecha !== null && fecha >= hoy ? fecha : null
+          }
+        })
         .filter((t) => t.title.length > 0),
 
       // Un resumen más largo que la nota no resume nada: si el modelo se fue de

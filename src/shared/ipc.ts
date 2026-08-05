@@ -130,6 +130,13 @@ export interface TaskRow {
   source: string
   confidence: number
   createdAt: string
+  /**
+   * `yyyy-mm-dd`, o `null` si no tiene fecha. Es lo que ordena la lista.
+   *
+   * Sin esto la lista se ordenaba por `confidence` — cuán seguro estaba el
+   * modelo — y las dos únicas tareas con fecha real quedaban 15° y última.
+   */
+  dueDate: string | null
 }
 
 /**
