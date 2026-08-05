@@ -11,7 +11,16 @@ export const IpcChannels = {
   TASKS_ASK: 'tasks:ask',
   TASKS_CLOSE: 'tasks:close',
   TASKS_DETAIL: 'tasks:detail',
-  OPEN_EXTERNAL: 'shell:open-external'
+  OPEN_EXTERNAL: 'shell:open-external',
+  /**
+   * Copiar al portapapeles va por el main, igual que abrir un link.
+   *
+   * `navigator.clipboard` existe en el renderer, pero depende de que el contexto
+   * sea seguro y empaquetada la app corre en `file://`. El módulo `clipboard` de
+   * Electron no tiene esa duda. Y el criterio ya estaba establecido acá: las
+   * capacidades del sistema las tiene el main.
+   */
+  CLIPBOARD_WRITE: 'clipboard:write'
 } as const
 
 /** Eventos que el main empuja al renderer mientras corre un lote. */

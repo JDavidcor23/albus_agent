@@ -1078,6 +1078,38 @@ body::before {
   overflow-wrap: anywhere;
 }
 
+/* El link y su botón de copiar viajan juntos.
+   `inline` y no `inline-flex`: está dentro de un párrafo y tiene que poder
+   partirse entre renglones como cualquier palabra. Un inline-flex se vuelve una
+   caja indivisible y vuelve a desbordar la tarjeta, que es el bug que acabamos
+   de arreglar. */
+.task-url {
+  display: inline;
+}
+
+/* Discreto hasta que lo necesitás. Compite con el link, no con la nota. */
+.task-copiar {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1px 5px;
+  margin-left: 6px;
+  cursor: pointer;
+  /* Que el botón no se separe del link al cortar el renglón. */
+  white-space: nowrap;
+  vertical-align: baseline;
+  transition: color 140ms ease, border-color 140ms ease;
+}
+
+.task-copiar:hover {
+  color: var(--brass);
+  border-color: var(--line-brass);
+}
+
 /* El texto de las capturas: monoespaciado y con scroll propio.
    Acá llega YA limpio de chrome (barra de estado, barra de direcciones, glifos
    de iconos). Monoespaciado igual, porque sigue siendo texto leído por máquina

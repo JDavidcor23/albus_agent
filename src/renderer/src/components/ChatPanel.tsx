@@ -38,13 +38,69 @@ function recortarUrl(url: string): string {
 }
 
 /**
+ * Una URL dentro del texto de una nota, con su botón de copiar.
+ *
+ * El botón de copiar va en TODAS, incluso en las que no se pueden abrir — es el
+ * caso que lo motivó: "los links de LinkedIn se rompen". Cuando el destino falla,
+ * tener el link en el portapapeles es lo único que queda para rescatarlo.
+ *
+ * Se copia la URL COMPLETA, no la recortada que se muestra. El recorte es para
+ * que el párrafo se pueda leer; un link cortado a 62 caracteres no sirve para nada.
+ */
+function LinkDeNota({ url, onAbrir }: { url: string; onAbrir: (u: string) => void }): React.JSX.Element {
+  const [copiado, setCopiado] = useState(false)
+  const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Sin esto, copiar y cerrar la tarjeta antes de que pase el segundo y medio
+  // deja un setState corriendo sobre un componente desmontado.
+  useEffect(() => {
+    return () => {
+      if (temporizador.current !== null) clearTimeout(temporizador.current)
+    }
+  }, [])
+
+  const copiar = (): void => {
+    void window.api.copyToClipboard(url).then((res) => {
+      // No hay banner de error: el "copiado" ES la confirmación. Si no aparece,
+      // no se copió, y eso el usuario lo ve sin que nadie se lo explique.
+      if (!res.ok) return
+      setCopiado(true)
+      if (temporizador.current !== null) clearTimeout(temporizador.current)
+      temporizador.current = setTimeout(() => setCopiado(false), 1500)
+    })
+  }
+
+  return (
+    <span className="task-url">
+      {esUrlAbrible(url) ? (
+        <button type="button" className="task-link-inline" title={url} onClick={() => onAbrir(url)}>
+          {recortarUrl(url)}
+        </button>
+      ) : (
+        <span className="task-url-plana" title={url}>
+          {recortarUrl(url)}
+        </span>
+      )}
+
+      <button
+        type="button"
+        className="task-copiar"
+        title="Copiar el link completo"
+        onClick={copiar}
+      >
+        {copiado ? 'copiado' : 'copiar'}
+      </button>
+    </span>
+  )
+}
+
+/**
  * El texto de una nota con sus URLs clickeables.
  *
  * Hasta ahora el body se pintaba como texto plano, así que un link había que
- * seleccionarlo y copiarlo a mano. Las URLs se detectan sobre el texto y solo se
- * vuelven botón las que el allowlist del main va a aceptar — el resto queda como
- * texto seleccionable, porque un botón que falla al clickearlo es peor que un
- * texto que se copia.
+ * seleccionarlo y copiarlo a mano. Solo se vuelven botón las que el allowlist del
+ * main va a aceptar — el resto queda como texto, porque un botón que falla al
+ * clickearlo es peor que un texto que se copia.
  */
 function ConLinks({
   texto,
@@ -61,27 +117,8 @@ function ConLinks({
     if (desde === undefined) continue
 
     if (desde > cursor) partes.push(texto.slice(cursor, desde))
-
-    const url = m[0]
-    partes.push(
-      esUrlAbrible(url) ? (
-        <button
-          key={desde}
-          type="button"
-          className="task-link-inline"
-          title={url}
-          onClick={() => onAbrir(url)}
-        >
-          {recortarUrl(url)}
-        </button>
-      ) : (
-        <span key={desde} className="task-url-plana" title={url}>
-          {recortarUrl(url)}
-        </span>
-      )
-    )
-
-    cursor = desde + url.length
+    partes.push(<LinkDeNota key={desde} url={m[0]} onAbrir={onAbrir} />)
+    cursor = desde + m[0].length
   }
 
   if (cursor < texto.length) partes.push(texto.slice(cursor))

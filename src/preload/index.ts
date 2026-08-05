@@ -59,6 +59,9 @@ const api = {
   openExternal: (url: string): Promise<IpcResult<{ opened: boolean }>> =>
     ipcRenderer.invoke(IpcChannels.OPEN_EXTERNAL, { url }),
 
+  copyToClipboard: (text: string): Promise<IpcResult<{ copied: boolean }>> =>
+    ipcRenderer.invoke(IpcChannels.CLIPBOARD_WRITE, { text }),
+
   onGraphProgress: (cb: (p: { hechos: number; total: number }) => void): (() => void) => {
     const handler = (_e: unknown, payload: { hechos: number; total: number }): void => cb(payload)
     ipcRenderer.on(IpcEvents.GRAPH_PROGRESS, handler)

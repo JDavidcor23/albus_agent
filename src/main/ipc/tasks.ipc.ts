@@ -1,4 +1,4 @@
-import { shell } from 'electron'
+import { clipboard, shell } from 'electron'
 import { z } from 'zod'
 import { registerHandler } from './register-handler'
 import {
@@ -32,6 +32,16 @@ const DetailSchema = z.object({ id: z.string().uuid() })
 const OpenExternalSchema = z.object({
   url: z.string().url().refine(esUrlAbrible, 'host no permitido')
 })
+
+/**
+ * Copiar NO lleva allowlist de host: el portapapeles no navega a ningún lado, y
+ * el usuario pide justo esto para los links que la app no puede abrir.
+ *
+ * Sí lleva tope de largo. El main no confía en el renderer, y un bug del otro
+ * lado que mande medio megabyte le pisaría el portapapeles al usuario con
+ * basura. 4096 alcanza de sobra para cualquier URL.
+ */
+const ClipboardSchema = z.object({ text: z.string().min(1).max(4096) })
 
 function aRow(t: Task): TaskRow {
   return {
@@ -75,6 +85,12 @@ export function registerTaskHandlers(): void {
     const { url } = OpenExternalSchema.parse(payload)
     await shell.openExternal(url)
     return { opened: true }
+  })
+
+  registerHandler(IpcChannels.CLIPBOARD_WRITE, async (payload: unknown) => {
+    const { text } = ClipboardSchema.parse(payload)
+    clipboard.writeText(text)
+    return { copied: true }
   })
 
   registerHandler(IpcChannels.TASKS_CLOSE, async (payload: unknown) => {
