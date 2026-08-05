@@ -1,5 +1,8 @@
 import { z } from 'zod'
 import { getSupabaseClient } from './client'
+import { fusionarCapturas } from '../core/extraction/clean-ocr'
+import { esCifrado } from '../core/tasks/qr-identity'
+import { leerResumen } from './note-summary-repo'
 import type { DetectedTask, Task, TaskCandidate, TaskStatus } from '../core/tasks/types'
 
 const CandidatoSchema = z.object({
@@ -171,6 +174,8 @@ export async function listTasks(status: TaskStatus | 'all' = 'open'): Promise<Ta
 const DetalleSchema = z.object({
   id: z.string(),
   entry_id: z.string(),
+  /** Hace falta para resolver el email del dueño y no ofrecérselo como contacto. */
+  user_id: z.string(),
   title: z.string(),
   detail: z.string().nullable(),
   status: z.enum(['open', 'done', 'dismissed']),
@@ -194,32 +199,118 @@ const DetalleSchema = z.object({
     .nullable()
 })
 
+/**
+ * Las capturas de una nota, agrupadas POR TIPO y no por archivo.
+ *
+ * Antes había una fila por adjunto. Una nota con 3 fotos del mismo QR daba tres
+ * bloques que decían casi lo mismo, y el usuario los leyó como "tres links":
+ * `código QR · drive/qr-eventos` repetido. Su reclamo fue exacto — "si ya tengo
+ * una, ya cualquiera me sirve".
+ */
 export interface TaskSourceRow {
   kind: string
+  /** Cuántas capturas se fusionaron acá. La UI dice "3 capturas", no las repite. */
+  captures: number
+  /** Texto fusionado y limpio de chrome. `null` si el OCR no dejó nada legible. */
   text: string | null
-  driveLink: string | null
-  driveFolder: string | null
+  /** El crudo, detrás de un toggle. Sin esto un heurístico no es auditable. */
+  rawText: string | null
+  /** Links a las originales. El OCR pierde cosas; la foto no. */
+  driveLinks: string[]
+}
+
+/** Emails y links que estaban enterrados en el OCR. */
+export interface TaskContacts {
+  emails: string[]
+  urls: string[]
+}
+
+const RE_EMAIL = /[\w.+-]+@[\w-]+\.[\w.]{2,}/g
+const RE_URL = /https?:\/\/[^\s<>"')\]]+/g
+
+/**
+ * El texto útil de un payload, según lo que la cascada haya resuelto.
+ *
+ * Un QR CIFRADO devuelve null a propósito: el ciphertext no le dice nada a nadie
+ * y ocupaba 192 caracteres del detalle. Que no haya nada que mostrar es
+ * información, y el título ya explica por qué.
+ */
+function textoDe(p: Record<string, unknown>): string | null {
+  if (typeof p.text === 'string' && p.text.trim().length > 0) return p.text
+
+  if (Array.isArray(p.codes) && p.codes.length > 0) {
+    const legibles = p.codes.filter((c): c is string => typeof c === 'string' && !esCifrado(c))
+    return legibles.length > 0 ? legibles.join('\n') : null
+  }
+
+  if (Array.isArray(p.profiles) && p.profiles.length > 0) return p.profiles.join('\n')
+
+  if (p.amount !== undefined) {
+    return [
+      p.merchant ? `a ${String(p.merchant)}` : null,
+      p.amount ? `monto ${String(p.amount)}` : null,
+      p.date ? `fecha ${String(p.date)}` : null,
+      p.reference ? `ref ${String(p.reference)}` : null
+    ]
+      .filter(Boolean)
+      .join(' · ')
+  }
+
+  return null
 }
 
 /**
- * Todo lo que hay detrás de un pendiente: la nota que escribiste y cada captura
- * que guardaste con ella, con el texto COMPLETO del OCR y el link a la imagen
- * en Drive.
+ * El email del dueño de la nota, para no ofrecérselo como forma de contacto.
  *
- * El link importa más de lo que parece: el OCR de una captura de LinkedIn sale
- * fragmentado ("We're hiring a Senior Fronten…") y no dice cómo aplicar. La
- * imagen original sí lo dice. Recortar el texto es tarea de la UI, no de acá:
- * si el repo devuelve 220 caracteres, el detalle no puede mostrar más.
+ * Sin esto, el detalle del evento de cripto resaltaba la propia dirección del
+ * usuario bajo "cómo contactar" — leída del OCR de su propia pantalla de perfil.
+ * Prometer un canal de contacto y mostrarle su propio mail es peor que no
+ * mostrar nada.
+ *
+ * Nunca lanza: si la consulta falla, se sigue sin filtrar. Un email de más es
+ * ruido; un detalle que no carga es un pendiente que no se puede leer.
  */
-export async function getTaskDetail(
-  id: string
-): Promise<{ task: Task; noteBody: string; sources: TaskSourceRow[] } | null> {
+async function emailDelDueño(userId: string): Promise<string | null> {
+  try {
+    const supabase = getSupabaseClient()
+    const { data, error } = await supabase.auth.admin.getUserById(userId)
+    if (error) throw new Error(error.message)
+    const email = data.user?.email
+    return typeof email === 'string' && email.length > 0 ? email.toLowerCase() : null
+  } catch (err: unknown) {
+    console.warn(
+      `[tasks-repo] no se pudo resolver el email del dueño ${userId}: ` +
+        `${err instanceof Error ? err.message : String(err)}`
+    )
+    return null
+  }
+}
+
+/**
+ * Todo lo que hay detrás de un pendiente, listo para leer.
+ *
+ * Cambió de "devolver todo crudo y que la UI recorte" a "devolver lo legible y
+ * el crudo aparte". El motivo: la UI recortaba a 220 caracteres un texto que
+ * empezaba con la barra de estado del teléfono, así que el recorte se gastaba
+ * entero en basura y el dato bueno nunca entraba. Limpiar es una decisión de
+ * dominio, no de presentación.
+ *
+ * Los emails y links se buscan sobre el CRUDO, no sobre el limpio: la barra de
+ * direcciones es ruido para leer pero puede ser el único lugar donde quedó una URL.
+ */
+export async function getTaskDetail(id: string): Promise<{
+  task: Task
+  noteBody: string
+  noteSummary: string | null
+  contacts: TaskContacts
+  sources: TaskSourceRow[]
+} | null> {
   const supabase = getSupabaseClient()
 
   const { data, error } = await supabase
     .from('tasks')
     .select(
-      'id, entry_id, title, detail, status, source, confidence, created_at, closed_at,' +
+      'id, entry_id, user_id, title, detail, status, source, confidence, created_at, closed_at,' +
         ' entries ( body, extractions ( attachment_path, kind, payload ) )'
     )
     .eq('id', id)
@@ -232,40 +323,46 @@ export async function getTaskDetail(
   if (!parsed.success) throw new Error(`Detalle con forma inesperada: ${parsed.error.message}`)
   const r = parsed.data
 
-  const sources: TaskSourceRow[] = []
+  // Un acumulador por tipo, en orden de aparición.
+  const porTipo = new Map<string, { textos: string[]; links: string[]; capturas: number }>()
+  let noteSummary: string | null = null
+  const crudoParaContactos: string[] = []
+
   for (const e of r.entries?.extractions ?? []) {
-    // El body de la entry también tiene su fila en `extractions`, con
-    // attachment_path ''. No es una captura: ya se muestra como `noteBody`.
-    // Dejarlo acá lo duplicaba y encima aparecía "sin link", como si faltara algo.
-    if (e.attachment_path === '') continue
-
     const p = (e.payload ?? {}) as Record<string, unknown>
-    const drive = p.drive as { fileId?: string; folder?: string; webViewLink?: string } | undefined
 
-    // El texto útil según el tipo: de un QR interesa el código, de una captura
-    // el OCR, de un comprobante los campos.
-    let text: string | null = null
-    if (typeof p.text === 'string' && p.text.trim().length > 0) text = p.text
-    else if (Array.isArray(p.codes) && p.codes.length > 0) text = p.codes.join('\n')
-    else if (Array.isArray(p.profiles) && p.profiles.length > 0) text = p.profiles.join('\n')
-    else if (p.amount !== undefined) {
-      text = [
-        p.merchant ? `a ${String(p.merchant)}` : null,
-        p.amount ? `monto ${String(p.amount)}` : null,
-        p.date ? `fecha ${String(p.date)}` : null,
-        p.reference ? `ref ${String(p.reference)}` : null
-      ]
-        .filter(Boolean)
-        .join(' · ')
+    // attachment_path '' es la fila del body: no es una captura. Ahí vive el
+    // resumen de la nota (ver note-summary-repo).
+    if (e.attachment_path === '') {
+      noteSummary = leerResumen(p)
+      continue
     }
 
-    sources.push({
-      kind: e.kind,
-      text,
-      driveLink: typeof drive?.webViewLink === 'string' ? drive.webViewLink : null,
-      driveFolder: typeof drive?.folder === 'string' ? drive.folder : null
-    })
+    const texto = textoDe(p)
+    if (texto !== null) crudoParaContactos.push(texto)
+
+    const drive = p.drive as { webViewLink?: string } | undefined
+    const grupo = porTipo.get(e.kind) ?? { textos: [], links: [], capturas: 0 }
+
+    grupo.capturas++
+    if (texto !== null) grupo.textos.push(texto)
+    if (typeof drive?.webViewLink === 'string') grupo.links.push(drive.webViewLink)
+    porTipo.set(e.kind, grupo)
   }
+
+  const sources: TaskSourceRow[] = [...porTipo.entries()].map(([kind, g]) => {
+    const fusionado = fusionarCapturas(g.textos)
+    return {
+      kind,
+      captures: g.capturas,
+      text: fusionado.length > 0 ? fusionado : null,
+      rawText: g.textos.length > 0 ? g.textos.join('\n\n— — —\n\n') : null,
+      driveLinks: [...new Set(g.links)]
+    }
+  })
+
+  const todoElCrudo = crudoParaContactos.join('\n')
+  const propio = await emailDelDueño(r.user_id)
 
   return {
     task: {
@@ -280,6 +377,13 @@ export async function getTaskDetail(
       closedAt: r.closed_at
     },
     noteBody: (r.entries?.body ?? '').trim(),
+    noteSummary,
+    contacts: {
+      emails: [...new Set(todoElCrudo.match(RE_EMAIL) ?? [])].filter(
+        (e) => propio === null || e.toLowerCase() !== propio
+      ),
+      urls: [...new Set(todoElCrudo.match(RE_URL) ?? [])]
+    },
     sources
   }
 }

@@ -1,24 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
-import type { TaskDetail, TaskRow } from '../../../shared/ipc'
+import { esUrlAbrible, type TaskDetail, type TaskRow } from '../../../shared/ipc'
 
 /**
- * Emails y links escondidos en el OCR.
+ * Los emails y links ya vienen resueltos del main, y el OCR ya viene limpio.
  *
- * Es lo que contesta "¿me postulo por LinkedIn o por email?": si la captura traía
- * un contacto, está enterrado en mil caracteres de texto ruidoso. Sacarlo a la
- * superficie es la diferencia entre un detalle que se lee y uno que se ignora.
+ * Antes este archivo tenía las regex y le pasaba el crudo a un `<pre>`. Dos
+ * problemas: el renderer no debería parsear OCR — eso es dominio, y el dominio
+ * vive en el main —, y el `<pre>` volcaba la barra de estado del celular del
+ * usuario como si fuera contenido.
  */
-const RE_EMAIL = /[\w.+-]+@[\w-]+\.[\w.]{2,}/g
-const RE_URL = /https?:\/\/[^\s<>"')\]]+/g
-
-function contactosEn(textos: (string | null)[]): { emails: string[]; urls: string[] } {
-  const todo = textos.filter((t): t is string => t !== null).join('\n')
-  return {
-    emails: [...new Set(todo.match(RE_EMAIL) ?? [])],
-    urls: [...new Set(todo.match(RE_URL) ?? [])]
-  }
-}
-
 const NOMBRE_FUENTE: Record<string, string> = {
   qr: 'código QR',
   receipt: 'comprobante',
@@ -27,6 +17,13 @@ const NOMBRE_FUENTE: Record<string, string> = {
   text: 'captura',
   none: 'sin contenido',
   failed: 'falló'
+}
+
+/** Arriba de esto, una nota sin resumen se muestra recortada con "ver todo". */
+const LARGO_COMODO = 320
+
+function plural(n: number, singular: string, plural_: string): string {
+  return `${n} ${n === 1 ? singular : plural_}`
 }
 
 interface Turno {
@@ -48,6 +45,90 @@ function Origen({ source, confidence }: { source: string; confidence: number }):
   return <span className="task-src">ia · {Math.round(confidence * 100)}%</span>
 }
 
+/**
+ * Lo que escribiste, empezando por el resumen.
+ *
+ * Una nota de 2838 caracteres dictada por voz, sin un solo punto, no se relee.
+ * Se muestra el resumen y el original queda a un click — disponible, no encima.
+ * Sin resumen (nota vieja, o modelo que no lo devolvió) se recorta y se ofrece
+ * el mismo botón: nunca se esconde lo que el usuario escribió.
+ */
+function Nota({ body, summary }: { body: string; summary: string | null }): React.JSX.Element {
+  const [abierto, setAbierto] = useState(false)
+
+  const resumida = summary !== null && summary.length < body.length
+  const larga = body.length > LARGO_COMODO
+  const hayMas = resumida || larga
+
+  const visible = abierto || !hayMas ? body : resumida ? summary! : `${body.slice(0, LARGO_COMODO)}…`
+
+  return (
+    <div className="task-block">
+      <span className="task-block-label">
+        {resumida && !abierto ? 'lo que escribiste, en corto' : 'lo que escribiste'}
+      </span>
+      <p className="task-note">{visible}</p>
+      {hayMas && (
+        <button type="button" className="task-toggle" onClick={() => setAbierto(!abierto)}>
+          {abierto ? 'ver en corto ▴' : `ver la nota completa (${body.length} caracteres) ▾`}
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** Un bloque por TIPO de captura, no por archivo. */
+function Fuente({
+  fuente,
+  onAbrir
+}: {
+  fuente: TaskDetail['sources'][number]
+  onAbrir: (url: string) => void
+}): React.JSX.Element {
+  const [verCrudo, setVerCrudo] = useState(false)
+
+  return (
+    <div className="task-block">
+      {/* Sin `drive/<carpeta>`: en qué carpeta de Drive quedó el archivo es
+          contabilidad de almacenamiento, no algo que el usuario esté leyendo. */}
+      <span className="task-block-label">
+        {NOMBRE_FUENTE[fuente.kind] ?? fuente.kind}
+        {fuente.captures > 1 && ` · ${plural(fuente.captures, 'captura', 'capturas')}`}
+      </span>
+
+      {fuente.text !== null ? (
+        <pre className="task-ocr">{fuente.text}</pre>
+      ) : (
+        <p className="task-vacio">
+          {fuente.kind === 'qr'
+            ? 'El código no se puede mostrar: está cifrado.'
+            : 'El texto de esta captura no se pudo leer. Abrí la imagen original.'}
+        </p>
+      )}
+
+      <div className="task-links">
+        {fuente.driveLinks.map((link, i) => (
+          <button key={link} type="button" className="task-link" onClick={() => onAbrir(link)}>
+            {fuente.driveLinks.length > 1 ? `abrir la captura ${i + 1} ↗` : 'abrir la original ↗'}
+          </button>
+        ))}
+      </div>
+
+      {/* El crudo queda accesible pero no encima: un heurístico que decide qué es
+          basura tiene que poder auditarse, y el usuario tiene que poder
+          desconfiar de él. */}
+      {fuente.rawText !== null && fuente.rawText !== fuente.text && (
+        <>
+          <button type="button" className="task-toggle" onClick={() => setVerCrudo(!verCrudo)}>
+            {verCrudo ? 'ocultar el texto crudo ▴' : 'ver el texto crudo del OCR ▾'}
+          </button>
+          {verCrudo && <pre className="task-ocr task-ocr-crudo">{fuente.rawText}</pre>}
+        </>
+      )}
+    </div>
+  )
+}
+
 function Detalle({
   detalle,
   onAbrir
@@ -55,23 +136,19 @@ function Detalle({
   detalle: TaskDetail
   onAbrir: (url: string) => void
 }): React.JSX.Element {
-  const { emails, urls } = contactosEn(detalle.sources.map((s) => s.text))
+  const { emails, urls } = detalle.contacts
 
   return (
     <div className="task-expand">
       {detalle.noteBody.length > 0 && (
-        <div className="task-block">
-          <span className="task-block-label">lo que escribiste</span>
-          <p className="task-note">{detalle.noteBody}</p>
-        </div>
+        <Nota body={detalle.noteBody} summary={detalle.noteSummary} />
       )}
 
       {(emails.length > 0 || urls.length > 0) && (
         <div className="task-block">
-          {/* No dice "cómo contactar": entre los emails puede aparecer el del
-              propio usuario, leído de su perfil en alguna captura. Prometer un
-              canal de contacto y mostrarle su propia dirección es peor que
-              nombrar las cosas por lo que son. */}
+          {/* No dice "cómo contactar": el main ya sacó el email del propio dueño,
+              pero entre lo que queda puede haber cualquier dirección que apareció
+              en una captura. Nombrar las cosas por lo que son. */}
           <span className="task-block-label">emails y links en las capturas</span>
           <div className="task-links">
             {emails.map((e) => (
@@ -79,34 +156,25 @@ function Detalle({
                 {e}
               </span>
             ))}
-            {urls.map((u) => (
-              <button key={u} type="button" className="task-link" onClick={() => onAbrir(u)}>
-                {u.length > 54 ? `${u.slice(0, 54)}…` : u}
-              </button>
-            ))}
+            {urls.map((u) =>
+              // Un botón que el allowlist del main va a rechazar es una promesa
+              // que la app no puede cumplir. Si no se puede abrir, es texto.
+              esUrlAbrible(u) ? (
+                <button key={u} type="button" className="task-link" onClick={() => onAbrir(u)}>
+                  {u.length > 54 ? `${u.slice(0, 54)}…` : u}
+                </button>
+              ) : (
+                <span key={u} className="task-contact">
+                  {u.length > 54 ? `${u.slice(0, 54)}…` : u}
+                </span>
+              )
+            )}
           </div>
         </div>
       )}
 
-      {detalle.sources.map((s, i) => (
-        <div className="task-block" key={`${s.kind}-${i}`}>
-          <span className="task-block-label">
-            {NOMBRE_FUENTE[s.kind] ?? s.kind}
-            {s.driveFolder !== null && ` · drive/${s.driveFolder}`}
-          </span>
-
-          {s.text !== null && s.text.trim().length > 0 ? (
-            <pre className="task-ocr">{s.text}</pre>
-          ) : (
-            <p className="task-vacio">no se leyó texto de esta captura</p>
-          )}
-
-          {s.driveLink !== null && (
-            <button type="button" className="task-link" onClick={() => onAbrir(s.driveLink!)}>
-              abrir la captura original ↗
-            </button>
-          )}
-        </div>
+      {detalle.sources.map((s) => (
+        <Fuente key={s.kind} fuente={s} onAbrir={onAbrir} />
       ))}
 
       {detalle.sources.length === 0 && (

@@ -1028,8 +1028,10 @@ body::before {
   line-height: 1.45;
 }
 
-/* El OCR crudo: monoespaciado y con scroll propio. Es ruidoso a propósito —
-   verlo tal cual es lo que permite juzgar si el pendiente tiene sentido. */
+/* El texto de las capturas: monoespaciado y con scroll propio.
+   Acá llega YA limpio de chrome (barra de estado, barra de direcciones, glifos
+   de iconos). Monoespaciado igual, porque sigue siendo texto leído por máquina
+   y no prosa: alinearlo ayuda a leer listas de precios, fechas y links. */
 .task-ocr {
   font-family: var(--font-mono);
   font-size: 0.68rem;
@@ -1081,4 +1083,31 @@ body::before {
   font-size: 0.7rem;
   color: var(--none);
   font-style: italic;
+}
+
+/* Revelar lo que está guardado pero no encima: la nota completa, el OCR crudo.
+   Discreto a propósito — si compitiera visualmente con el contenido, volveríamos
+   al problema que estamos arreglando. */
+.task-toggle {
+  align-self: flex-start;
+  font-size: 0.66rem;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  padding: 2px 0;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+
+.task-toggle:hover {
+  color: var(--ink);
+}
+
+/* El crudo se distingue del limpio: si se vieran iguales, el usuario no sabría
+   cuál está mirando y el toggle no serviría para auditar nada. */
+.task-ocr-crudo {
+  color: var(--none);
+  border-style: dashed;
+  max-height: 220px;
 }

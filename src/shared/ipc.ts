@@ -143,19 +143,69 @@ export interface AskAnswer {
   intent: 'pendientes' | 'cerrar' | 'ambiguo' | 'ayuda'
 }
 
-/** De dónde salió un pendiente: una de las capturas de su nota. */
+/**
+ * De dónde salió un pendiente: las capturas de su nota, agrupadas POR TIPO.
+ *
+ * Agrupadas y no una por archivo. Tres fotos del mismo QR daban tres bloques
+ * casi idénticos, que el usuario leyó como "tres links".
+ */
 export interface TaskSource {
   kind: ExtractionKind
-  /** Texto COMPLETO del OCR, sin recortar. El recorte es cosa de la UI. */
+  /** Cuántas capturas se fusionaron en este bloque. */
+  captures: number
+  /** Texto fusionado y limpio de chrome. `null` = el OCR no dejó nada legible. */
   text: string | null
-  /** Link para abrir la imagen original en Drive. El OCR pierde cosas; la foto no. */
-  driveLink: string | null
-  driveFolder: string | null
+  /** El crudo, para auditar detrás de un toggle. Nunca se muestra por defecto. */
+  rawText: string | null
+  /** Links a las originales en Drive. El OCR pierde cosas; la foto no. */
+  driveLinks: string[]
+}
+
+/** Emails y links que estaban enterrados en el OCR, ya sin el mail del dueño. */
+export interface TaskContacts {
+  emails: string[]
+  urls: string[]
 }
 
 export interface TaskDetail {
   task: TaskRow
-  /** Lo que escribiste al capturar. Suele ser la mejor pista de qué es esto. */
+  /** Lo que escribiste al capturar, completo. */
   noteBody: string
+  /**
+   * La misma nota en una o dos oraciones. `null` cuando no hacía falta o cuando
+   * la nota nunca pasó por el modelo. La UI muestra esto primero y deja el body
+   * detrás de un "ver todo".
+   */
+  noteSummary: string | null
+  contacts: TaskContacts
   sources: TaskSource[]
+}
+
+/**
+ * Hosts a los que se puede abrir el navegador del sistema.
+ *
+ * Vive en `shared` porque lo necesitan los DOS lados y por razones distintas: el
+ * main lo aplica como frontera de seguridad al recibir un `openExternal`, y el
+ * renderer lo consulta para no dibujar un botón que va a fallar. Duplicar la
+ * lista era garantizar que se desincronicen.
+ *
+ * Allowlist de host y no "empieza con https": un `https://malicioso.com` pasaría
+ * ese chequeo igual.
+ */
+export const HOSTS_ABRIBLES: readonly string[] = [
+  'drive.google.com',
+  'docs.google.com',
+  'www.linkedin.com',
+  'linkedin.com',
+  'www.meetup.com',
+  'meetup.com'
+]
+
+export function esUrlAbrible(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'https:' && HOSTS_ABRIBLES.includes(parsed.hostname)
+  } catch {
+    return false
+  }
 }

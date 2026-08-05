@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { registerHandler } from './register-handler'
 import {
   IpcChannels,
+  esUrlAbrible,
   type AskAnswer,
   type ExtractionKind,
   type TaskDetail,
@@ -22,30 +23,14 @@ const DetailSchema = z.object({ id: z.string().uuid() })
 
 /**
  * Abrir un link es entregarle el navegador del sistema a algo que vino del
- * renderer. Va con allowlist de host, no con "empieza con https": un
- * `https://malicioso.com` pasaría ese chequeo igual.
+ * renderer. La allowlist vive en `shared/ipc` porque el renderer también la
+ * necesita — para no dibujar un botón que el main va a rechazar.
+ *
+ * Que el renderer la conozca NO la debilita: el chequeo que importa es este, y
+ * corre acá. Lo de allá es cortesía visual.
  */
-const HOSTS_PERMITIDOS = new Set([
-  'drive.google.com',
-  'docs.google.com',
-  'www.linkedin.com',
-  'linkedin.com',
-  'www.meetup.com',
-  'meetup.com'
-])
-
 const OpenExternalSchema = z.object({
-  url: z
-    .string()
-    .url()
-    .refine((u) => {
-      try {
-        const parsed = new URL(u)
-        return parsed.protocol === 'https:' && HOSTS_PERMITIDOS.has(parsed.hostname)
-      } catch {
-        return false
-      }
-    }, 'host no permitido')
+  url: z.string().url().refine(esUrlAbrible, 'host no permitido')
 })
 
 function aRow(t: Task): TaskRow {
@@ -72,11 +57,14 @@ export function registerTaskHandlers(): void {
     return {
       task: aRow(detalle.task),
       noteBody: detalle.noteBody,
+      noteSummary: detalle.noteSummary,
+      contacts: detalle.contacts,
       sources: detalle.sources.map((s) => ({
         kind: s.kind as ExtractionKind,
+        captures: s.captures,
         text: s.text,
-        driveLink: s.driveLink,
-        driveFolder: s.driveFolder
+        rawText: s.rawText,
+        driveLinks: s.driveLinks
       }))
     }
   })
