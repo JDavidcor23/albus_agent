@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { getSupabaseClient } from './client'
-import { fusionarCapturas } from '../core/extraction/clean-ocr'
+import { esFotoDeCamara, fusionarCapturas } from '../core/extraction/clean-ocr'
 import { esCifrado } from '../core/tasks/qr-identity'
 import { leerResumen } from './note-summary-repo'
 import type { DetectedTask, Task, TaskCandidate, TaskStatus } from '../core/tasks/types'
@@ -221,6 +221,14 @@ export interface TaskSourceRow {
   kind: string
   /** Cuántas capturas se fusionaron acá. La UI dice "3 capturas", no las repite. */
   captures: number
+  /**
+   * De esas, cuántas son FOTOS de cámara.
+   *
+   * Su OCR no se muestra: sobre los datos reales las fotos conservan 17% del
+   * texto contra 84% de las capturas de pantalla, y ese 17% son fragmentos
+   * inventados. La UI lo dice en vez de fingir que leyó algo.
+   */
+  photos: number
   /** Texto fusionado y limpio de chrome. `null` si el OCR no dejó nada legible. */
   text: string | null
   /** El crudo, detrás de un toggle. Sin esto un heurístico no es auditable. */
@@ -334,7 +342,10 @@ export async function getTaskDetail(id: string): Promise<{
   const r = parsed.data
 
   // Un acumulador por tipo, en orden de aparición.
-  const porTipo = new Map<string, { textos: string[]; links: string[]; capturas: number }>()
+  const porTipo = new Map<
+    string,
+    { textos: string[]; links: string[]; capturas: number; fotos: number }
+  >()
   let noteSummary: string | null = null
   const crudoParaContactos: string[] = []
 
@@ -349,13 +360,21 @@ export async function getTaskDetail(id: string): Promise<{
     }
 
     const texto = textoDe(p)
+    // Los contactos SÍ se buscan en el crudo de una foto: un email mal leído no
+    // sirve, pero uno bien leído se rescata igual, y buscarlo no cuesta nada.
     if (texto !== null) crudoParaContactos.push(texto)
 
     const drive = p.drive as { webViewLink?: string } | undefined
-    const grupo = porTipo.get(e.kind) ?? { textos: [], links: [], capturas: 0 }
+    const grupo = porTipo.get(e.kind) ?? { textos: [], links: [], capturas: 0, fotos: 0 }
+    const esFoto = esFotoDeCamara(e.attachment_path)
 
     grupo.capturas++
-    if (texto !== null) grupo.textos.push(texto)
+    if (esFoto) grupo.fotos++
+
+    // El OCR de una foto no entra a la fusión: 17% conservado son fragmentos
+    // inventados, y mezclarlos con el texto de una captura buena contamina las dos.
+    if (texto !== null && !esFoto) grupo.textos.push(texto)
+
     if (typeof drive?.webViewLink === 'string') grupo.links.push(drive.webViewLink)
     porTipo.set(e.kind, grupo)
   }
@@ -365,6 +384,7 @@ export async function getTaskDetail(id: string): Promise<{
     return {
       kind,
       captures: g.capturas,
+      photos: g.fotos,
       text: fusionado.length > 0 ? fusionado : null,
       rawText: g.textos.length > 0 ? g.textos.join('\n\n— — —\n\n') : null,
       driveLinks: [...new Set(g.links)]

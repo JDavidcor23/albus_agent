@@ -74,6 +74,7 @@ export function registerTaskHandlers(): void {
       sources: detalle.sources.map((s) => ({
         kind: s.kind as ExtractionKind,
         captures: s.captures,
+        photos: s.photos,
         text: s.text,
         rawText: s.rawText,
         driveLinks: s.driveLinks

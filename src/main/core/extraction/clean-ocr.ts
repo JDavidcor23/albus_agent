@@ -212,6 +212,59 @@ export function esLegible(textoLimpio: string): boolean {
 }
 
 /**
+ * Backstop: descarta una captura cuando la limpieza se llevó casi todo.
+ *
+ * ATENCIÓN — esto NO alcanza para distinguir una foto de una captura de pantalla,
+ * y el intento de usarlo para eso falló. Sobre las once fotos de una nota real
+ * mató las cuatro peores (0% y 5% conservado) y dejó pasar las del medio, que
+ * conservan 30-80% y siguen produciendo `Fr [aos` e `iaa | Esti,`.
+ *
+ * La conclusión de ese fracaso está en `esFotoDeCamara`: quién decide es el TIPO
+ * DE ARCHIVO, no la forma del texto. Esto queda solo como red de seguridad para
+ * una captura de pantalla que salga rarísima.
+ */
+export function conservaSuficiente(bruto: string, limpio: string): boolean {
+  const original = bruto.replace(/\s/g, '').length
+  if (original === 0) return false
+  return limpio.replace(/\s/g, '').length / original >= 0.15
+}
+
+/**
+ * ¿El archivo es una FOTO de cámara y no una captura de pantalla?
+ *
+ * ---------------------------------------------------------------------------
+ * Por qué esta pregunta y no otra
+ * ---------------------------------------------------------------------------
+ * El OCR de una foto no es "OCR degradado": es OCR de algo que nunca fue texto
+ * renderizado. Un cartel fotografiado de costado, con reflejo y desenfoque, da
+ * cientos de caracteres inventados. Sobre los 28 adjuntos reales:
+ *
+ *     FOTO (IMG_…)          13 archivos · OCR conservado 17%
+ *     CAPTURA (Screenshot)  10 archivos · OCR conservado 84%
+ *
+ * 17% contra 84%, con 13 y 10 archivos de cada lado. Esa es la separación de
+ * verdad, y no la da ninguna medición sobre el texto — la da el tipo de archivo.
+ *
+ * Se probaron cuatro heurísticas de texto antes de esto (tokens cortos, ratio de
+ * símbolos, glifos con mayúscula, proporción conservada) y las cuatro se filtran,
+ * porque `iaa | Esti,` parece palabras y distinguirlo necesitaría un diccionario.
+ * Es la misma lección que el QR cifrado: identificar por lo que la cosa ES, no
+ * por los bytes que produce.
+ *
+ * Frágil en un punto y hay que saberlo: depende de cómo nombra los archivos el
+ * teléfono. Lo robusto sería leer el EXIF con `sharp` — una foto trae marca de
+ * cámara, una captura no — pero eso hay que registrarlo al extraer, y hoy la
+ * única pista disponible sobre lo ya procesado es el nombre.
+ */
+export function esFotoDeCamara(attachmentPath: string): boolean {
+  const nombre = (attachmentPath.split('/').pop() ?? '')
+    // El uploader le prefija un uuid al nombre original.
+    .replace(/^[0-9a-f-]{36}-/i, '')
+
+  return /^(IMG[_-]\d|PXL[_-]\d|DSC[_-]?\d|DSCN\d|photo[_-]?\d|\d{8}_\d{6})/i.test(nombre)
+}
+
+/**
  * Fusiona varias capturas del mismo tipo en UN texto legible.
  *
  * ---------------------------------------------------------------------------
@@ -251,7 +304,11 @@ export function fusionarCapturas(textos: string[]): string {
 
   for (const texto of textos) {
     const limpio = limpiarOcr(texto)
-    if (!esLegible(limpio)) continue
+    // Dos preguntas distintas: `esLegible` mira si lo que quedó parece palabras,
+    // `conservaSuficiente` si quedó lo bastante como para ser contenido y no
+    // sobrevivientes de casualidad. Una foto ilegible pasa la primera y falla la
+    // segunda — por eso hacen falta las dos.
+    if (!esLegible(limpio) || !conservaSuficiente(texto, limpio)) continue
 
     for (const linea of limpio.split('\n')) {
       if (linea.length === 0) continue

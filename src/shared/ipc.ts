@@ -170,6 +170,13 @@ export interface TaskSource {
   kind: ExtractionKind
   /** Cuántas capturas se fusionaron en este bloque. */
   captures: number
+  /**
+   * De esas, cuántas son FOTOS de cámara y no capturas de pantalla.
+   *
+   * Su OCR no viaja: sobre los datos reales las fotos conservan 17% del texto
+   * contra 84% de las capturas, y ese 17% son fragmentos inventados.
+   */
+  photos: number
   /** Texto fusionado y limpio de chrome. `null` = el OCR no dejó nada legible. */
   text: string | null
   /** El crudo, para auditar detrás de un toggle. Nunca se muestra por defecto. */

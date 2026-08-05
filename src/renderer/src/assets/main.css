@@ -1136,6 +1136,34 @@ body::before {
   gap: 5px;
 }
 
+/* Muchos archivos: una fila numerada en vez de una columna de renglones que
+   dicen lo mismo. Once "abrir la captura N ↗" apilados son once renglones para
+   once destinos que el usuario no puede distinguir de todos modos. */
+.task-links-fila {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.task-link-num {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: var(--qr);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  min-width: 22px;
+  padding: 1px 5px;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease;
+}
+
+.task-link-num:hover {
+  color: var(--brass);
+  border-color: var(--line-brass);
+}
+
 .task-link {
   font-family: var(--font-mono);
   font-size: 0.7rem;

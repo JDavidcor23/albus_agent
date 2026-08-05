@@ -232,9 +232,15 @@ function Fuente({
     <div className="task-block">
       {/* Sin `drive/<carpeta>`: en qué carpeta de Drive quedó el archivo es
           contabilidad de almacenamiento, no algo que el usuario esté leyendo. */}
+      {/* Decir "11 capturas" cuando son fotos era mentir sobre lo que hay. */}
       <span className="task-block-label">
         {NOMBRE_FUENTE[fuente.kind] ?? fuente.kind}
-        {fuente.captures > 1 && ` · ${plural(fuente.captures, 'captura', 'capturas')}`}
+        {fuente.captures > 1 &&
+          (fuente.photos === fuente.captures
+            ? ` · ${plural(fuente.captures, 'foto', 'fotos')}`
+            : fuente.photos > 0
+              ? ` · ${fuente.captures} archivos (${fuente.photos} fotos)`
+              : ` · ${plural(fuente.captures, 'captura', 'capturas')}`)}
       </span>
 
       {fuente.text !== null ? (
@@ -243,17 +249,45 @@ function Fuente({
         <p className="task-vacio">
           {fuente.kind === 'qr'
             ? 'El código no se puede mostrar: está cifrado.'
-            : 'El texto de esta captura no se pudo leer. Abrí la imagen original.'}
+            : fuente.photos > 0
+              ? // Nombra la causa en vez de decir "no se pudo": una foto de un
+                // cartel no es un OCR que falló, es un OCR que no aplica.
+                `${plural(fuente.photos, 'es una foto', 'son fotos')}, no capturas de pantalla. ` +
+                'El OCR de una foto no es confiable, así que no lo mostramos. Abrilas para ver qué hay.'
+              : 'El texto de esta captura no se pudo leer. Abrí la imagen original.'}
         </p>
       )}
 
-      <div className="task-links">
-        {fuente.driveLinks.map((link, i) => (
-          <button key={link} type="button" className="task-link" onClick={() => onAbrir(link)}>
-            {fuente.driveLinks.length > 1 ? `abrir la captura ${i + 1} ↗` : 'abrir la original ↗'}
-          </button>
-        ))}
-      </div>
+      {/* Once links apilados que decían "abrir la captura N ↗" eran once
+          renglones para once destinos indistinguibles. Con más de dos se pasan a
+          una fila numerada: mismo acceso, un renglón. No se recorta la lista —
+          esconder archivos que el usuario guardó no es una simplificación. */}
+      {fuente.driveLinks.length > 2 ? (
+        <div className="task-links-fila">
+          <span className="task-vacio">
+            {plural(fuente.driveLinks.length, 'archivo', 'archivos')} en Drive:
+          </span>
+          {fuente.driveLinks.map((link, i) => (
+            <button
+              key={link}
+              type="button"
+              className="task-link-num"
+              title="Abrir en Drive"
+              onClick={() => onAbrir(link)}
+            >
+              {i + 1}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="task-links">
+          {fuente.driveLinks.map((link, i) => (
+            <button key={link} type="button" className="task-link" onClick={() => onAbrir(link)}>
+              {fuente.driveLinks.length > 1 ? `abrir la captura ${i + 1} ↗` : 'abrir la original ↗'}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* El crudo queda accesible pero no encima: un heurístico que decide qué es
           basura tiene que poder auditarse, y el usuario tiene que poder
