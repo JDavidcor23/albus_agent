@@ -17,6 +17,7 @@ import {
   markAnalyzedWithNoTasks,
   listTasks
 } from '../src/main/supabase/tasks-repo'
+import { saveNoteSummary } from '../src/main/supabase/note-summary-repo'
 
 const args = process.argv.slice(2)
 const APPLY = args.includes('--apply')
@@ -58,6 +59,7 @@ async function main(): Promise<void> {
 
   let conPendientes = 0
   let totalTasks = 0
+  let resumenes = 0
 
   // Secuencial a propósito: son CLIs locales, en paralelo se pisan.
   for (const [i, c] of candidatos.entries()) {
@@ -65,15 +67,23 @@ async function main(): Promise<void> {
     const porRegla = deterministicTasks(c)
     const yaCubiertos = titulosDeterministas(porRegla)
 
-    const porModelo = (await detectTasks(provider, model, c, hoy)).filter(
-      (t) => !yaCubiertos.has(t.title.toLowerCase())
-    )
+    const { tasks, summary } = await detectTasks(provider, model, c, hoy)
+    const porModelo = tasks.filter((t) => !yaCubiertos.has(t.title.toLowerCase()))
 
     const detectados = [...porRegla, ...porModelo]
     const etiqueta = c.body.replace(/\s+/g, ' ').slice(0, 46).padEnd(46)
 
+    // El resumen se guarda incluso cuando no hay ningún pendiente: la nota se
+    // sigue leyendo en el detalle de OTROS pendientes de la misma nota, y la
+    // llamada al CLI ya se pagó.
+    if (summary !== null) {
+      resumenes++
+      if (APPLY) await saveNoteSummary(c.entryId, summary)
+    }
+
     if (detectados.length === 0) {
       console.log(`  ${String(i + 1).padStart(2)}. ${etiqueta}  —`)
+      if (summary !== null) console.log(`      ~ ${summary}`)
       if (APPLY) await markAnalyzedWithNoTasks(c)
       continue
     }
@@ -81,6 +91,7 @@ async function main(): Promise<void> {
     conPendientes++
     totalTasks += detectados.length
     console.log(`  ${String(i + 1).padStart(2)}. ${etiqueta}`)
+    if (summary !== null) console.log(`      ~ ${summary}`)
     for (const t of porRegla) {
       console.log(`      -> [regla] ${t.title}`)
     }
@@ -96,7 +107,7 @@ async function main(): Promise<void> {
 
   console.log(
     `\nNotas con pendientes: ${conPendientes}/${candidatos.length} · ` +
-      `pendientes detectados: ${totalTasks}`
+      `pendientes detectados: ${totalTasks} · resúmenes: ${resumenes}`
   )
 
   if (APPLY) {

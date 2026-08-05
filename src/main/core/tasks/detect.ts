@@ -1,8 +1,18 @@
 import { z } from 'zod'
 import type { LlmProvider } from '../extraction/llm-port'
+import { esLegible, limpiarOcr } from '../extraction/clean-ocr'
+import { esCifrado, etiquetaDe } from './qr-identity'
 import type { AttachmentInfo, DetectedTask, TaskCandidate } from './types'
 
-/** Un renglón por adjunto, para que el modelo sepa QUÉ guardó sin ver la imagen. */
+/**
+ * Un renglón por adjunto, para que el modelo sepa QUÉ guardó sin ver la imagen.
+ *
+ * Lo que entra acá tiene que estar YA limpio. Antes se le pasaba el OCR crudo y
+ * el ciphertext completo del QR, así que el modelo recibía la barra de estado del
+ * celular ("9:14 új -- all = ED +") y 120 caracteres de base64 cifrado como si
+ * fueran contexto. Un modelo no puede resumir bien lo que se le entrega sucio, y
+ * limpiarlo acá no cuesta nada: son las mismas reglas que ya usa la UI.
+ */
 function resumirAdjunto(a: AttachmentInfo): string {
   const p = a.payload
 
@@ -13,13 +23,31 @@ function resumirAdjunto(a: AttachmentInfo): string {
         `${p.merchant ? ` a ${String(p.merchant)}` : ''}` +
         `${p.amount ? ` por ${String(p.amount)}` : ''}`
       )
-    case 'qr':
-      return `código QR: ${JSON.stringify(p.codes ?? '').slice(0, 120)}`
+
+    case 'qr': {
+      const codes = Array.isArray(p.codes)
+        ? p.codes.filter((c): c is string => typeof c === 'string')
+        : []
+      if (codes.length === 0) return 'código QR que no se pudo leer'
+
+      // El ciphertext no es información: decirle al modelo que la entrada está
+      // cifrada le da MÁS contexto que pegarle 120 caracteres de base64.
+      const descripciones = codes.map((c) =>
+        esCifrado(c) ? 'entrada de evento cifrada (solo la lee la app del organizador)' : etiquetaDe(c)
+      )
+      return `código QR de: ${[...new Set(descripciones)].filter(Boolean).join(' / ')}`
+    }
+
     case 'profile':
       return `perfil de una persona: ${JSON.stringify(p.profiles ?? '').slice(0, 120)}`
+
     case 'text':
-    case 'document':
-      return `captura de pantalla, texto leído: "${String(p.text ?? '').slice(0, 220)}"`
+    case 'document': {
+      const limpio = limpiarOcr(String(p.text ?? ''))
+      if (!esLegible(limpio)) return 'una captura de pantalla que el OCR no pudo leer'
+      return `captura de pantalla, texto leído: "${limpio.replace(/\n/g, ' · ').slice(0, 400)}"`
+    }
+
     default:
       return `adjunto sin clasificar (${a.kind})`
   }
@@ -34,7 +62,14 @@ const RespuestaSchema = z.object({
         confidence: z.number().min(0).max(1)
       })
     )
-    .default([])
+    .default([]),
+
+  /**
+   * Opcional a propósito: un modelo que solo devuelve `tasks` sigue funcionando.
+   * Los pendientes son el contrato; el resumen es una mejora de lectura, y no
+   * puede tumbar la detección si el modelo lo omite.
+   */
+  summary: z.string().optional()
 })
 
 /**
@@ -54,9 +89,10 @@ const INSTRUCCIONES = `Leés notas cortas que una persona se escribe a sí misma
 en su app de notas. Tu única tarea es decidir si queda ALGO POR HACER.
 
 Respondé SOLO con un objeto JSON, sin markdown y sin explicaciones:
-{"tasks": [{"title": "...", "detail": "...", "confidence": 0.9}]}
+{"summary": "...", "tasks": [{"title": "...", "detail": "...", "confidence": 0.9}]}
 
-Si no hay nada pendiente, devolvé {"tasks": []}. Eso es una respuesta correcta y frecuente.
+Si no hay nada pendiente, devolvé {"summary": "...", "tasks": []}. Eso es una
+respuesta correcta y frecuente — el resumen se devuelve igual.
 
 QUÉ ES UN PENDIENTE
 - Una acción que la persona todavía no hizo.
@@ -75,6 +111,21 @@ QUÉ NO ES UN PENDIENTE
 - Los códigos QR. Esos ya los maneja una regla aparte: NO generes pendientes de
   "escanear el QR" ni "usar el código". Sí podés generar otros pendientes de la
   misma nota si los hay.
+
+SUMMARY
+De qué es esta nota, en una o dos oraciones, para alguien que no la escribió.
+
+La nota más larga que vas a ver es un dictado de voz de 2800 caracteres sin un
+solo punto. Nadie la relee. Tu resumen es lo que ese texto debería haber dicho:
+  bien : "Notas del evento de AWS Serverless: contactos que hiciste (Daniel
+          Vargas, Lucas Vera, Mauricio Alvarado) y qué buscar después."
+  mal  : "El usuario habla de varias cosas relacionadas con un evento."
+
+Nombres propios, fechas y lugares ANTES que adjetivos. Si la nota ya es corta y
+clara, repetirla no sirve: devolvé "".
+
+NO inventes nada que no esté en la nota ni en los adjuntos. Un resumen que agrega
+datos es peor que no tener resumen, porque el usuario le va a creer.
 
 TITLE
 Accionable y en primera persona, empezando con verbo en infinitivo.
@@ -104,8 +155,20 @@ function extraerJson(bruto: string): unknown {
   return JSON.parse(sinCerca.slice(inicio, fin + 1))
 }
 
+export interface DetectionResult {
+  tasks: DetectedTask[]
+  /** Resumen legible de la nota. `null` si el modelo no lo dio o no hacía falta. */
+  summary: string | null
+}
+
 /**
- * Analiza UNA nota y devuelve los pendientes que encuentre.
+ * Analiza UNA nota: devuelve sus pendientes y un resumen legible.
+ *
+ * El resumen viene en la MISMA llamada que la detección, no en una aparte. Es la
+ * decisión que mantiene esto gratis: el prompt ya lleva la nota entera y los
+ * adjuntos, así que pedir el resumen ahí no gasta una sola llamada más. Un
+ * segundo pedido "resumime esta nota" duplicaría el consumo de cuota para
+ * mandar exactamente el mismo contexto.
  *
  * `hoy` entra por parámetro y no se lee del reloj: hace falta para decidir si un
  * evento ya pasó, y pasarlo explícito mantiene la función testeable.
@@ -119,7 +182,7 @@ export async function detectTasks(
   model: string | null,
   candidate: TaskCandidate,
   hoy: string
-): Promise<DetectedTask[]> {
+): Promise<DetectionResult> {
   const utiles = candidate.attachments.filter((a) => a.kind !== 'none' && a.kind !== 'failed')
   const adjuntos =
     utiles.length > 0
@@ -136,16 +199,26 @@ export async function detectTasks(
     const bruto = await provider.run(prompt, model)
     const parsed = RespuestaSchema.parse(extraerJson(bruto))
 
-    return parsed.tasks
-      .map((t) => ({
-        title: t.title.trim(),
-        detail: t.detail?.trim() || null,
-        confidence: t.confidence
-      }))
-      .filter((t) => t.title.length > 0)
+    const resumen = parsed.summary?.trim() ?? ''
+
+    return {
+      tasks: parsed.tasks
+        .map((t) => ({
+          title: t.title.trim(),
+          detail: t.detail?.trim() || null,
+          confidence: t.confidence
+        }))
+        .filter((t) => t.title.length > 0),
+
+      // Un resumen más largo que la nota no resume nada: si el modelo se fue de
+      // largo, es más honesto no tener resumen que mostrar algo peor que el
+      // original. El +40 deja pasar el caso de una nota corta reformulada.
+      summary:
+        resumen.length > 0 && resumen.length < candidate.body.trim().length + 40 ? resumen : null
+    }
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error)
     console.warn(`[tasks] no se pudo analizar la entry ${candidate.entryId}: ${message}`)
-    return []
+    return { tasks: [], summary: null }
   }
 }
