@@ -168,7 +168,7 @@ export const SERVICES: ServiceDefinition[] = [
      * Va primero en la lista a propósito: conectando esta, las demás dejan de
      * pedir nada.
      */
-    id: 'google-navegador',
+    id: 'google-browser',
     name: 'Google',
     group: 'google',
     capability: 'sesión del navegador',

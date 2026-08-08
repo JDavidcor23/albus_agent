@@ -20,7 +20,8 @@
     "nav:check": "node scripts/run-jobs.mjs nav",
     "nav:inspect": "node scripts/run-jobs.mjs inspect",
     "notion:check": "tsx scripts/check-notion.ts",
-    "jobs:check": "tsx scripts/check-jobs.ts && tsx scripts/check-agents.ts",
+    "ipc:check": "tsx scripts/check-ipc.ts",
+    "jobs:check": "tsx scripts/check-jobs.ts && tsx scripts/check-agents.ts && tsx scripts/check-ipc.ts",
     "jobs:check:live": "tsx scripts/check-live.ts",
     "gmail:auth": "tsx scripts/gmail-auth.ts",
     "ui:selftest": "node scripts/run-jobs.mjs ui"

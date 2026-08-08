@@ -319,12 +319,12 @@ async function main(): Promise<void> {
   )
   check(
     'está registrada como conexión propia',
-    registryTs.includes("id: 'google-navegador'"),
+    registryTs.includes("id: 'google-browser'"),
     true
   )
   check(
     'va ANTES de LinkedIn en la lista: es la que desbloquea',
-    registryTs.indexOf("'google-navegador'") < registryTs.indexOf("id: 'linkedin'"),
+    registryTs.indexOf("'google-browser'") < registryTs.indexOf("id: 'linkedin'"),
     true
   )
   check(
