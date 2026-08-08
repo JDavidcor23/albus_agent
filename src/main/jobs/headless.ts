@@ -5,7 +5,7 @@ import { hasLinkedInSession, openLoginWindow } from '../browser/session'
 import { getProvider } from '../providers/registry'
 import type { LlmTier } from '../core/jobs/answers-llm'
 import { runApplication } from './apply-runner'
-import { runJobsSelfTest } from './selftest'
+import { runJobsSelfTest } from '../devtools/selftest'
 import { loadProfile } from './workspace'
 
 /**
@@ -131,33 +131,33 @@ export async function runJobsCommand(): Promise<number | null> {
   }
 
   if (process.env.ALBUS_NAV_CHECK === '1') {
-    const { runNavSelfTest } = await import('../browser/nav-selftest')
+    const { runNavSelfTest } = await import('../devtools/nav-selftest')
     return (await runNavSelfTest()) ? 0 : 1
   }
 
   const inspeccionar = process.env.ALBUS_NAV_INSPECT
   if (inspeccionar !== undefined && inspeccionar.trim() !== '') {
-    const { inspeccionar: mirar } = await import('../browser/inspect')
+    const { inspeccionar: mirar } = await import('../devtools/inspect')
     return (await mirar(inspeccionar.trim())) ? 0 : 1
   }
 
   if (process.env.ALBUS_SUPA_REPRO === '1') {
-    const { reproSupabase } = await import('../supabase/repro')
+    const { reproSupabase } = await import('../devtools/repro')
     return (await reproSupabase()) ? 0 : 1
   }
 
   if (process.env.ALBUS_NOTION_PROBE === '1') {
-    const { probarNotion } = await import('../connections/probe-notion')
+    const { probarNotion } = await import('../devtools/probe-notion')
     return (await probarNotion()) ? 0 : 1
   }
 
   if (process.env.ALBUS_UI_DEMO === '1') {
-    const { runUiDemo } = await import('../agents/ui-demo')
+    const { runUiDemo } = await import('../devtools/ui-demo')
     return (await runUiDemo()) ? 0 : 1
   }
 
   if (process.env.ALBUS_UI_SELFTEST === '1') {
-    const { runUiSelfTest } = await import('../agents/ui-selftest')
+    const { runUiSelfTest } = await import('../devtools/ui-selftest')
     return (await runUiSelfTest()) ? 0 : 1
   }
 

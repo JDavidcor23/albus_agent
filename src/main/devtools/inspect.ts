@@ -1,4 +1,4 @@
-import { createBrowserPage } from './page'
+import { createBrowserPage } from '../browser/page'
 
 /**
  * Mirar lo que el agente mira, en una página de verdad, sin conectar nada.

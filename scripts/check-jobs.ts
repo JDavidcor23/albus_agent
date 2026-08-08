@@ -5,7 +5,7 @@
  *
  * Cubre los asserts que no necesitan un navegador vivo. Los que sí (leer un
  * formulario real, subir un archivo, no tocar el submit) están en
- * `src/main/jobs/selftest.ts` y se corren con ALBUS_JOBS_SELFTEST=1.
+ * `src/main/devtools/selftest.ts` y se corren con ALBUS_JOBS_SELFTEST=1.
  *
  * Sale con código 1 si algo falla, para poder encadenarlo.
  */

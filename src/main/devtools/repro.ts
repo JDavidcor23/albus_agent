@@ -12,9 +12,9 @@
  * se come el `code`, el `status` y el `hint`, que es justo lo que dice de qué
  * servicio viene.
  */
-import { getSupabaseClient } from './client'
-import { listResults } from './results-repo'
-import { createItemSource } from './item-source'
+import { getSupabaseClient } from '../supabase/client'
+import { listResults } from '../supabase/results-repo'
+import { createItemSource } from '../supabase/item-source'
 
 const VUELTAS = 12
 

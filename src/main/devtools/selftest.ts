@@ -7,7 +7,7 @@ import { parseProfile } from '../core/jobs/profile'
 import { cvUploadName } from '../core/jobs/cv-name'
 import { createBrowserPage } from '../browser/page'
 import { jobsSession } from '../browser/session'
-import { createWorkspaceKitSource, workspaceDir } from './workspace'
+import { createWorkspaceKitSource, workspaceDir } from '../jobs/workspace'
 
 /**
  * Los asserts que necesitan un Chromium vivo. `npx tsx` no puede levantar un

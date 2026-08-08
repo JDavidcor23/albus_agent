@@ -2,7 +2,7 @@ import { app } from 'electron'
 import { mkdir, writeFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { createBrowserPage } from './page'
+import { createBrowserPage } from '../browser/page'
 import {
   clickInteligente,
   lograrObjetivo,
