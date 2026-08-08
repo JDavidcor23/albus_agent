@@ -13,6 +13,23 @@ const TokenSchema = z.object({
 
 let cached: { token: string; expiresAt: number } | null = null
 
+/**
+ * Igual que en Notion: por defecto sale del `.env` para que este archivo no
+ * importe electron, y la app lo pisa con el que el usuario conectó por el
+ * botón, guardado cifrado. Conectar de nuevo tiene que invalidar el access
+ * token cacheado, para eso `olvidarTokenCacheado`.
+ */
+let resolverRefreshToken: () => string | null = () => process.env.GOOGLE_REFRESH_TOKEN ?? null
+
+export function setGoogleRefreshTokenResolver(fn: () => string | null): void {
+  resolverRefreshToken = fn
+  cached = null
+}
+
+export function olvidarTokenCacheado(): void {
+  cached = null
+}
+
 function requireEnv(name: string): string {
   const value = process.env[name]
   if (!value) {
@@ -25,10 +42,9 @@ function requireEnv(name: string): string {
 
 /** ¿Está Drive configurado? Permite arrancar la app sin credenciales de Google. */
 export function isDriveConfigured(): boolean {
+  const refresh = resolverRefreshToken()
   return Boolean(
-    process.env.GOOGLE_CLIENT_ID &&
-      process.env.GOOGLE_CLIENT_SECRET &&
-      process.env.GOOGLE_REFRESH_TOKEN
+    process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && refresh
   )
 }
 
@@ -42,13 +58,20 @@ export function isDriveConfigured(): boolean {
 export async function getAccessToken(): Promise<string> {
   if (cached && Date.now() < cached.expiresAt - 60_000) return cached.token
 
+  const refresh = resolverRefreshToken()
+  if (refresh === null) {
+    throw new Error(
+      'Google no está conectado. Andá a la pestaña de agentes → Conexiones → Conectar Google.'
+    )
+  }
+
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       client_id: requireEnv('GOOGLE_CLIENT_ID'),
       client_secret: requireEnv('GOOGLE_CLIENT_SECRET'),
-      refresh_token: requireEnv('GOOGLE_REFRESH_TOKEN'),
+      refresh_token: refresh,
       grant_type: 'refresh_token'
     })
   })

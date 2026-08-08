@@ -44,3 +44,49 @@ export async function detectProviders(forzar = false): Promise<ProviderInfo[]> {
 export function getProvider(id: string): LlmProvider | null {
   return PROVIDERS.find((p) => p.id === id) ?? null
 }
+
+/**
+ * El primer CLI que esté instalado y autenticado, con un modelo elegido.
+ *
+ * Existe para los usos donde no hay UI que pregunte cuál usar —conectar un
+ * servicio, por ejemplo: el usuario apretó un botón, no vino a elegir modelo.
+ * Se prefiere `claude` porque es el que el usuario ya tiene logueado, y se cae
+ * a `agy` si no está.
+ *
+ * `modelo` por defecto es el más barato que sirva: elegir un botón en una
+ * pantalla no necesita el modelo más caro, y esto gasta la cuota del usuario.
+ */
+export async function primerProviderDisponible(
+  modelo = 'sonnet',
+  /**
+   * Manejar un navegador arranca un proceso del CLI POR PASO, y ese proceso
+   * carga su configuración y sus MCP antes de empezar a pensar. Con el techo
+   * de 120 s se cortaba a mitad de una conexión —"claude excedió 120s"— y se
+   * tiraba trabajo que ya estaba hecho.
+   */
+  timeoutMs = 240_000
+): Promise<{ correr: (prompt: string) => Promise<string>; id: string; modelo: string } | null> {
+  for (const p of PROVIDERS) {
+    if (!(await p.isAvailable())) continue
+
+    // El alias puede no existir en ese CLI (agy no tiene "sonnet"). Se pide la
+    // lista real y se cae al primero que haya antes que fallar por un nombre.
+    let elegido: string | null = modelo
+    try {
+      const models = await p.listModels()
+      if (models.length > 0 && !models.some((m) => m.id === modelo)) {
+        elegido = models[0].id
+      }
+    } catch {
+      elegido = null
+    }
+
+    return {
+      id: p.id,
+      modelo: elegido ?? 'por defecto',
+      correr: (prompt: string) => p.run(prompt, elegido, timeoutMs)
+    }
+  }
+
+  return null
+}

@@ -11,7 +11,14 @@ export interface LlmProvider {
   isAvailable(): Promise<boolean>
   listModels(): Promise<LlmModel[]>
   /** Manda el prompt y devuelve el texto crudo. Tira si el CLI falla. */
-  run(prompt: string, model: string | null): Promise<string>
+  /**
+   * `timeoutMs` existe porque no todas las llamadas cuestan lo mismo. Clasificar
+   * una imagen responde en segundos; manejar un navegador arranca un proceso
+   * del CLI por paso —que carga su configuración y sus MCP antes de pensar— y
+   * con el techo de 120 s se cortaba a mitad de una conexión, tirando trabajo
+   * que ya estaba hecho.
+   */
+  run(prompt: string, model: string | null, timeoutMs?: number): Promise<string>
 }
 
 /** Lo que la app le pide al modelo para un item que los patrones no resolvieron. */

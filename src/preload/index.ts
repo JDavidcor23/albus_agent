@@ -9,7 +9,20 @@ import {
   type AskAnswer,
   type Graph,
   type GraphState,
+  type AgentInfo,
+  type ChatIntent,
+  type ChatVacante,
+  type ConnectionInfo,
+  type ConnectionStepRow,
+  type EmailApplyResult,
+  type HuntProgress,
+  type HuntResult,
   type ItemStartEvent,
+  type JobApplyMode,
+  type JobApplyResult,
+  type JobApplyStepRow,
+  type JobsStatus,
+  type KitResultRow,
   type ResultRow,
   type TaskDetail,
   type TaskRow
@@ -79,6 +92,153 @@ const api = {
     const handler = (_e: unknown, payload: ResultRow): void => cb(payload)
     ipcRenderer.on(IpcEvents.ITEM_DONE, handler)
     return () => ipcRenderer.removeListener(IpcEvents.ITEM_DONE, handler)
+  },
+
+  // ── postulación laboral ──────────────────────────────────────────────────
+  // Expuesto desde ya aunque la UI todavía no lo llame: el contrato es lo que
+  // tarda en discutirse, no el componente que lo consume.
+
+  listAgents: (): Promise<IpcResult<AgentInfo[]>> => ipcRenderer.invoke(IpcChannels.AGENTS_LIST),
+
+  // ── conexiones ───────────────────────────────────────────────────────────
+  // El token viaja de acá al main y nunca vuelve: la UI sabe SI hay, no cuál.
+
+  /**
+   * Abre el `.md` de reglas del agente en el editor del sistema.
+   *
+   * Se abre el archivo y no una pantalla de configuración porque agregar una
+   * regla nueva tiene que ser escribir una línea, no construir un formulario.
+   */
+  openAgentRules: (id: string): Promise<IpcResult<{ ruta: string }>> =>
+    ipcRenderer.invoke(IpcChannels.AGENTS_RULES_OPEN, { id }),
+
+  /** Responder una duda del agente. La respuesta se vuelve una regla suya. */
+  answerAgentQuestion: (
+    id: string,
+    preguntaId: string,
+    respuesta: string
+  ): Promise<IpcResult<{ ok: boolean; agentes: AgentInfo[] }>> =>
+    ipcRenderer.invoke(IpcChannels.AGENTS_ANSWER, { id, preguntaId, respuesta }),
+
+  listConnections: (): Promise<IpcResult<ConnectionInfo[]>> =>
+    ipcRenderer.invoke(IpcChannels.CONNECTIONS_LIST),
+
+  connectWithBrowser: (
+    id: string
+  ): Promise<IpcResult<{ ok: boolean; mensaje: string; conexiones: ConnectionInfo[] }>> =>
+    ipcRenderer.invoke(IpcChannels.CONNECTIONS_BROWSER, { id }),
+
+  /**
+   * Los pasos de una conexión, en vivo.
+   *
+   * `connectWithBrowser` no resuelve hasta que todo terminó, y eso puede tardar
+   * minutos. Sin esto la pantalla se queda muda y no se distingue "trabajando"
+   * de "colgado".
+   */
+  onConnectionStep: (cb: (paso: ConnectionStepRow) => void): (() => void) => {
+    const handler = (_e: unknown, payload: ConnectionStepRow): void => cb(payload)
+    ipcRenderer.on(IpcEvents.CONNECTIONS_STEP, handler)
+    return () => ipcRenderer.removeListener(IpcEvents.CONNECTIONS_STEP, handler)
+  },
+
+  connectWithToken: (
+    id: string,
+    token: string
+  ): Promise<IpcResult<{ ok: boolean; mensaje: string; conexiones: ConnectionInfo[] }>> =>
+    ipcRenderer.invoke(IpcChannels.CONNECTIONS_TOKEN, { id, token }),
+
+  openTokenPage: (id: string): Promise<IpcResult<{ abierto: boolean }>> =>
+    ipcRenderer.invoke(IpcChannels.CONNECTIONS_OPEN, { id }),
+
+  disconnect: (
+    id: string
+  ): Promise<IpcResult<{ ok: boolean; conexiones: ConnectionInfo[] }>> =>
+    ipcRenderer.invoke(IpcChannels.CONNECTIONS_CLEAR, { id }),
+
+  jobsStatus: (): Promise<IpcResult<JobsStatus>> => ipcRenderer.invoke(IpcChannels.JOBS_STATUS),
+
+  jobsHunt: (req: {
+    queries: string[]
+    location: string
+    /** No hay `jobAgeDays`: el rango lo decide y lo amplía el main. */
+    maxRank: number
+    guardarEnNotion: boolean
+    providerId: string
+    modelId: string | null
+  }): Promise<IpcResult<HuntResult>> => ipcRenderer.invoke(IpcChannels.JOBS_HUNT, req),
+
+  jobsEmail: (req: {
+    to: string
+    cc?: string[]
+    company: string
+    role: string
+    slug?: string
+    subject?: string
+    body?: string
+    mode?: JobApplyMode
+    postUrl?: string
+    fitRating?: string
+    jobDescription?: string
+  }): Promise<IpcResult<EmailApplyResult>> => ipcRenderer.invoke(IpcChannels.JOBS_EMAIL, req),
+
+  onHuntProgress: (cb: (p: HuntProgress) => void): (() => void) => {
+    const handler = (_e: unknown, payload: HuntProgress): void => cb(payload)
+    ipcRenderer.on(IpcEvents.JOBS_HUNT_PROGRESS, handler)
+    return () => ipcRenderer.removeListener(IpcEvents.JOBS_HUNT_PROGRESS, handler)
+  },
+
+  /** Interpretar lo que el usuario le escribió al agente. Puro, sin cuota. */
+  jobsChat: (req: {
+    texto: string
+    vacantes: ChatVacante[]
+  }): Promise<IpcResult<ChatIntent>> => ipcRenderer.invoke(IpcChannels.JOBS_CHAT, req),
+
+  jobsLogin: (): Promise<IpcResult<{ linkedInSession: boolean }>> =>
+    ipcRenderer.invoke(IpcChannels.JOBS_LOGIN),
+
+  jobsApply: (req: {
+    url: string
+    company: string
+    role: string
+    slug?: string
+    mode?: JobApplyMode
+    sector?: string
+    fitRating?: string
+    jobDescription?: string
+    providerId?: string | null
+    modelId?: string | null
+  }): Promise<IpcResult<JobApplyResult>> => ipcRenderer.invoke(IpcChannels.JOBS_APPLY, req),
+
+  jobsConfirm: (row: {
+    url: string
+    company: string
+    role: string
+    sector?: string
+    fitRating?: string
+    notes?: string
+    cvFile?: string
+    coverLetterFile?: string
+  }): Promise<IpcResult<{ logged: boolean }>> =>
+    ipcRenderer.invoke(IpcChannels.JOBS_CONFIRM, row),
+
+  jobsKit: (req: {
+    id?: string
+    url: string
+    company: string
+    role: string
+    slug?: string
+  }): Promise<IpcResult<KitResultRow>> => ipcRenderer.invoke(IpcChannels.JOBS_KIT, req),
+
+  onKitProgress: (cb: (p: { id: string; linea: string }) => void): (() => void) => {
+    const handler = (_e: unknown, payload: { id: string; linea: string }): void => cb(payload)
+    ipcRenderer.on(IpcEvents.JOBS_KIT_PROGRESS, handler)
+    return () => ipcRenderer.removeListener(IpcEvents.JOBS_KIT_PROGRESS, handler)
+  },
+
+  onJobStep: (cb: (step: JobApplyStepRow) => void): (() => void) => {
+    const handler = (_e: unknown, payload: JobApplyStepRow): void => cb(payload)
+    ipcRenderer.on(IpcEvents.JOBS_STEP, handler)
+    return () => ipcRenderer.removeListener(IpcEvents.JOBS_STEP, handler)
   }
 }
 

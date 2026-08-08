@@ -24,12 +24,22 @@
   --none: #666070;
   --failed: #B4574A;
 
-  /* Tipografías */
+  /*
+   * Tipografías — tres voces, cada una con su trabajo.
+   *
+   * Antes había DOS y el cuerpo usaba la mono, así que toda la app se leía como
+   * un log de terminal: correcto para un log, hostil para una pantalla que
+   * alguien mira todos los días. La mono ahora aparece SOLO donde el carácter
+   * importa —rutas, tokens, ids, salida de un proceso—, que es justo donde su
+   * ancho fijo ayuda a no confundir un 0 con una O.
+   */
   --font-serif: 'Instrument Serif', Georgia, serif;
-  --font-mono: 'Geist Mono Variable', monospace;
+  --font-sans: 'Inter Tight Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, monospace;
 
   /* Bordes */
   --radius: 2px;
+  --radius-lg: 10px;
 }
 
 * {
@@ -43,9 +53,61 @@ html, body, #root {
   height: 100%;
   background-color: var(--ground);
   color: var(--ink);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
+  /* La humanista pide un pelo más de aire entre líneas que la mono. */
+  line-height: 1.55;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * Lo que SÍ es monoespaciado: datos que se leen carácter por carácter.
+ * Una ruta, un token, un id, la salida de un proceso. Ahí el ancho fijo evita
+ * confundir un 0 con una O — en una frase, solo la hace más fría.
+ */
+code,
+kbd,
+samp,
+.mono,
+.paso-detalle,
+.reglas-ruta,
+.conexion-input,
+.cli-hint,
+.job-url,
+.agente-motivo {
+  font-family: var(--font-mono);
+  font-size: 0.94em;
+}
+
+/*
+ * La barra de scroll de Windows es gris claro y de 17px: en una app oscura
+ * queda como una cicatriz vertical. Se adelgaza y se tiñe con la paleta.
+ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--line-brass);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* Filete de latón superior (canto dorado del libro) */
@@ -1221,3 +1283,1340 @@ body::before {
   border-style: dashed;
   max-height: 220px;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   AGENTES
+
+   Albus es un contenedor: la grilla de arriba lista los agentes registrados y
+   el panel de abajo dibuja el que esté activo. Un agente nuevo hereda todo
+   esto sin escribir una línea de CSS.
+   ───────────────────────────────────────────────────────────────────────── */
+
+.agentes {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 4px 2px 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+/*
+ * Ancho ACOTADO, no elástico.
+ *
+ * Con `1fr` y un solo agente, la tarjeta ocupaba una columna de 240px perdida
+ * en un panel de 1100 y parecía un error de layout. Acotando el máximo, una
+ * sola tarjeta se ve intencional y varias se acomodan solas.
+ */
+.agente-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 360px));
+  gap: 12px;
+}
+
+.agente-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  text-align: left;
+  /* Más aire: una tarjeta apretada se lee como una fila de tabla, y esto es
+     la puerta de entrada a un agente, no un renglón de una lista. */
+  padding: 16px 18px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--line);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.agente-card:hover {
+  transform: translateY(-1px);
+}
+
+.agente-card:hover {
+  background: var(--surface-hover);
+  border-color: var(--line-brass);
+}
+
+.agente-card-on {
+  border-left-color: var(--brass);
+  background: var(--surface-hover);
+}
+
+.agente-card-off {
+  opacity: 0.55;
+}
+
+/* El nombre del agente en serif: es un nombre propio, no una etiqueta. */
+.agente-nombre {
+  font-family: var(--font-serif);
+  font-size: 1.3rem;
+  font-weight: 400;
+  color: var(--ink);
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+}
+
+.agente-desc {
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* El motivo se muestra SIEMPRE que exista: un agente a medias con la razón a
+   la vista es honesto; uno que no dice nada parece roto. */
+.agente-motivo {
+  font-size: 0.64rem;
+  color: var(--receipt);
+  line-height: 1.4;
+  margin-top: 2px;
+}
+
+.agente-panel {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+
+/* ── agente de trabajo ──────────────────────────────────────────────────── */
+
+.job-agent {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.job-setup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line-brass);
+  border-radius: var(--radius);
+}
+
+.job-setup-falta {
+  font-size: 0.68rem;
+  color: var(--receipt);
+  letter-spacing: 0.02em;
+}
+
+.job-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.job-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.job-field-corto {
+  flex: 0 0 130px;
+}
+
+.job-label {
+  font-size: 0.64rem;
+  color: var(--muted);
+  letter-spacing: 0.1em;
+  text-transform: lowercase;
+}
+
+.job-form .btn-brass {
+  width: auto;
+  flex: 0 0 auto;
+  padding: 0.7rem 1.4rem;
+}
+
+.job-modo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.job-modo .cli-hint {
+  margin-left: 8px;
+}
+
+.job-resumen {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--brass);
+  border-radius: var(--radius);
+}
+
+.job-resumen-num {
+  font-family: var(--font-serif);
+  font-size: 2rem;
+  color: var(--brass);
+  line-height: 1;
+}
+
+.job-resumen-txt {
+  font-size: 0.72rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.job-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.job-lista-tenue {
+  opacity: 0.6;
+}
+
+.job-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 11px 13px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--qr);
+  border-radius: var(--radius);
+}
+
+.job-card-off {
+  border-left-color: var(--none);
+}
+
+.job-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.job-score {
+  font-family: var(--font-serif);
+  font-size: 1.1rem;
+  color: var(--brass);
+  min-width: 2ch;
+}
+
+.job-titulo {
+  font-size: 0.82rem;
+  color: var(--ink);
+}
+
+.job-empresa {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.job-fecha {
+  font-size: 0.64rem;
+  color: var(--muted);
+  margin-left: auto;
+}
+
+.job-angulo {
+  font-size: 0.72rem;
+  color: var(--text);
+  line-height: 1.55;
+}
+
+.job-razon {
+  font-size: 0.68rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.job-card-acciones {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.job-resultado {
+  font-size: 0.7rem;
+  color: var(--ink);
+  line-height: 1.55;
+  padding: 8px 10px;
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+/*
+  Los inputs del agente. `.chat-input` es el CONTENEDOR del chat, no su input:
+  aplicárselo a un <input> le daba `border-top` y fondo del navegador — cajas
+  blancas en una pantalla negra.
+*/
+.job-input {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 9px 12px;
+  outline: none;
+  transition: border-color 160ms ease;
+}
+
+.job-input:focus {
+  border-color: var(--brass);
+  box-shadow: 0 0 12px var(--brass-glow);
+}
+
+.job-input::placeholder {
+  color: var(--muted);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   TARJETAS DE VACANTE — rediseño
+
+   El problema anterior: los dos botones tenían el mismo peso visual y uno
+   estaba deshabilitado sin explicar por qué. Se leía como app rota.
+
+   Ahora hay UNA acción principal por tarjeta, que cambia según el estado, y
+   la secundaria es texto con subrayado, no un botón que compite.
+   ───────────────────────────────────────────────────────────────────────── */
+
+.job-barra {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.job-conexiones-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.8rem;
+  /* Píldora y alto propio: antes quedaba flotando desalineado de los inputs
+     de al lado, que son más altos. */
+  padding: 7px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 160ms ease;
+}
+
+.job-conexiones-btn:hover {
+  border-color: var(--brass);
+  color: var(--brass);
+}
+
+/* Si falta conectar algo, el botón lo dice y se hace ver. */
+.job-conexiones-falta {
+  border-color: var(--line-brass);
+  color: var(--receipt);
+}
+
+.job-card {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 13px 15px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line);
+  border-radius: var(--radius);
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.job-card:hover {
+  background: var(--surface-hover);
+}
+
+/* El puntaje se lee en el borde antes que en el número. */
+.job-card-alto  { border-left-color: var(--qr); }
+.job-card-medio { border-left-color: var(--brass); }
+.job-card-justo { border-left-color: var(--muted); }
+.job-card-off   { border-left-color: var(--none); }
+
+.job-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+}
+
+.job-card-titulo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.job-score {
+  font-family: var(--font-serif);
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--brass);
+  min-width: 2.2ch;
+  text-align: right;
+}
+
+.job-score-bajo {
+  color: var(--muted);
+  font-size: 1.1rem;
+}
+
+.job-titulo {
+  font-size: 0.85rem;
+  color: var(--ink);
+  line-height: 1.35;
+}
+
+.job-empresa {
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
+.job-fecha {
+  font-size: 0.62rem;
+  color: var(--muted);
+  white-space: nowrap;
+  padding-top: 3px;
+}
+
+.job-angulo {
+  font-size: 0.74rem;
+  color: var(--text);
+  line-height: 1.55;
+  padding-left: 3.4ch;
+}
+
+.job-razon {
+  font-size: 0.68rem;
+  color: var(--muted);
+  line-height: 1.5;
+  padding-left: 3.4ch;
+}
+
+.job-gate {
+  color: var(--failed);
+  margin-right: 6px;
+}
+
+.job-card-acciones {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding-left: 3.4ch;
+  margin-top: 3px;
+}
+
+/* La acción principal: la única con caja. */
+.btn-accion {
+  background: transparent;
+  color: var(--brass);
+  border: 1px solid var(--brass);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  padding: 7px 15px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-accion:hover:not(:disabled) {
+  background: var(--brass);
+  color: var(--ground);
+  box-shadow: 0 0 14px var(--brass-glow);
+}
+
+/* Postular es irreversible: se ve más sólido que armar el CV. */
+.btn-accion-fuerte {
+  background: var(--brass-glow);
+}
+
+.btn-accion:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* La secundaria no compite: es un link. */
+.btn-secundario {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  padding: 0;
+  cursor: pointer;
+  border-bottom: 1px solid transparent;
+  transition: color 160ms ease, border-color 160ms ease;
+}
+
+.btn-secundario:hover {
+  color: var(--ink);
+  border-bottom-color: var(--line-brass);
+}
+
+.job-kit-ok {
+  font-size: 0.64rem;
+  color: var(--qr);
+  letter-spacing: 0.06em;
+}
+
+.job-kit-linea {
+  font-size: 0.66rem;
+  color: var(--muted);
+  padding-left: 3.4ch;
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-estado {
+  letter-spacing: 0.06em;
+}
+
+.job-estado-submitted { color: var(--qr); }
+.job-estado-filled    { color: var(--brass); }
+.job-estado-blocked,
+.job-estado-failed,
+.job-estado-needs-login { color: var(--failed); }
+
+/* ── conexiones ─────────────────────────────────────────────────────────── */
+
+.conexiones {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 13px;
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.conexion-aviso {
+  font-size: 0.7rem;
+  color: var(--qr);
+}
+
+.conexion {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 11px 13px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+
+/*
+ * Una cuenta con varios permisos: un encabezado y las capacidades adentro.
+ * Google era dos tarjetas idénticas y nadie entendía por qué.
+ */
+.conexion-grupo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.conexion-grupo-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px 2px;
+}
+
+.conexion-grupo-cuenta {
+  margin-left: auto;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+/* Las capacidades se sangran y pierden peso: dependen del encabezado. */
+.conexion-hija {
+  margin-left: 14px;
+  background: transparent;
+  border-style: dashed;
+}
+
+.conexion-hija .conexion-nombre {
+  font-size: 0.84rem;
+  color: var(--text);
+}
+
+.conexion-on {
+  border-color: var(--line-brass);
+}
+
+.conexion-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.conexion-punto {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--none);
+  flex-shrink: 0;
+}
+
+.conexion-punto-on {
+  background: var(--qr);
+  box-shadow: 0 0 8px var(--qr);
+}
+
+.conexion-nombre {
+  font-size: 0.8rem;
+  color: var(--ink);
+}
+
+.conexion-origen {
+  font-size: 0.6rem;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  padding: 1px 6px;
+  border-radius: var(--radius);
+}
+
+.conexion-quitar {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  cursor: pointer;
+}
+
+.conexion-quitar:hover:not(:disabled) { color: var(--failed); }
+.conexion-quitar:disabled { opacity: 0.4; cursor: default; }
+
+.conexion-para {
+  font-size: 0.68rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.conexion-detalle {
+  font-size: 0.66rem;
+  color: var(--receipt);
+  line-height: 1.5;
+}
+
+/*
+  El contador del botón de conexiones.
+
+  El botón dice siempre "conexiones"; lo que falta es estado y va acá. Un botón
+  que cambia de nombre según el estado es un botón que hay que volver a leer
+  cada vez.
+*/
+.job-conexiones-estado {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 8px;
+  font-size: 0.6rem;
+  background: var(--line);
+  color: var(--receipt);
+}
+
+.job-conexiones-falta .job-conexiones-estado {
+  background: var(--danger, #e05561);
+  color: #fff;
+}
+
+/*
+ * ── El chat del agente de trabajo ────────────────────────────────────────
+ *
+ * Una sola superficie: los resultados viven DENTRO de la conversación, no en
+ * un panel al lado. El mismo estado en dos lugares es la fuente garantizada de
+ * "¿por qué acá dice una cosa y allá otra?".
+ */
+.jobchat {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  /* El hilo crece; la entrada queda abajo, fija. */
+  min-height: 0;
+  flex: 1;
+}
+
+.jobchat-barra {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.jobchat-hilo {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1;
+  min-height: 240px;
+  max-height: 52vh;
+  overflow-y: auto;
+  padding: 4px 2px;
+}
+
+.jobchat-vacio {
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+.jobchat-vacio ul {
+  margin: 10px 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Los ejemplos se clickean y se cargan en el campo: leerlos y tener que
+   tipearlos es fricción que nadie pidió. */
+.jobchat-vacio li {
+  padding: 7px 13px;
+  font-size: 0.84rem;
+  color: var(--text);
+  background: rgba(201, 151, 63, 0.05);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  align-self: flex-start;
+  transition: border-color 0.16s ease;
+}
+
+.jobchat-vacio li:hover {
+  border-color: var(--line-brass);
+}
+
+.jobchat-vacio-nota {
+  font-size: 0.78rem;
+  color: var(--none);
+}
+
+.msg {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 88%;
+}
+
+/* Lo que escribe el usuario va a la derecha y con fondo: en un hilo largo,
+   la alineación es lo que deja ver de un vistazo quién dijo qué. */
+.msg-vos {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.msg-vos .msg-texto {
+  padding: 8px 14px;
+  background: var(--surface-hover);
+  border: 1px solid var(--line);
+  border-radius: 14px 14px 3px 14px;
+}
+
+.msg-agente {
+  align-self: flex-start;
+}
+
+.msg-texto {
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+/* Late mientras el agente trabaja. Es la diferencia entre "pensando" y "colgado". */
+.msg-latido {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--brass);
+  animation: paso-latido 1s ease-in-out infinite;
+}
+
+.msg-vacantes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vac {
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--line-brass);
+  border-radius: var(--radius-lg);
+}
+
+.vac-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+/* El número es cómo el usuario la nombra: "postulate a la 2". */
+.vac-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 19px;
+  height: 19px;
+  font-size: 0.7rem;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+}
+
+.vac-empresa {
+  font-family: var(--font-serif);
+  font-size: 1.05rem;
+  color: var(--ink);
+}
+
+.vac-score {
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: var(--brass);
+}
+
+.vac-titulo {
+  margin-top: 2px;
+  font-size: 0.84rem;
+  color: var(--text);
+}
+
+.vac-razon {
+  margin-top: 4px;
+  font-size: 0.76rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.vac-acciones {
+  display: flex;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.vac-acciones button,
+.adjunto {
+  padding: 5px 13px;
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color 0.16s ease, color 0.16s ease;
+}
+
+.vac-acciones button:hover:not(:disabled),
+.adjunto:hover {
+  border-color: var(--brass);
+  color: var(--brass);
+}
+
+.vac-acciones button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* La evidencia de lo que se hizo: captura, PDF, link a Notion. */
+.msg-adjuntos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.jobchat-entrada {
+  display: flex;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.jobchat-entrada input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 15px;
+  font: inherit;
+  font-size: 0.88rem;
+  color: var(--ink);
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  outline: none;
+}
+
+.jobchat-entrada input:focus {
+  border-color: var(--line-brass);
+}
+
+.jobchat-entrada input::placeholder {
+  color: var(--none);
+}
+
+.jobchat-entrada button {
+  padding: 9px 20px;
+  font: inherit;
+  font-size: 0.84rem;
+  color: var(--brass);
+  background: transparent;
+  border: 1px solid var(--line-brass);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.jobchat-entrada button:hover:not(:disabled) {
+  background: var(--brass-glow);
+}
+
+.jobchat-entrada button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/*
+ * ── Lo que el agente preguntó ────────────────────────────────────────────
+ *
+ * Más luz que las reglas y borde de latón completo: es lo único de la pantalla
+ * que está esperando a una persona. Cuando no hay preguntas, no existe.
+ */
+.preguntas {
+  margin-top: 18px;
+  padding: 16px 20px 14px;
+  background: linear-gradient(180deg, rgba(201, 151, 63, 0.07) 0%, var(--surface) 70%);
+  border: 1px solid var(--line-brass);
+  border-radius: var(--radius-lg);
+}
+
+.preguntas-head {
+  margin-bottom: 12px;
+}
+
+.preguntas-titulo {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-family: var(--font-serif);
+  font-size: 1.15rem;
+  font-weight: 400;
+  color: var(--ink);
+}
+
+.preguntas-cuantas {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  font-family: var(--font-sans);
+  font-size: 0.7rem;
+  color: var(--ground);
+  background: var(--brass);
+  border-radius: 999px;
+}
+
+.preguntas-sub {
+  margin-top: 2px;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+.pregunta + .pregunta {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.pregunta-texto {
+  font-size: 0.92rem;
+  color: var(--ink);
+}
+
+.pregunta-contexto {
+  margin-top: 3px;
+  font-size: 0.74rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.pregunta-opciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.pregunta-opcion {
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color 0.16s ease, color 0.16s ease;
+}
+
+.pregunta-opcion:hover:not(:disabled) {
+  border-color: var(--brass);
+  color: var(--brass);
+}
+
+.pregunta-responder {
+  display: flex;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.pregunta-input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 12px;
+  font: inherit;
+  font-size: 0.84rem;
+  color: var(--ink);
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  outline: none;
+}
+
+.pregunta-input:focus {
+  border-color: var(--line-brass);
+}
+
+.pregunta-input::placeholder {
+  color: var(--none);
+}
+
+.reglas-editar:disabled,
+.pregunta-opcion:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/*
+ * ── Las reglas del agente ────────────────────────────────────────────────
+ *
+ * Se lee como una nota escrita a mano, no como un panel de configuración: es
+ * lo que el usuario le dijo al agente, con sus palabras. Por eso el borde de
+ * latón a la izquierda —la marca del margen de un cuaderno— y la serif en el
+ * título.
+ */
+.reglas {
+  margin-top: 18px;
+  padding: 16px 20px 14px;
+  background: linear-gradient(180deg, var(--surface) 0%, rgba(23, 22, 29, 0.55) 100%);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--line-brass);
+  border-radius: var(--radius-lg);
+}
+
+.reglas-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 12px;
+}
+
+.reglas-titulo {
+  font-family: var(--font-serif);
+  font-size: 1.15rem;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+}
+
+.reglas-sub {
+  margin-top: 2px;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+.reglas-editar {
+  flex: none;
+  padding: 6px 14px;
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--brass);
+  background: transparent;
+  border: 1px solid var(--line-brass);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+
+.reglas-editar:hover {
+  background: var(--brass-glow);
+  border-color: var(--brass);
+}
+
+/* Cada regla es una línea con viñeta de latón. Se leen de un vistazo. */
+.reglas-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reglas-lista li {
+  position: relative;
+  padding-left: 16px;
+  font-size: 0.86rem;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.reglas-lista li::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 0.62em;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--brass);
+  opacity: 0.65;
+}
+
+/* El vacío enseña con ejemplos en vez de dar una instrucción. */
+.reglas-vacio {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.reglas-vacio ul {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.reglas-vacio li {
+  padding: 5px 11px;
+  font-size: 0.8rem;
+  color: var(--text);
+  background: rgba(201, 151, 63, 0.05);
+  border-left: 1px solid var(--line-brass);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.reglas-pie {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+.reglas-pie strong {
+  font-weight: 500;
+  color: var(--text);
+}
+
+/*
+  El log en vivo de una conexión.
+
+  Es la parte que faltaba: conectar abre un navegador y toca la cuenta del
+  usuario, y hasta ahora eso pasaba a puertas cerradas. Cada paso muestra qué
+  se hizo y una captura de lo que Albus veía en ese momento.
+*/
+.conexion-pasos {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 6px 0 0;
+  padding: 9px 11px;
+  list-style: none;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.conexion-pasos li {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 0.66rem;
+  line-height: 1.5;
+}
+
+.paso-marca {
+  flex: none;
+  width: 12px;
+  text-align: center;
+  font-weight: 600;
+}
+
+.paso-ok .paso-marca {
+  color: var(--qr);
+}
+
+.paso-falla .paso-marca {
+  color: var(--danger, #e05561);
+}
+
+.paso-corriendo .paso-marca {
+  color: var(--receipt);
+  animation: paso-latido 1s ease-in-out infinite;
+}
+
+@keyframes paso-latido {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.paso-cuerpo {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.paso-nombre {
+  color: var(--text);
+}
+
+.paso-detalle {
+  color: var(--receipt);
+  /* Los detalles traen mensajes de error largos: que corten, no que desborden. */
+  overflow-wrap: anywhere;
+}
+
+.paso-captura {
+  margin-top: 3px;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.conexion-acciones {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.btn-conectar {
+  background: transparent;
+  color: var(--brass);
+  border: 1px solid var(--brass);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  padding: 7px 15px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-conectar:hover:not(:disabled) {
+  background: var(--brass);
+  color: var(--ground);
+}
+
+.btn-conectar:disabled { opacity: 0.45; cursor: default; }
+
+.conexion-input {
+  flex: 1 1 230px;
+  min-width: 0;
+}
+
+.conexion-donde {
+  font-size: 0.68rem;
+  padding: 6px 10px;
+}
+
+/* La descripción de la vacante, en la tarjeta. Antes había que salir a leerla. */
+.job-desc {
+  font-size: 0.7rem;
+  color: var(--text);
+  line-height: 1.65;
+  padding-left: 3.4ch;
+  white-space: pre-wrap;
+  opacity: 0.85;
+}
+
+.job-desc-toggle {
+  align-self: flex-start;
+  margin-left: 3.4ch;
+  background: none;
+  border: none;
+  color: var(--brass);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  padding: 0;
+  cursor: pointer;
+  border-bottom: 1px solid var(--line-brass);
+}
+
+.job-desc-toggle:hover { color: var(--ink); }
+
+/* Cómo se conecta, al lado del botón: saca la duda antes de apretarlo. */
+.conexion-como {
+  font-size: 0.64rem;
+  color: var(--muted);
+}
+
+/* El pegar-token queda plegado: es la salida de emergencia, no el camino. */
+.conexion-manual {
+  margin-top: 6px;
+}
+
+.conexion-manual > summary {
+  font-size: 0.64rem;
+  color: var(--muted);
+  cursor: pointer;
+  list-style: none;
+  padding: 3px 0;
+}
+
+.conexion-manual > summary::marker,
+.conexion-manual > summary::-webkit-details-marker {
+  display: none;
+}
+
+.conexion-manual > summary::before {
+  content: '+ ';
+  color: var(--line-brass);
+}
+
+.conexion-manual[open] > summary::before { content: '− '; }
+.conexion-manual > summary:hover { color: var(--ink); }

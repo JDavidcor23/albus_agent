@@ -5,6 +5,7 @@ import { ResultsFeed } from './components/ResultsFeed'
 import { ErrorBanner } from './components/ErrorBanner'
 import { GraphView } from './components/GraphView'
 import { ChatPanel } from './components/ChatPanel'
+import { AgentsPanel } from './components/AgentsPanel'
 
 /** Un item que ya arrancó pero todavía no terminó: se pinta con su spinner. */
 export interface PendingRow {
@@ -21,7 +22,7 @@ function App(): React.JSX.Element {
   const [providers, setProviders] = useState<CliProviderInfo[]>([])
   const [providerId, setProviderId] = useState<string | null>(null)
   const [modelId, setModelId] = useState<string | null>(null)
-  const [tab, setTab] = useState<'feed' | 'grafo' | 'pendientes'>('pendientes')
+  const [tab, setTab] = useState<'feed' | 'grafo' | 'pendientes' | 'agentes'>('agentes')
   const [refrescandoCli, setRefrescandoCli] = useState(false)
   const [cargandoCli, setCargandoCli] = useState(true)
   const [graph, setGraph] = useState<Graph | null>(null)
@@ -174,6 +175,14 @@ function App(): React.JSX.Element {
         <nav className="tabs">
           <button
             type="button"
+            className={`pick ${tab === 'agentes' ? 'pick-on' : ''}`}
+            onClick={() => setTab('agentes')}
+          >
+            agentes
+          </button>
+          <span className="pick-sep">·</span>
+          <button
+            type="button"
             className={`pick ${tab === 'pendientes' ? 'pick-on' : ''}`}
             onClick={() => setTab('pendientes')}
           >
@@ -199,7 +208,14 @@ function App(): React.JSX.Element {
 
         {error !== null && <ErrorBanner message={error} />}
 
-        {tab === 'pendientes' ? (
+        {tab === 'agentes' ? (
+          <AgentsPanel
+            providers={providers}
+            providerId={providerId}
+            modelId={modelId}
+            onError={setError}
+          />
+        ) : tab === 'pendientes' ? (
           <ChatPanel onError={setError} />
         ) : tab === 'feed' ? (
           <ResultsFeed rows={rows} enCurso={enCurso} procesando={procesando} />

@@ -8,6 +8,9 @@ out
 .env
 .env.local
 
+# Las llaves que escribe la app. Texto plano: commitearlo es filtrar los tokens.
+albus.yml
+
 # artefactos de inspeccion visual
 .playwright-mcp/
 *.png

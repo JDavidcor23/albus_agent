@@ -79,7 +79,7 @@ export function createAgyProvider(): LlmProvider {
       return (await discoverAgyModels()).models
     },
 
-    async run(prompt: string, model: string | null): Promise<string> {
+    async run(prompt: string, model: string | null, timeoutMs?: number): Promise<string> {
       const bin = await resolveBinary('agy', cache)
       if (bin === null) throw new Error('agy no está en el PATH')
 
@@ -103,7 +103,7 @@ export function createAgyProvider(): LlmProvider {
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe']
       })
-      return await collect(child, 'agy', null)
+      return await collect(child, 'agy', null, { timeoutMs })
     }
   }
 }

@@ -32,12 +32,22 @@ export function resolveBinary(
 
 export const TIMEOUT_MS = 120_000
 
-/** Envoltorio de un spawn con timeout duro y una sola resolución. */
+/**
+ * Envoltorio de un spawn con timeout duro y una sola resolución.
+ *
+ * `timeoutMs` y `onLinea` existen por un caso concreto: generar un CV a medida
+ * corre un agente que compila LaTeX, lee el PDF y lo verifica contra veinte
+ * puntos. Eso tarda minutos, no segundos, y el usuario necesita ver que algo
+ * pasa mientras tanto o va a pensar que se colgó.
+ */
 export function collect(
   child: import('node:child_process').ChildProcess,
   etiqueta: string,
-  prompt: string | null
+  prompt: string | null,
+  opciones: { timeoutMs?: number; onLinea?: (linea: string) => void } = {}
 ): Promise<string> {
+  const limite = opciones.timeoutMs ?? TIMEOUT_MS
+
   return new Promise((resolve, reject) => {
     let settled = false
     const settle = (fn: () => void): void => {
@@ -49,8 +59,22 @@ export function collect(
     let stdout = ''
     let stderr = ''
 
+    let pendiente = ''
+
     child.stdout?.on('data', (c: Buffer) => {
-      stdout += c.toString('utf8')
+      const texto = c.toString('utf8')
+      stdout += texto
+
+      if (opciones.onLinea === undefined) return
+      // Se emiten líneas completas: un chunk parte una línea al medio y la UI
+      // mostraría medio renglón.
+      pendiente += texto
+      const lineas = pendiente.split('\n')
+      pendiente = lineas.pop() ?? ''
+      for (const l of lineas) {
+        const limpia = l.trim()
+        if (limpia !== '') opciones.onLinea(limpia)
+      }
     })
     child.stderr?.on('data', (c: Buffer) => {
       stderr += c.toString('utf8')
@@ -58,8 +82,8 @@ export function collect(
 
     const timer = setTimeout(() => {
       child.kill()
-      settle(() => reject(new Error(`${etiqueta} excedió ${TIMEOUT_MS / 1000}s`)))
-    }, TIMEOUT_MS)
+      settle(() => reject(new Error(`${etiqueta} excedió ${limite / 1000}s`)))
+    }, limite)
 
     child.on('error', (err) => {
       clearTimeout(timer)

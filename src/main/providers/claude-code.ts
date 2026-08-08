@@ -118,7 +118,7 @@ export function createClaudeCodeProvider(): LlmProvider {
       return (await discoverClaudeModels()).models
     },
 
-    async run(prompt: string, model: string | null): Promise<string> {
+    async run(prompt: string, model: string | null, timeoutMs?: number): Promise<string> {
       const bin = await resolveBinary('claude', cache)
       if (bin === null) throw new Error('claude no está en el PATH')
 
@@ -128,7 +128,7 @@ export function createClaudeCodeProvider(): LlmProvider {
       // El prompt va por stdin: nada del contenido del usuario toca argv.
       // shell:true con la ruta entrecomillada porque el binario puede ser .cmd.
       const child = spawn(`"${bin}"`, args, { shell: true, windowsHide: true })
-      const salida = await collect(child, 'claude', prompt)
+      const salida = await collect(child, 'claude', prompt, { timeoutMs })
 
       // El CLI devuelve exit 0 aunque el modelo no exista: hay que mirar el texto.
       if (salida.toLowerCase().includes(MARCA_INVALIDO)) {
