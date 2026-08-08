@@ -13,22 +13,22 @@ import type { Task } from './types'
  */
 
 export type Intent =
-  | { kind: 'pendientes' }
+  | { kind: 'tasks' }
   /** Cerrar uno concreto: ya se resolvió a cuál se refiere. */
-  | { kind: 'cerrar'; taskId: string; comoDismissed: boolean }
+  | { kind: 'close'; taskId: string; asDismissed: boolean }
   /** Dijo "ya hice X" pero X matchea con varios (o con ninguno). */
-  | { kind: 'ambiguo'; candidatos: Task[]; termino: string }
-  | { kind: 'ayuda' }
+  | { kind: 'ambiguous'; candidates: Task[]; term: string }
+  | { kind: 'help' }
 
-function normalizar(texto: string): string {
-  return texto
+function normalize(text: string): string {
+  return text
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
     .trim()
 }
 
-const PIDE_PENDIENTES =
+const WANTS_TASKS =
   /\b(pendiente|pendientes|que me falta|que tengo que|que hago|todo|tareas|tarea|deberes)\b/
 
 /**
@@ -37,23 +37,23 @@ const PIDE_PENDIENTES =
  * listaba verbos ("ya hice", "listo", "terminé") y se perdía todo lo demás —
  * "ya me postulé" caía en ayuda.
  */
-const DICE_HECHO =
+const SAYS_DONE =
   /\bya\b|\b(hecho|listo|termine|complete|cerra|cerrar|marca|marcar|resolvi|resuelto)\b/
 
-const DICE_NO_VA = /\b(no va|descarta|descartar|ignora|ignorar|no me interesa|olvidalo)\b/
+const SAYS_DROP = /\b(no va|descarta|descartar|ignora|ignorar|no me interesa|olvidalo)\b/
 
 /**
  * "Todavía no lo hice" contiene "hice" y "no": sin esta guarda cerraría una
  * tarea justo cuando el usuario dice lo contrario. Cerrar de más es el peor
  * error posible acá — el pendiente desaparece y él cree que lo resolvió.
  */
-const NEGADO = /\b(todavia no|aun no|no lo hice|no he|nunca|falta)\b/
+const NEGATED = /\b(todavia no|aun no|no lo hice|no he|nunca|falta)\b/
 
 /**
  * Palabras del mensaje que sirven para buscar, sin las de relleno.
  * Sin esto, "ya hice lo de los cursos" matchearía cualquier task por el "lo".
  */
-const RELLENO = new Set([
+const FILLER = new Set([
   'ya', 'lo', 'la', 'el', 'los', 'las', 'de', 'del', 'que', 'hice', 'hecho',
   'listo', 'termine', 'complete', 'cerra', 'cerrar', 'marca', 'marcar', 'como',
   'resolvi', 'resuelto', 'esto', 'eso', 'un', 'una', 'mi', 'me', 'a', 'en',
@@ -68,10 +68,10 @@ const RELLENO = new Set([
  * Longitud mínima 2 y no 3: "qr" e "ia" son de dos letras y son justo los
  * términos que más discriminan en estos títulos.
  */
-function terminosDe(texto: string): string[] {
-  return normalizar(texto)
+function termsOf(text: string): string[] {
+  return normalize(text)
     .split(/[^a-z0-9]+/)
-    .filter((p) => p.length >= 2 && !RELLENO.has(p))
+    .filter((p) => p.length >= 2 && !FILLER.has(p))
 }
 
 /**
@@ -82,90 +82,90 @@ function terminosDe(texto: string): string[] {
  * de al menos 5 caracteres, que es donde las conjugaciones del español todavía
  * coinciden ("postul-é" / "postul-arme").
  */
-function apareceEn(titulo: string, termino: string): boolean {
-  if (titulo.includes(termino)) return true
-  if (termino.length < 5) return false
+function appearsIn(title: string, term: string): boolean {
+  if (title.includes(term)) return true
+  if (term.length < 5) return false
 
-  const raiz = termino.slice(0, 5)
-  return titulo.split(/[^a-z0-9]+/).some((palabra) => palabra.startsWith(raiz))
+  const stem = term.slice(0, 5)
+  return title.split(/[^a-z0-9]+/).some((word) => word.startsWith(stem))
 }
 
 /** Cuántos términos del mensaje aparecen en el título de la tarea. */
-function puntaje(task: Task, terminos: string[]): number {
-  const titulo = normalizar(task.title)
-  return terminos.filter((t) => apareceEn(titulo, t)).length
+function scoreOf(task: Task, terms: string[]): number {
+  const title = normalize(task.title)
+  return terms.filter((t) => appearsIn(title, t)).length
 }
 
-export function interpretar(mensaje: string, abiertos: Task[]): Intent {
-  const texto = normalizar(mensaje)
-  if (texto.length === 0) return { kind: 'ayuda' }
+export function interpret(message: string, openTasks: Task[]): Intent {
+  const text = normalize(message)
+  if (text.length === 0) return { kind: 'help' }
 
   // La negación gana sobre cualquier marcador de completado.
-  const negado = NEGADO.test(texto)
-  const quiereCerrar = !negado && DICE_HECHO.test(texto)
-  const quiereDescartar = !negado && DICE_NO_VA.test(texto)
+  const negated = NEGATED.test(text)
+  const wantsClose = !negated && SAYS_DONE.test(text)
+  const wantsDrop = !negated && SAYS_DROP.test(text)
 
-  if (quiereCerrar || quiereDescartar) {
-    const terminos = terminosDe(mensaje)
+  if (wantsClose || wantsDrop) {
+    const terms = termsOf(message)
 
     // "listo" a secas no alcanza para cerrar nada: no dice QUÉ.
-    if (terminos.length === 0) {
-      return { kind: 'ambiguo', candidatos: abiertos, termino: '' }
+    if (terms.length === 0) {
+      return { kind: 'ambiguous', candidates: openTasks, term: '' }
     }
 
-    const conPuntaje = abiertos
-      .map((t) => ({ task: t, score: puntaje(t, terminos) }))
+    const scored = openTasks
+      .map((t) => ({ task: t, score: scoreOf(t, terms) }))
       .filter((x) => x.score > 0)
       .sort((a, b) => b.score - a.score)
 
-    if (conPuntaje.length === 0) {
-      return { kind: 'ambiguo', candidatos: [], termino: terminos.join(' ') }
+    if (scored.length === 0) {
+      return { kind: 'ambiguous', candidates: [], term: terms.join(' ') }
     }
 
     // Solo cierra solo si hay UN ganador claro. Ante empate pregunta: cerrar la
     // tarea equivocada es peor que preguntar de más, porque el usuario cree que
     // resolvió algo que sigue abierto.
-    const mejor = conPuntaje[0]
-    const hayEmpate = conPuntaje.length > 1 && conPuntaje[1].score === mejor.score
-    if (hayEmpate) {
+    const best = scored[0]
+    const tied = scored.length > 1 && scored[1].score === best.score
+    if (tied) {
       return {
-        kind: 'ambiguo',
-        candidatos: conPuntaje.filter((x) => x.score === mejor.score).map((x) => x.task),
-        termino: terminos.join(' ')
+        kind: 'ambiguous',
+        candidates: scored.filter((x) => x.score === best.score).map((x) => x.task),
+        term: terms.join(' ')
       }
     }
 
-    return { kind: 'cerrar', taskId: mejor.task.id, comoDismissed: quiereDescartar }
+    return { kind: 'close', taskId: best.task.id, asDismissed: wantsDrop }
   }
 
-  if (PIDE_PENDIENTES.test(texto)) return { kind: 'pendientes' }
+  if (WANTS_TASKS.test(text)) return { kind: 'tasks' }
 
-  return { kind: 'ayuda' }
+  return { kind: 'help' }
 }
 
 /** Texto de la respuesta. Separado de la decisión para poder probar cada uno. */
-export function redactar(intent: Intent, tasks: Task[]): string {
+export function compose(intent: Intent, tasks: Task[]): string {
   switch (intent.kind) {
-    case 'pendientes':
+    case 'tasks':
       if (tasks.length === 0) return 'No te queda nada pendiente.'
       return `Tenés ${tasks.length} ${tasks.length === 1 ? 'cosa' : 'cosas'} pendientes:`
 
-    case 'cerrar': {
+    case 'close': {
       const t = tasks.find((x) => x.id === intent.taskId)
-      return intent.comoDismissed
+      return intent.asDismissed
         ? `Descartado: "${t?.title ?? ''}".`
         : `Listo, lo tacho: "${t?.title ?? ''}".`
     }
 
-    case 'ambiguo':
-      if (intent.candidatos.length === 0) {
-        return intent.termino.length > 0
-          ? `No encontré ningún pendiente que hable de "${intent.termino}".`
+    case 'ambiguous':
+      if (intent.candidates.length === 0) {
+        return intent.term.length > 0
+          ? `No encontré ningún pendiente que hable de "${intent.term}".`
           : 'No tenés pendientes abiertos.'
       }
       return '¿Cuál de estos? Tocá el que corresponda:'
 
-    case 'ayuda':
+    case 'help':
       return (
         'Preguntame "¿qué tengo pendiente?" y te los listo. ' +
         'Para cerrar uno, decime "ya hice X" o tocá el botón de la tarjeta.'

@@ -8,15 +8,15 @@ import { mergeContributions, type Contribution } from './merge'
  * Cuántas extracciones van por llamada al CLI. Una por item sería 48 llamadas y
  * 48 veces la cuota; el modelo relaciona mejor viendo varias juntas.
  */
-const LOTE = 8
+const BATCH_SIZE = 8
 
-const TIPOS: NodeType[] = ['person', 'company', 'event', 'payment', 'entity', 'topic', 'url', 'note']
+const TYPES: NodeType[] = ['person', 'company', 'event', 'payment', 'entity', 'topic', 'url', 'note']
 
-const RespuestaSchema = z.object({
+const ResponseSchema = z.object({
   nodes: z
     .array(
       z.object({
-        type: z.enum(TIPOS as [NodeType, ...NodeType[]]),
+        type: z.enum(TYPES as [NodeType, ...NodeType[]]),
         label: z.string(),
         attrs: z.record(z.string(), z.string()).default({})
       })
@@ -25,9 +25,9 @@ const RespuestaSchema = z.object({
   edges: z
     .array(
       z.object({
-        fromType: z.enum(TIPOS as [NodeType, ...NodeType[]]),
+        fromType: z.enum(TYPES as [NodeType, ...NodeType[]]),
         from: z.string(),
-        toType: z.enum(TIPOS as [NodeType, ...NodeType[]]),
+        toType: z.enum(TYPES as [NodeType, ...NodeType[]]),
         to: z.string(),
         label: z.string()
       })
@@ -35,7 +35,7 @@ const RespuestaSchema = z.object({
     .default([])
 })
 
-const INSTRUCCIONES = `Construís un grafo de conocimiento a partir de extracciones de las
+const INSTRUCTIONS = `Construís un grafo de conocimiento a partir de extracciones de las
 notas personales de alguien. Cada extracción trae un id, un tipo y un resumen.
 
 Devolvé SOLO un objeto JSON, sin markdown ni explicación:
@@ -62,16 +62,16 @@ Reglas:
 - Si una extracción no aporta ninguna entidad clara, no devuelvas nada por ella.
 - Un mismo nombre escrito distinto es el mismo nodo: normalizá a la forma más completa.`
 
-function extraerJson(bruto: string): unknown {
-  const limpio = bruto.replace(/\`\`\`(?:json)?/gi, '').trim()
-  const i = limpio.indexOf('{')
-  const f = limpio.lastIndexOf('}')
+function extractJson(raw: string): unknown {
+  const clean = raw.replace(/\`\`\`(?:json)?/gi, '').trim()
+  const i = clean.indexOf('{')
+  const f = clean.lastIndexOf('}')
   if (i === -1 || f <= i) throw new Error('la respuesta no traía JSON')
-  return JSON.parse(limpio.slice(i, f + 1))
+  return JSON.parse(clean.slice(i, f + 1))
 }
 
 export interface BuildHooks {
-  onBatch?: (hechos: number, total: number) => void
+  onBatch?: (done: number, total: number) => void
 }
 
 /**
@@ -85,47 +85,47 @@ export async function buildGraph(
   rows: ResultRow[],
   provider: LlmProvider,
   model: string | null,
-  ahora: string,
+  now: string,
   hooks: BuildHooks = {}
-): Promise<{ graph: Graph; lotesFallidos: number }> {
-  const utiles = rows.filter((r) => r.kind !== 'none' && r.kind !== 'failed' && r.summary.length > 0)
+): Promise<{ graph: Graph; failedBatches: number }> {
+  const useful = rows.filter((r) => r.kind !== 'none' && r.kind !== 'failed' && r.summary.length > 0)
 
-  const lotes: ResultRow[][] = []
-  for (let i = 0; i < utiles.length; i += LOTE) lotes.push(utiles.slice(i, i + LOTE))
+  const batches: ResultRow[][] = []
+  for (let i = 0; i < useful.length; i += BATCH_SIZE) batches.push(useful.slice(i, i + BATCH_SIZE))
 
-  let grafo = emptyGraph(ahora)
-  let fallidos = 0
+  let graph = emptyGraph(now)
+  let failed = 0
 
-  for (let i = 0; i < lotes.length; i++) {
-    const lote = lotes[i]
+  for (let i = 0; i < batches.length; i++) {
+    const batch = batches[i]
 
-    const cuerpo = lote
+    const body = batch
       .map((r) => `- id: ${r.id}\n  tipo: ${r.kind}\n  contenido: ${r.summary}`)
       .join('\n')
 
     try {
-      const bruto = await provider.run(`${INSTRUCCIONES}\n\n--- EXTRACCIONES ---\n${cuerpo}`, model)
-      const parsed = RespuestaSchema.parse(extraerJson(bruto))
+      const raw = await provider.run(`${INSTRUCTIONS}\n\n--- EXTRACCIONES ---\n${body}`, model)
+      const parsed = ResponseSchema.parse(extractJson(raw))
 
       // El modelo relaciona el lote entero, así que las fuentes son todo el lote.
-      const aporte: Contribution = {
+      const contribution: Contribution = {
         nodes: parsed.nodes,
         edges: parsed.edges,
         // Todo lo que sale del modelo es INFERRED aunque la extracción original
         // fuera determinista: quien decidió que "Cristóbal" es una persona fue él.
         provenance: 'INFERRED',
-        source: lote.map((r) => r.id).join(',')
+        source: batch.map((r) => r.id).join(',')
       }
 
-      grafo = mergeContributions(grafo, [aporte])
+      graph = mergeContributions(graph, [contribution])
     } catch (error: unknown) {
-      fallidos++
+      failed++
       const msg = error instanceof Error ? error.message : String(error)
-      console.warn(`[graph] lote ${i + 1}/${lotes.length} falló: ${msg}`)
+      console.warn(`[graph] lote ${i + 1}/${batches.length} falló: ${msg}`)
     }
 
-    hooks.onBatch?.(i + 1, lotes.length)
+    hooks.onBatch?.(i + 1, batches.length)
   }
 
-  return { graph: grafo, lotesFallidos: fallidos }
+  return { graph, failedBatches: failed }
 }

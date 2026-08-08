@@ -14,6 +14,10 @@ import type { CandidateProfile, JobPosting } from '../core/jobs/types'
  * checklist de veinte puntos. Duplicar eso acá sería tirar a la basura lo que
  * ya funciona. Albus lee los PDF que ese proceso dejó y los lleva al
  * formulario, que es la parte que hoy sigue siendo a mano.
+ *
+ * Every path literal here — `albus-profile.json`, `cv/main_<slug>.pdf`,
+ * `cover_letters/cover_<slug>*.pdf` — is FROZEN: it is the contract with the
+ * sibling workspace, and this repo is not the only writer.
  */
 
 export function workspaceDir(): string {
@@ -26,48 +30,48 @@ export function workspaceDir(): string {
 
 export const PROFILE_FILE = 'albus-profile.json'
 
-let cacheProfile: CandidateProfile | null = null
+let profileCache: CandidateProfile | null = null
 
-export async function loadProfile(forzar = false): Promise<CandidateProfile> {
-  if (cacheProfile !== null && !forzar) return cacheProfile
+export async function loadProfile(force = false): Promise<CandidateProfile> {
+  if (profileCache !== null && !force) return profileCache
 
-  const ruta = join(workspaceDir(), PROFILE_FILE)
+  const path = join(workspaceDir(), PROFILE_FILE)
 
-  let crudo: string
+  let raw: string
   try {
-    crudo = await readFile(ruta, 'utf8')
+    raw = await readFile(path, 'utf8')
   } catch {
-    throw new Error(`No encontré el perfil en ${ruta}. Copiá el ejemplo y completalo.`)
+    throw new Error(`No encontré el perfil en ${path}. Copiá el ejemplo y completalo.`)
   }
 
-  cacheProfile = parseProfile(JSON.parse(crudo))
-  return cacheProfile
+  profileCache = parseProfile(JSON.parse(raw))
+  return profileCache
 }
 
 /** "BC Tecnología" → "bc_tecnologia", que es como se llaman los archivos. */
-export function slugify(texto: string): string {
-  return normalize(texto)
+export function slugify(text: string): string {
+  return normalize(text)
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '')
 }
 
-async function buscarPdf(dir: string, prefijos: string[]): Promise<string | null> {
-  let archivos: string[]
+async function findPdf(dir: string, prefixes: string[]): Promise<string | null> {
+  let files: string[]
   try {
-    archivos = await readdir(dir)
+    files = await readdir(dir)
   } catch {
     return null
   }
 
-  const pdfs = archivos.filter((f) => f.toLowerCase().endsWith('.pdf'))
+  const pdfs = files.filter((f) => f.toLowerCase().endsWith('.pdf'))
 
-  for (const prefijo of prefijos) {
-    const exacto = pdfs.find((f) => f.toLowerCase() === `${prefijo}.pdf`)
-    if (exacto !== undefined) return join(dir, exacto)
+  for (const prefix of prefixes) {
+    const exact = pdfs.find((f) => f.toLowerCase() === `${prefix}.pdf`)
+    if (exact !== undefined) return join(dir, exact)
   }
-  for (const prefijo of prefijos) {
-    const empieza = pdfs.find((f) => f.toLowerCase().startsWith(`${prefijo}_`))
-    if (empieza !== undefined) return join(dir, empieza)
+  for (const prefix of prefixes) {
+    const prefixed = pdfs.find((f) => f.toLowerCase().startsWith(`${prefix}_`))
+    if (prefixed !== undefined) return join(dir, prefixed)
   }
 
   return null
@@ -86,8 +90,8 @@ export function createWorkspaceKitSource(stagingDir: string): KitSource {
       const slug = posting.slug !== '' ? posting.slug : slugify(posting.company)
 
       return {
-        cv: await buscarPdf(join(ws, 'cv'), [`main_${slug}`]),
-        cover: await buscarPdf(join(ws, 'cover_letters'), [`cover_${slug}`])
+        cv: await findPdf(join(ws, 'cv'), [`main_${slug}`]),
+        cover: await findPdf(join(ws, 'cover_letters'), [`cover_${slug}`])
       }
     },
 
@@ -99,9 +103,9 @@ export function createWorkspaceKitSource(stagingDir: string): KitSource {
     async stageForUpload(sourcePath: string, uploadBaseName: string): Promise<string> {
       await mkdir(stagingDir, { recursive: true })
 
-      const destino = join(stagingDir, uploadFileName(uploadBaseName, sourcePath))
-      await copyFile(sourcePath, destino)
-      return destino
+      const target = join(stagingDir, uploadFileName(uploadBaseName, sourcePath))
+      await copyFile(sourcePath, target)
+      return target
     }
   }
 }

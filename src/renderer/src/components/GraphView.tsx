@@ -5,41 +5,41 @@ import { GraphCanvas } from './GraphCanvas'
 interface Props {
   graph: Graph | null
   path: string
-  construyendo: boolean
-  progreso: { hechos: number; total: number } | null
-  onConstruir: () => void
-  onAbrirCarpeta: () => void
+  building: boolean
+  progress: { done: number; total: number } | null
+  onBuild: () => void
+  onOpenFolder: () => void
 }
 
 export function GraphView({
   graph,
   path,
-  construyendo,
-  progreso,
-  onConstruir,
-  onAbrirCarpeta
+  building,
+  progress,
+  onBuild,
+  onOpenFolder
 }: Props): React.JSX.Element {
-  const [seleccion, setSeleccion] = useState<string | null>(null)
-  const nodo = graph?.nodes.find((n) => n.id === seleccion) ?? null
+  const [selected, setSelected] = useState<string | null>(null)
+  const node = graph?.nodes.find((n) => n.id === selected) ?? null
 
-  const vecinos =
-    graph !== null && nodo !== null
+  const neighbors =
+    graph !== null && node !== null
       ? graph.edges
-          .filter((e) => e.from === nodo.id || e.to === nodo.id)
+          .filter((e) => e.from === node.id || e.to === node.id)
           .map((e) => {
-            const otroId = e.from === nodo.id ? e.to : e.from
-            const otro = graph.nodes.find((n) => n.id === otroId)
-            return { label: e.label, hacia: otro?.label ?? otroId }
+            const otherId = e.from === node.id ? e.to : e.from
+            const other = graph.nodes.find((n) => n.id === otherId)
+            return { label: e.label, to: other?.label ?? otherId }
           })
       : []
 
-  if (construyendo) {
+  if (building) {
     return (
       <div className="graph-empty">
         <span className="feed-spinner" />
         <p className="idle-text">
           El CLI está leyendo las extracciones y armando el grafo.
-          {progreso !== null && ` Lote ${progreso.hechos} de ${progreso.total}.`}
+          {progress !== null && ` Lote ${progress.done} de ${progress.total}.`}
         </p>
       </div>
     )
@@ -54,7 +54,7 @@ export function GraphView({
           guardado como archivo tuyo, fuera de la app.
         </p>
         <code className="graph-path">{path}</code>
-        <button type="button" className="btn-brass" onClick={onConstruir}>
+        <button type="button" className="btn-brass" onClick={onBuild}>
           construir grafo
         </button>
       </div>
@@ -68,36 +68,36 @@ export function GraphView({
           {graph.stats.nodes} nodos · {graph.stats.edges} relaciones
         </span>
         <span className="graph-actions">
-          <button type="button" className="pick" onClick={onAbrirCarpeta}>
+          <button type="button" className="pick" onClick={onOpenFolder}>
             abrir carpeta
           </button>
           <span className="pick-sep">·</span>
-          <button type="button" className="pick" onClick={onConstruir}>
+          <button type="button" className="pick" onClick={onBuild}>
             reconstruir
           </button>
         </span>
       </div>
 
-      <GraphCanvas graph={graph} onSelect={setSeleccion} />
+      <GraphCanvas graph={graph} onSelect={setSelected} />
 
-      {nodo !== null && (
+      {node !== null && (
         <div className="graph-detail">
           <div className="graph-detail-head">
-            <span className="feed-label">{nodo.label}</span>
+            <span className="feed-label">{node.label}</span>
             <span className="feed-kind">
-              {nodo.type} · {nodo.provenance === 'EXTRACTED' ? 'dato duro' : 'inferido'}
+              {node.type} · {node.provenance === 'EXTRACTED' ? 'dato duro' : 'inferido'}
             </span>
           </div>
 
-          {Object.entries(nodo.attrs).map(([k, v]) => (
+          {Object.entries(node.attrs).map(([k, v]) => (
             <p key={k} className="feed-summary">
               {k}: {v}
             </p>
           ))}
 
-          {vecinos.map((v, i) => (
+          {neighbors.map((n, i) => (
             <p key={i} className="feed-summary">
-              {v.label} → {v.hacia}
+              {n.label} → {n.to}
             </p>
           ))}
         </div>

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { getAccessToken } from '../drive/client'
-import { buildMime, nuevoBoundary, toGmailRaw, type EmailDraft } from '../core/jobs/email'
+import { buildMime, newBoundary, toGmailRaw, type EmailDraft } from '../core/jobs/email'
 
 /**
  * Envío de correos por la API de Gmail, reusando el OAuth que ya tenía Drive.
@@ -32,25 +32,23 @@ async function gmailFetch(path: string, init: RequestInit = {}): Promise<unknown
   const json: unknown = await res.json().catch(() => ({}))
 
   if (!res.ok) {
-    const detalle = z
-      .object({ error: z.object({ message: z.string() }) })
-      .safeParse(json)
-    const mensaje = detalle.success ? detalle.data.error.message : JSON.stringify(json)
+    const detail = z.object({ error: z.object({ message: z.string() }) }).safeParse(json)
+    const message = detail.success ? detail.data.error.message : JSON.stringify(json)
 
-    if (res.status === 403 || /insufficient/i.test(mensaje)) {
+    if (res.status === 403 || /insufficient/i.test(message)) {
       throw new Error(
-        `Gmail rechazó la llamada por permisos: ${mensaje}. ` +
+        `Gmail rechazó la llamada por permisos: ${message}. ` +
           'El refresh token no tiene el scope gmail.compose — corré `npm run gmail:auth`.'
       )
     }
-    throw new Error(`Gmail ${res.status}: ${mensaje}`)
+    throw new Error(`Gmail ${res.status}: ${message}`)
   }
 
   return json
 }
 
 /** ¿El token guardado alcanza para mandar? Pregunta, no adivina. */
-export async function tieneScopeGmail(): Promise<{ ok: boolean; scopes: string[] }> {
+export async function hasGmailScope(): Promise<{ ok: boolean; scopes: string[] }> {
   const token = await getAccessToken()
   const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${token}`)
   const json: unknown = await res.json().catch(() => ({}))
@@ -66,7 +64,7 @@ export async function tieneScopeGmail(): Promise<{ ok: boolean; scopes: string[]
 const MessageSchema = z.object({ id: z.string(), threadId: z.string().optional() })
 const DraftSchema = z.object({ id: z.string(), message: MessageSchema.optional() })
 
-export interface EnvioResult {
+export interface SendResult {
   /** `draft` = quedó como borrador esperando tu click. `sent` = salió. */
   kind: 'draft' | 'sent'
   id: string
@@ -81,14 +79,14 @@ export interface EnvioResult {
  * Modo `review` crea un BORRADOR; `auto` manda. Es el mismo freno que el del
  * botón de enviar en un formulario: la acción irreversible la decide él.
  */
-export async function enviarPostulacion(
+export async function sendApplication(
   draft: EmailDraft,
-  modo: 'draft' | 'send'
-): Promise<EnvioResult> {
-  const raw = toGmailRaw(buildMime(draft, nuevoBoundary()))
+  mode: 'draft' | 'send'
+): Promise<SendResult> {
+  const raw = toGmailRaw(buildMime(draft, newBoundary()))
   const attachedAs = draft.attachments.map((a) => a.filename)
 
-  if (modo === 'draft') {
+  if (mode === 'draft') {
     const json = await gmailFetch('/drafts', {
       method: 'POST',
       body: JSON.stringify({ message: { raw } })
@@ -132,7 +130,7 @@ const DraftGetSchema = z.object({
  * guardó. Es la única forma honesta de verificar que el CV llegó con el nombre
  * correcto: que la API haya devuelto 200 no prueba nada sobre el contenido.
  */
-export async function adjuntosDelBorrador(
+export async function draftAttachments(
   draftId: string
 ): Promise<{ filename: string; size: number }[]> {
   const json = await gmailFetch(`/drafts/${draftId}?format=full`)
@@ -143,7 +141,7 @@ export async function adjuntosDelBorrador(
     .map((p) => ({ filename: p.filename ?? '', size: p.body?.size ?? 0 }))
 }
 
-export async function borrarBorrador(draftId: string): Promise<void> {
+export async function deleteDraft(draftId: string): Promise<void> {
   const token = await getAccessToken()
   await fetch(`${BASE}/drafts/${draftId}`, {
     method: 'DELETE',

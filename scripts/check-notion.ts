@@ -13,7 +13,7 @@
  */
 
 import { readFileSync, existsSync } from 'node:fs'
-import { parsearYml, rutaAlbusYml } from '../src/main/connections/albus-yml'
+import { parseYml, albusYmlPath } from '../src/main/connections/albus-yml'
 import { setNotionTokenResolver, notionDatabaseId, DEFAULT_DATABASE_ID } from '../src/main/notion/client'
 import { knownPostLinks } from '../src/main/notion/applications'
 
@@ -25,7 +25,7 @@ import { knownPostLinks } from '../src/main/notion/applications'
  * integración puede tocar — y esa lista es la que hay que mostrarle al usuario
  * para que elija, en vez de tener una constante que solo sirve en una cuenta.
  */
-async function listarAccesibles(token: string): Promise<void> {
+async function listAccessible(token: string): Promise<void> {
   try {
     const res = await fetch('https://api.notion.com/v1/search', {
       method: 'POST',
@@ -37,21 +37,21 @@ async function listarAccesibles(token: string): Promise<void> {
       body: JSON.stringify({ filter: { property: 'object', value: 'database' }, page_size: 25 })
     })
 
-    const cuerpo = (await res.json()) as {
+    const body = (await res.json()) as {
       results?: { id: string; title?: { plain_text?: string }[] }[]
     }
-    const bases = cuerpo.results ?? []
+    const databases = body.results ?? []
 
-    if (bases.length === 0) {
+    if (databases.length === 0) {
       console.log('\n  A qué bases llega este token: NINGUNA todavía.')
       console.log('  (Es coherente con el 404: falta compartir aunque sea una.)\n')
       return
     }
 
-    console.log(`\n  A qué bases llega este token (${bases.length}):`)
-    for (const b of bases) {
-      const nombre = b.title?.map((t) => t.plain_text ?? '').join('') || '(sin título)'
-      console.log(`    · ${nombre.padEnd(34)} ${b.id.replace(/-/g, '')}`)
+    console.log(`\n  A qué bases llega este token (${databases.length}):`)
+    for (const b of databases) {
+      const name = b.title?.map((t) => t.plain_text ?? '').join('') || '(sin título)'
+      console.log(`    · ${name.padEnd(34)} ${b.id.replace(/-/g, '')}`)
     }
     console.log('')
   } catch (error: unknown) {
@@ -63,19 +63,19 @@ async function main(): Promise<void> {
   console.log('\n══ ¿NOTION ESTÁ CONECTADO? ══\n')
 
   // 1. ¿Hay token, y de dónde sale?
-  const ruta = rutaAlbusYml()
-  const hayArchivo = existsSync(ruta)
-  const yml = hayArchivo ? parsearYml(readFileSync(ruta, 'utf8')) : {}
-  const delYml = yml.NOTION_TOKEN ?? ''
-  const delEnv = process.env.NOTION_TOKEN ?? ''
-  const token = delYml.trim() !== '' ? delYml : delEnv
+  const path = albusYmlPath()
+  const fileExists = existsSync(path)
+  const yml = fileExists ? parseYml(readFileSync(path, 'utf8')) : {}
+  const fromYml = yml.NOTION_TOKEN ?? ''
+  const fromEnv = process.env.NOTION_TOKEN ?? ''
+  const token = fromYml.trim() !== '' ? fromYml : fromEnv
 
-  console.log(`albus.yml:  ${hayArchivo ? ruta : 'no existe todavía'}`)
+  console.log(`albus.yml:  ${fileExists ? path : 'no existe todavía'}`)
   console.log(
     `token:      ${
       token.trim() === ''
         ? 'NO HAY'
-        : `${token.slice(0, 8)}… (${token.length} caracteres) — de ${delYml.trim() !== '' ? 'albus.yml' : '.env'}`
+        : `${token.slice(0, 8)}… (${token.length} caracteres) — de ${fromYml.trim() !== '' ? 'albus.yml' : '.env'}`
     }`
   )
 
@@ -107,7 +107,7 @@ async function main(): Promise<void> {
       // A qué SÍ tiene acceso. Es la respuesta a "¿y cómo sabe qué proyecto
       // elegir?": no hay que adivinar ni hardcodear nada — el token mismo
       // dice a qué llega, y de ahí sale la lista para elegir.
-      await listarAccesibles(token)
+      await listAccessible(token)
 
       console.log('  Arreglo manual (10 segundos):')
       console.log(`    1. Abrí https://www.notion.so/${base.replace(/-/g, '')}`)

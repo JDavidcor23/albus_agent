@@ -16,7 +16,7 @@ import { createBrowserPage } from '../browser/page'
  * Esto abre la página con la MISMA sesión, imprime el inventario tal cual lo
  * recibiría el agente, y se va. No clickea, no escribe, no guarda nada.
  */
-export async function inspeccionar(url: string): Promise<boolean> {
+export async function inspectPage(url: string): Promise<boolean> {
   console.log(`\n══ QUÉ VE EL AGENTE EN ${url} ══\n`)
 
   const browser = createBrowserPage({ visible: true })
@@ -26,30 +26,30 @@ export async function inspeccionar(url: string): Promise<boolean> {
 
     // La SPA puede seguir montando. Se mira dos veces con una pausa: si la
     // segunda trae más, lo que importaba llegó tarde y conviene saberlo.
-    const primera = await browser.inventario()
+    const first = await browser.inventory()
     await new Promise((r) => setTimeout(r, 2500))
-    const inv = await browser.inventario()
+    const inv = await browser.inventory()
 
     console.log(`título:  ${inv.title}`)
     console.log(`url:     ${inv.url}`)
-    console.log(`modal:   ${inv.enModal ? 'SÍ — el inventario es solo del modal' : 'no'}`)
-    console.log(`items:   ${inv.items.length}${inv.recortado ? ' (RECORTADO: hay más)' : ''}`)
+    console.log(`modal:   ${inv.inModal ? 'SÍ — el inventario es solo del modal' : 'no'}`)
+    console.log(`items:   ${inv.items.length}${inv.truncated ? ' (RECORTADO: hay más)' : ''}`)
 
-    if (primera.items.length !== inv.items.length) {
+    if (first.items.length !== inv.items.length) {
       console.log(
-        `⚠ la página seguía montando: ${primera.items.length} items al abrir, ${inv.items.length} 2,5 s después`
+        `⚠ la página seguía montando: ${first.items.length} items al abrir, ${inv.items.length} 2,5 s después`
       )
     }
 
     console.log('\n── elementos que el agente puede elegir ─────────────────────')
     for (const i of inv.items) {
-      const apagado = i.deshabilitado ? ' [OFF]' : ''
+      const off = i.disabled ? ' [OFF]' : ''
       const pos = `(${i.rect.x},${i.rect.y})`
-      console.log(`  ${i.cid.padEnd(5)} ${i.accion.padEnd(8)} <${i.tag}>${apagado} ${pos}  ${i.texto.slice(0, 90)}`)
+      console.log(`  ${i.cid.padEnd(5)} ${i.action.padEnd(8)} <${i.tag}>${off} ${pos}  ${i.text.slice(0, 90)}`)
     }
 
     console.log('\n── texto visible (primeros 1200) ────────────────────────────')
-    console.log(inv.texto.slice(0, 1200))
+    console.log(inv.text.slice(0, 1200))
 
     /**
      * El chequeo que de verdad importa: cosas que están en el TEXTO pero no
@@ -57,17 +57,17 @@ export async function inspeccionar(url: string): Promise<boolean> {
      * el texto de la página pero su fila no está en el inventario"— y acá se
      * ve sin gastar una corrida.
      */
-    const conId = inv.items.map((i) => i.texto.toLowerCase()).join(' ')
-    const huerfanas = inv.texto
+    const withId = inv.items.map((i) => i.text.toLowerCase()).join(' ')
+    const orphans = inv.text
       .split('\n')
       .map((l) => l.trim())
       .filter((l) => l.length > 3 && l.length < 60)
-      .filter((l) => !conId.includes(l.toLowerCase()))
+      .filter((l) => !withId.includes(l.toLowerCase()))
 
-    if (huerfanas.length > 0) {
+    if (orphans.length > 0) {
       console.log('\n── ⚠ visible pero SIN id para clickear ──────────────────────')
       console.log('   (si lo que buscás está acá, el agujero es del inventario)')
-      for (const l of huerfanas.slice(0, 25)) console.log(`   · ${l}`)
+      for (const l of orphans.slice(0, 25)) console.log(`   · ${l}`)
     }
 
     console.log('')

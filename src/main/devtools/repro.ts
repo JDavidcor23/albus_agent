@@ -16,10 +16,10 @@ import { getSupabaseClient } from '../supabase/client'
 import { listResults } from '../supabase/results-repo'
 import { createItemSource } from '../supabase/item-source'
 
-const VUELTAS = 12
+const ROUNDS = 12
 
-function dump(etiqueta: string, error: unknown): void {
-  console.log(`      ${etiqueta}`)
+function dump(label: string, error: unknown): void {
+  console.log(`      ${label}`)
   if (error !== null && typeof error === 'object') {
     for (const [k, v] of Object.entries(error as Record<string, unknown>)) {
       if (k === 'stack') continue
@@ -30,25 +30,25 @@ function dump(etiqueta: string, error: unknown): void {
   }
 }
 
-async function medir(nombre: string, fn: () => Promise<unknown>): Promise<number> {
-  let fallas = 0
-  const linea: string[] = []
+async function measure(name: string, fn: () => Promise<unknown>): Promise<number> {
+  let failures = 0
+  const line: string[] = []
 
-  for (let i = 0; i < VUELTAS; i++) {
+  for (let i = 0; i < ROUNDS; i++) {
     const t0 = Date.now()
     try {
       await fn()
-      linea.push(`ok${Date.now() - t0}`)
+      line.push(`ok${Date.now() - t0}`)
     } catch (error: unknown) {
-      fallas++
-      linea.push(`XX${Date.now() - t0}`)
+      failures++
+      line.push(`XX${Date.now() - t0}`)
       dump(`intento ${i + 1}:`, error)
     }
   }
 
-  console.log(`  ${fallas === 0 ? 'ok   ' : `FALLA ${fallas}/${VUELTAS}`}  ${nombre}`)
-  console.log(`         ${linea.join(' ')}`)
-  return fallas
+  console.log(`  ${failures === 0 ? 'ok   ' : `FALLA ${failures}/${ROUNDS}`}  ${name}`)
+  console.log(`         ${line.join(' ')}`)
+  return failures
 }
 
 export async function reproSupabase(): Promise<boolean> {
@@ -59,10 +59,10 @@ export async function reproSupabase(): Promise<boolean> {
     (process.env.SUPABASE_SERVICE_ROLE_KEY ?? '').split('.').length
   } partes)\n`)
 
-  let fallas = 0
+  let failures = 0
 
   // El error crudo del cliente, sin que results-repo lo aplaste a un string.
-  fallas += await medir('select en extractions (crudo, con el objeto de error)', async () => {
+  failures += await measure('select en extractions (crudo, con el objeto de error)', async () => {
     const { error } = await getSupabaseClient()
       .from('extractions')
       .select('entry_id, attachment_path, kind, payload, confidence, created_at')
@@ -71,16 +71,16 @@ export async function reproSupabase(): Promise<boolean> {
     if (error) throw error
   })
 
-  fallas += await medir('listResults() — el de extraction:list', () => listResults(500))
+  failures += await measure('listResults() — el de extraction:list', () => listResults(500))
 
-  fallas += await medir('listPending(5) — el de extraction:run', () =>
+  failures += await measure('listPending(5) — el de extraction:run', () =>
     createItemSource().listPending(5)
   )
 
   // En paralelo: en el log real fallaron dos llamadas concurrentes y una sola
   // de las dos. Si el error aparece solo acá, es concurrencia, no reloj.
   console.log('\n  ── seis en paralelo (como el StrictMode de React)')
-  const enParalelo = await Promise.all(
+  const inParallel = await Promise.all(
     Array.from({ length: 6 }, async (_, i) => {
       try {
         await listResults(500)
@@ -91,12 +91,14 @@ export async function reproSupabase(): Promise<boolean> {
       }
     })
   )
-  const fallasParalelo = enParalelo.filter((r) => r.startsWith('XX')).length
-  console.log(`  ${fallasParalelo === 0 ? 'ok   ' : `FALLA ${fallasParalelo}/6`}  ${enParalelo.join(' ')}`)
-  fallas += fallasParalelo
+  const parallelFailures = inParallel.filter((r) => r.startsWith('XX')).length
+  console.log(
+    `  ${parallelFailures === 0 ? 'ok   ' : `FALLA ${parallelFailures}/6`}  ${inParallel.join(' ')}`
+  )
+  failures += parallelFailures
 
   console.log(`\n${'='.repeat(60)}`)
-  console.log(fallas === 0 ? 'NO SE REPRODUJO' : `SE REPRODUJO — ${fallas} fallas`)
+  console.log(failures === 0 ? 'NO SE REPRODUJO' : `SE REPRODUJO — ${failures} fallas`)
   console.log('='.repeat(60))
-  return fallas === 0
+  return failures === 0
 }

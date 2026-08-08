@@ -14,17 +14,17 @@ import type { CandidateProfile, FieldAnswer, FormField, JobPosting } from './typ
  * que si lo hubiera propuesto una regla.
  */
 
-const RespuestaSchema = z.object({
+const AnswerSchema = z.object({
   fieldId: z.string(),
   value: z.string(),
   confidence: z.number().min(0).max(1)
 })
 
-const LoteSchema = z.object({
-  answers: z.array(RespuestaSchema)
+const BatchSchema = z.object({
+  answers: z.array(AnswerSchema)
 })
 
-function perfilResumido(p: CandidateProfile): string {
+function profileSummary(p: CandidateProfile): string {
   const years = Object.entries(p.yearsExperience)
     .map(([k, v]) => `${k}=${v}`)
     .join(', ')
@@ -43,19 +43,19 @@ function perfilResumido(p: CandidateProfile): string {
   ].join('\n')
 }
 
-function describirCampo(f: FormField): string {
-  const partes = [
+function describeField(f: FormField): string {
+  const parts = [
     `id: ${f.id}`,
     `tipo: ${f.kind}`,
     `etiqueta: ${f.label || '(sin etiqueta)'}`,
     f.required ? 'obligatorio' : 'opcional'
   ]
-  if (f.placeholder) partes.push(`placeholder: ${f.placeholder}`)
-  if (f.maxLength !== null) partes.push(`máx ${f.maxLength} caracteres`)
+  if (f.placeholder) parts.push(`placeholder: ${f.placeholder}`)
+  if (f.maxLength !== null) parts.push(`máx ${f.maxLength} caracteres`)
   if (f.options.length > 0) {
-    partes.push(`opciones: ${f.options.map((o) => o.label).join(' | ')}`)
+    parts.push(`opciones: ${f.options.map((o) => o.label).join(' | ')}`)
   }
-  return `- ${partes.join(' · ')}`
+  return `- ${parts.join(' · ')}`
 }
 
 export function buildPrompt(
@@ -63,16 +63,16 @@ export function buildPrompt(
   p: CandidateProfile,
   posting: JobPosting | null
 ): string {
-  const contexto =
+  const context =
     posting !== null ? `\nLa vacante es "${posting.role}" en ${posting.company}.\n` : '\n'
 
   return `Estás completando un formulario de postulación laboral en nombre del candidato descrito abajo.
-${contexto}
+${context}
 PERFIL DEL CANDIDATO
-${perfilResumido(p)}
+${profileSummary(p)}
 
 CAMPOS SIN RESPONDER
-${fields.map(describirCampo).join('\n')}
+${fields.map(describeField).join('\n')}
 
 REGLAS
 1. Respondé SOLO con los datos del perfil. Está terminantemente prohibido inventar experiencia, títulos, empresas o habilidades que el perfil no diga.
@@ -86,12 +86,12 @@ Devolvé SOLO un objeto JSON, sin markdown, sin explicación:
 }
 
 /** Saca el primer objeto JSON del texto: los CLI a veces envuelven en ```json. */
-function extraerJson(texto: string): unknown {
-  const limpio = texto.replace(/^```(?:json)?/gm, '').replace(/```$/gm, '')
-  const inicio = limpio.indexOf('{')
-  const fin = limpio.lastIndexOf('}')
-  if (inicio === -1 || fin <= inicio) throw new Error('el modelo no devolvió JSON')
-  return JSON.parse(limpio.slice(inicio, fin + 1))
+function extractJson(text: string): unknown {
+  const clean = text.replace(/^```(?:json)?/gm, '').replace(/```$/gm, '')
+  const start = clean.indexOf('{')
+  const end = clean.lastIndexOf('}')
+  if (start === -1 || end <= start) throw new Error('el modelo no devolvió JSON')
+  return JSON.parse(clean.slice(start, end + 1))
 }
 
 export interface LlmTier {
@@ -113,12 +113,12 @@ export async function answerByLlm(
 ): Promise<{ answers: FieldAnswer[]; unresolved: FormField[] }> {
   if (fields.length === 0) return { answers: [], unresolved: [] }
 
-  const porId = new Map(fields.map((f) => [f.id, f]))
+  const byId = new Map(fields.map((f) => [f.id, f]))
 
-  let lote: z.infer<typeof LoteSchema>
+  let batch: z.infer<typeof BatchSchema>
   try {
-    const salida = await tier.provider.run(buildPrompt(fields, p, posting), tier.model)
-    lote = LoteSchema.parse(extraerJson(salida))
+    const output = await tier.provider.run(buildPrompt(fields, p, posting), tier.model)
+    batch = BatchSchema.parse(extractJson(output))
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error)
     console.warn(`[jobs] el escalón LLM no resolvió nada: ${message}`)
@@ -126,28 +126,28 @@ export async function answerByLlm(
   }
 
   const answers: FieldAnswer[] = []
-  const resueltos = new Set<string>()
+  const resolved = new Set<string>()
 
-  for (const r of lote.answers) {
-    const field = porId.get(r.fieldId)
+  for (const r of batch.answers) {
+    const field = byId.get(r.fieldId)
     // Un fieldId inventado se descarta en silencio: no hay dónde escribirlo.
     if (field === undefined) continue
     if (r.value.trim() === '') continue
     if (r.confidence < 0.5) continue
 
-    const valor = resolveOption(field, r.value)
-    if (valor === null) continue
+    const value = resolveOption(field, r.value)
+    if (value === null) continue
 
     answers.push({
       fieldId: field.id,
       label: field.label,
-      value: valor,
+      value,
       source: 'llm',
       rule: '',
       confidence: r.confidence
     })
-    resueltos.add(field.id)
+    resolved.add(field.id)
   }
 
-  return { answers, unresolved: fields.filter((f) => !resueltos.has(f.id)) }
+  return { answers, unresolved: fields.filter((f) => !resolved.has(f.id)) }
 }

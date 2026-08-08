@@ -20,8 +20,8 @@ import type { TaskCandidate } from '../src/main/core/tasks/types'
 
 const args = process.argv.slice(2)
 
-function flag(nombre: string): string | null {
-  const i = args.indexOf(`--${nombre}`)
+function flag(name: string): string | null {
+  const i = args.indexOf(`--${name}`)
   return i !== -1 && args[i + 1] && !args[i + 1].startsWith('--') ? args[i + 1] : null
 }
 
@@ -33,7 +33,7 @@ async function main(): Promise<void> {
   if (provider === null) throw new Error(`proveedor desconocido: ${providerId}`)
 
   const model = flag('model')
-  const prefijo = flag('entry')
+  const prefix = flag('entry')
 
   const supabase = getSupabaseClient()
   const { data, error } = await supabase
@@ -43,7 +43,7 @@ async function main(): Promise<void> {
 
   if (error) throw new Error(error.message)
 
-  const candidatos: TaskCandidate[] = ((data ?? []) as Record<string, unknown>[])
+  const candidates: TaskCandidate[] = ((data ?? []) as Record<string, unknown>[])
     .map((row) => ({
       entryId: String(row.id),
       userId: String(row.user_id),
@@ -56,29 +56,29 @@ async function main(): Promise<void> {
     .filter((c) => c.body.length > 0)
 
   // Sin --entry, la más larga: es la que más necesita el resumen.
-  const elegido =
-    prefijo !== null
-      ? candidatos.find((c) => c.entryId.startsWith(prefijo))
-      : candidatos.sort((a, b) => b.body.length - a.body.length)[0]
+  const chosen =
+    prefix !== null
+      ? candidates.find((c) => c.entryId.startsWith(prefix))
+      : candidates.sort((a, b) => b.body.length - a.body.length)[0]
 
-  if (elegido === undefined) throw new Error('no encontré esa nota')
+  if (chosen === undefined) throw new Error('no encontré esa nota')
 
-  const hoy = new Date().toISOString().slice(0, 10)
+  const today = new Date().toISOString().slice(0, 10)
 
   console.log('='.repeat(74))
-  console.log(`nota ${elegido.entryId.slice(0, 8)} · ${elegido.body.length} chars · ` +
-    `${elegido.attachments.length} adjunto(s)`)
+  console.log(`nota ${chosen.entryId.slice(0, 8)} · ${chosen.body.length} chars · ` +
+    `${chosen.attachments.length} adjunto(s)`)
   console.log(`proveedor ${provider.id}${model !== null ? ` / ${model}` : ''}`)
   console.log('='.repeat(74))
 
   console.log('\n--- REGLAS (gratis, sin modelo) ---')
-  const porRegla = deterministicTasks(elegido)
-  if (porRegla.length === 0) console.log('  (ninguna aplica)')
-  for (const t of porRegla) console.log(`  • ${t.title}`)
+  const byRule = deterministicTasks(chosen)
+  if (byRule.length === 0) console.log('  (ninguna aplica)')
+  for (const t of byRule) console.log(`  • ${t.title}`)
 
   console.log('\n--- MODELO ---')
   const t0 = Date.now()
-  const { tasks, summary } = await detectTasks(provider, model, elegido, hoy)
+  const { tasks, summary } = await detectTasks(provider, model, chosen, today)
   const ms = Date.now() - t0
 
   console.log(`  respondió en ${(ms / 1000).toFixed(1)}s\n`)

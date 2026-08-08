@@ -12,7 +12,7 @@ import { getSupabaseClient } from '../src/main/supabase/client'
 
 const MB = 1024 * 1024
 
-const Extraccion = z.object({
+const Extraction = z.object({
   entry_id: z.string(),
   attachment_path: z.string(),
   kind: z.string(),
@@ -20,7 +20,7 @@ const Extraccion = z.object({
   source: z.string()
 })
 
-const Adjunto = z.object({ size: z.number().optional() })
+const Attachment = z.object({ size: z.number().optional() })
 
 function human(bytes: number): string {
   if (bytes >= MB) return `${(bytes / MB).toFixed(2)} MB`
@@ -37,14 +37,14 @@ async function main(): Promise<void> {
     .select('entry_id, attachment_path, kind, payload, source')
   if (e1) throw new Error(e1.message)
 
-  let bytesFilas = 0
-  let filas = 0
+  let rowBytes = 0
+  let rowCount = 0
   for (const raw of Array.isArray(ext) ? ext : []) {
-    const parsed = Extraccion.safeParse(raw)
+    const parsed = Extraction.safeParse(raw)
     if (!parsed.success) continue
-    filas++
+    rowCount++
     // Aproximación honesta: el JSON serializado es el grueso de la fila.
-    bytesFilas += Buffer.byteLength(JSON.stringify(parsed.data), 'utf8')
+    rowBytes += Buffer.byteLength(JSON.stringify(parsed.data), 'utf8')
   }
 
   // --- Storage: lo que hay DE VERDAD en el bucket -----------------------
@@ -53,68 +53,68 @@ async function main(): Promise<void> {
   // My Notes escribió al subir y NO se actualiza cuando un archivo se borra:
   // seguiría contando bytes que ya no ocupan nada. Medir la metadata en vez del
   // bucket es exactamente como no medir.
-  let bytesAdjuntos = 0
-  let adjuntos = 0
-  let huerfanos = 0
+  let attachmentBytes = 0
+  let attachmentCount = 0
+  let orphans = 0
 
-  async function recorrer(prefijo: string, profundidad: number): Promise<void> {
-    if (profundidad > 4) return
+  async function walk(prefix: string, depth: number): Promise<void> {
+    if (depth > 4) return
     const { data, error } = await supabase.storage
       .from('attachments')
-      .list(prefijo, { limit: 1000 })
+      .list(prefix, { limit: 1000 })
     if (error) throw new Error(error.message)
 
     for (const obj of data ?? []) {
-      const ruta = prefijo ? `${prefijo}/${obj.name}` : obj.name
+      const path = prefix ? `${prefix}/${obj.name}` : obj.name
       // Un "archivo" sin metadata es en realidad una carpeta.
-      const tam = (obj.metadata as { size?: number } | null)?.size
-      if (tam === undefined || tam === null) {
-        await recorrer(ruta, profundidad + 1)
+      const size = (obj.metadata as { size?: number } | null)?.size
+      if (size === undefined || size === null) {
+        await walk(path, depth + 1)
       } else {
-        adjuntos++
-        bytesAdjuntos += tam
+        attachmentCount++
+        attachmentBytes += size
       }
     }
   }
-  await recorrer('', 0)
+  await walk('', 0)
 
   // Referencias en la tabla que ya no tienen archivo detrás: eso es lo que hace
   // que My Notes muestre fotos rotas.
   const { data: entries, error: e2 } = await supabase.from('entries').select('attachments')
   if (e2) throw new Error(e2.message)
-  let referenciados = 0
+  let referenced = 0
   for (const row of Array.isArray(entries) ? entries : []) {
-    const lista = (row as { attachments: unknown }).attachments
-    if (!Array.isArray(lista)) continue
-    for (const a of lista) {
-      if (Adjunto.safeParse(a).success) referenciados++
+    const list = (row as { attachments: unknown }).attachments
+    if (!Array.isArray(list)) continue
+    for (const a of list) {
+      if (Attachment.safeParse(a).success) referenced++
     }
   }
-  huerfanos = referenciados - adjuntos
+  orphans = referenced - attachmentCount
 
-  const LIMITE_DB = 500 * MB
-  const LIMITE_STORAGE = 1024 * MB
+  const DB_LIMIT = 500 * MB
+  const STORAGE_LIMIT = 1024 * MB
 
   console.log('='.repeat(66))
   console.log('BASE DE DATOS  (limite free: 500 MB)  <- el indice, texto')
   console.log('='.repeat(66))
-  console.log(`  filas en extractions : ${filas}`)
-  console.log(`  peso total           : ${human(bytesFilas)}`)
-  console.log(`  promedio por fila    : ${human(filas ? bytesFilas / filas : 0)}`)
-  console.log(`  ocupado del limite   : ${((bytesFilas / LIMITE_DB) * 100).toFixed(5)} %`)
+  console.log(`  filas en extractions : ${rowCount}`)
+  console.log(`  peso total           : ${human(rowBytes)}`)
+  console.log(`  promedio por fila    : ${human(rowCount ? rowBytes / rowCount : 0)}`)
+  console.log(`  ocupado del limite   : ${((rowBytes / DB_LIMIT) * 100).toFixed(5)} %`)
   console.log(
-    `  caben todavia        : ~${Math.floor(LIMITE_DB / (bytesFilas / Math.max(filas, 1))).toLocaleString('es')} filas mas`
+    `  caben todavia        : ~${Math.floor(DB_LIMIT / (rowBytes / Math.max(rowCount, 1))).toLocaleString('es')} filas mas`
   )
 
   console.log('\n' + '='.repeat(66))
   console.log('STORAGE  (limite free: 1 GB)  <- los binarios, las fotos')
   console.log('='.repeat(66))
-  console.log(`  archivos en el bucket : ${adjuntos}`)
-  console.log(`  peso real             : ${human(bytesAdjuntos)}`)
-  console.log(`  ocupado del limite    : ${((bytesAdjuntos / LIMITE_STORAGE) * 100).toFixed(2)} %`)
-  if (huerfanos > 0) {
+  console.log(`  archivos en el bucket : ${attachmentCount}`)
+  console.log(`  peso real             : ${human(attachmentBytes)}`)
+  console.log(`  ocupado del limite    : ${((attachmentBytes / STORAGE_LIMIT) * 100).toFixed(2)} %`)
+  if (orphans > 0) {
     console.log(
-      `  referencias huerfanas : ${huerfanos}  <- My Notes las va a mostrar rotas ` +
+      `  referencias huerfanas : ${orphans}  <- My Notes las va a mostrar rotas ` +
         `hasta que lea desde Drive`
     )
   }
@@ -122,7 +122,7 @@ async function main(): Promise<void> {
   console.log('\n' + '='.repeat(66))
   console.log(
     `Por cada 1 MB de fotos, el indice pesa ${
-      bytesAdjuntos > 0 ? ((bytesFilas / bytesAdjuntos) * 1024).toFixed(1) : '?'
+      attachmentBytes > 0 ? ((rowBytes / attachmentBytes) * 1024).toFixed(1) : '?'
     } KB`
   )
   console.log('='.repeat(66))

@@ -4,7 +4,7 @@ import { registerHandler } from './register-handler'
 import {
   IpcChannels,
   IpcEvents,
-  esUrlPostulable,
+  isApplicableUrl,
   type AgentInfo,
   type HuntResult,
   type EmailApplyResult,
@@ -17,12 +17,12 @@ import {
 import { cvUploadName } from '../core/jobs/cv-name'
 import type { RankedJob } from '../core/jobs/rank'
 import { hasLinkedInSession, openLoginWindow } from '../browser/session'
-import { tieneScopeGmail } from '../gmail/send'
+import { hasGmailScope } from '../gmail/send'
 import { isNotionConfigured } from '../notion/client'
-import { listarAgentes } from '../agents/registry'
+import { listAgents } from '../agents/registry'
 import { confirmApplied, runApplication } from '../jobs/apply-runner'
 import { applyByEmail } from '../jobs/email-runner'
-import { hunt, QUERIES_POR_DEFECTO } from '../jobs/hunt'
+import { hunt, DEFAULT_QUERIES } from '../jobs/hunt'
 import { createWorkspaceKitSource, loadProfile, slugify } from '../jobs/workspace'
 import { uploadStagingDir } from '../jobs/apply-runner'
 import { getProvider } from '../providers/registry'
@@ -35,7 +35,7 @@ import type { LlmTier } from '../core/jobs/answers-llm'
  */
 
 const ApplySchema = z.object({
-  url: z.string().url().refine(esUrlPostulable, 'ese host no está en la allowlist de postulación'),
+  url: z.string().url().refine(isApplicableUrl, 'ese host no está en la allowlist de postulación'),
   company: z.string().min(1).max(120),
   role: z.string().min(1).max(160),
   slug: z.string().max(80).default(''),
@@ -50,17 +50,17 @@ const ApplySchema = z.object({
 const KitSchema = z.object({
   /** Id de la vacante en la lista, para que el progreso vaya a su tarjeta. */
   id: z.string().max(40).default(''),
-  url: z.string().url().refine(esUrlPostulable, 'ese host no está en la allowlist'),
+  url: z.string().url().refine(isApplicableUrl, 'ese host no está en la allowlist'),
   company: z.string().min(1).max(120),
   role: z.string().min(1).max(160),
   slug: z.string().max(80).default('')
 })
 
 const HuntSchema = z.object({
-  queries: z.array(z.string().min(2).max(80)).min(1).max(8).default(QUERIES_POR_DEFECTO),
+  queries: z.array(z.string().min(2).max(80)).min(1).max(8).default(DEFAULT_QUERIES),
   location: z.string().min(2).max(80).default('Colombia'),
   maxRank: z.number().int().min(1).max(25).default(12),
-  guardarEnNotion: z.boolean().default(true),
+  saveToNotion: z.boolean().default(true),
   providerId: z.string().max(40),
   modelId: z.string().max(60).nullable().default(null)
 })
@@ -103,7 +103,7 @@ const ConfirmSchema = z.object({
  * acá, y hacer que la app funcione dependa de si un `useEffect` ya terminó es
  * frágil por definición.
  */
-async function resolverLlm(
+async function resolveLlm(
   providerId: string | null,
   modelId: string | null
 ): Promise<LlmTier | null> {
@@ -112,28 +112,28 @@ async function resolverLlm(
     if (provider !== null) return { provider, model: modelId }
   }
 
-  const { primerProviderDisponible } = await import('../providers/registry')
-  const auto = await primerProviderDisponible(modelId ?? 'sonnet')
+  const { firstAvailableProvider } = await import('../providers/registry')
+  const auto = await firstAvailableProvider(modelId ?? 'sonnet')
   if (auto === null) return null
 
   const provider = getProvider(auto.id)
-  return provider === null ? null : { provider, model: modelId ?? auto.modelo }
+  return provider === null ? null : { provider, model: modelId ?? auto.model }
 }
 
 /** El mensaje que se le muestra al usuario cuando de verdad no hay ningún CLI. */
-const SIN_CLI =
+const NO_CLI =
   'No encontré ningún CLI de IA instalado (claude o agy). El triage los necesita para puntuar las vacantes contra tu perfil.'
 
-function ventana(): BrowserWindow | null {
+function mainWindow(): BrowserWindow | null {
   return BrowserWindow.getAllWindows()[0] ?? null
 }
 
 /** ¿Hay PDF compilado para esta empresa? Decide si el botón "postular" sirve. */
-async function conKit(rankeadas: RankedJob[]): Promise<RankedJobRow[]> {
+async function withKit(ranked: RankedJob[]): Promise<RankedJobRow[]> {
   const kitSource = createWorkspaceKitSource(uploadStagingDir())
-  const filas: RankedJobRow[] = []
+  const rows: RankedJobRow[] = []
 
-  for (const j of rankeadas) {
+  for (const j of ranked) {
     const slug = slugify(j.company)
     let kitReady = false
     try {
@@ -141,7 +141,7 @@ async function conKit(rankeadas: RankedJob[]): Promise<RankedJobRow[]> {
     } catch {
       kitReady = false
     }
-    filas.push({
+    rows.push({
       id: j.id,
       title: j.title,
       company: j.company,
@@ -158,11 +158,11 @@ async function conKit(rankeadas: RankedJob[]): Promise<RankedJobRow[]> {
     })
   }
 
-  return filas
+  return rows
 }
 
 export function registerJobHandlers(): void {
-  registerHandler(IpcChannels.AGENTS_LIST, async (): Promise<AgentInfo[]> => listarAgentes())
+  registerHandler(IpcChannels.AGENTS_LIST, async (): Promise<AgentInfo[]> => listAgents())
 
   /**
    * Responder una pregunta ESCRIBE una regla. No es un formulario que se
@@ -170,27 +170,27 @@ export function registerJobHandlers(): void {
    * vale para siempre, incluso para la corrida de mañana a las 7.
    */
   registerHandler(IpcChannels.AGENTS_ANSWER, async (payload: unknown) => {
-    const { id, preguntaId, respuesta } = z
+    const { id, questionId, answer } = z
       .object({
         id: z.string().min(1).max(40),
-        preguntaId: z.string().min(1).max(80),
-        respuesta: z.string().min(1).max(2000)
+        questionId: z.string().min(1).max(80),
+        answer: z.string().min(1).max(2000)
       })
       .parse(payload)
 
-    const { responderPregunta } = await import('../agents/questions')
-    const p = responderPregunta(id, preguntaId, respuesta)
-    if (p === null) throw new Error('esa pregunta ya no existe')
+    const { answerQuestion } = await import('../agents/questions')
+    const question = answerQuestion(id, questionId, answer)
+    if (question === null) throw new Error('esa pregunta ya no existe')
 
-    return { ok: true, agentes: await listarAgentes() }
+    return { ok: true, agents: await listAgents() }
   })
 
   registerHandler(IpcChannels.AGENTS_RULES_OPEN, async (payload: unknown) => {
     const { id } = z.object({ id: z.string().min(1).max(40) }).parse(payload)
-    const { abrirReglasDeAgente } = await import('../agents/registry')
+    const { openAgentRules } = await import('../agents/registry')
     // Devuelve la ruta: si el editor no abre —pasa—, el usuario al menos sabe
     // qué archivo tiene que buscar.
-    return { ruta: await abrirReglasDeAgente(id) }
+    return { path: await openAgentRules(id) }
   })
 
   /**
@@ -201,10 +201,10 @@ export function registerJobHandlers(): void {
    * cruza el IPC es input externo.
    */
   registerHandler(IpcChannels.JOBS_CHAT, async (payload: unknown): Promise<ChatIntent> => {
-    const { texto, vacantes } = z
+    const { text, jobs } = z
       .object({
-        texto: z.string().min(1).max(2000),
-        vacantes: z
+        text: z.string().min(1).max(2000),
+        jobs: z
           .array(
             z.object({
               id: z.string(),
@@ -217,8 +217,8 @@ export function registerJobHandlers(): void {
       })
       .parse(payload)
 
-    const { interpretar } = await import('../core/jobs/chat')
-    return interpretar(texto, vacantes)
+    const { interpret } = await import('../core/jobs/chat')
+    return interpret(text, jobs)
   })
 
   registerHandler(IpcChannels.JOBS_STATUS, async (): Promise<JobsStatus> => {
@@ -227,16 +227,16 @@ export function registerJobHandlers(): void {
 
     let gmailReady = false
     try {
-      gmailReady = (await tieneScopeGmail()).ok
+      gmailReady = (await hasGmailScope()).ok
     } catch {
       gmailReady = false
     }
 
     // Los faltantes ya no mandan a la terminal: todo se conecta desde la UI.
-    const faltantes: string[] = []
-    if (!linkedInSession) faltantes.push('LinkedIn')
-    if (!notionReady) faltantes.push('Notion')
-    if (!gmailReady) faltantes.push('Google')
+    const missing: string[] = []
+    if (!linkedInSession) missing.push('LinkedIn')
+    if (!notionReady) missing.push('Notion')
+    if (!gmailReady) missing.push('Google')
 
     try {
       const profile = await loadProfile(true)
@@ -247,7 +247,7 @@ export function registerJobHandlers(): void {
         cvUploadName: cvUploadName(profile, 'x.pdf'),
         notionReady,
         gmailReady,
-        faltantes
+        missing
       }
     } catch (error: unknown) {
       return {
@@ -257,7 +257,7 @@ export function registerJobHandlers(): void {
         cvUploadName: '',
         notionReady,
         gmailReady,
-        faltantes: ['JOB_WORKSPACE_DIR + albus-profile.json', ...faltantes]
+        missing: ['JOB_WORKSPACE_DIR + albus-profile.json', ...missing]
       }
     }
   })
@@ -270,49 +270,49 @@ export function registerJobHandlers(): void {
   registerHandler(IpcChannels.JOBS_HUNT, async (payload: unknown): Promise<HuntResult> => {
     const req = HuntSchema.parse(payload)
 
-    const llm = await resolverLlm(req.providerId, req.modelId)
-    if (llm === null) throw new Error(SIN_CLI)
+    const llm = await resolveLlm(req.providerId, req.modelId)
+    if (llm === null) throw new Error(NO_CLI)
 
-    const win = ventana()
+    const win = mainWindow()
     const report = await hunt({
       queries: req.queries,
       location: req.location,
       maxRank: req.maxRank,
-      guardarEnNotion: req.guardarEnNotion,
+      saveToNotion: req.saveToNotion,
       llm,
-      onProgress: (fase, detalle) =>
-        win?.webContents.send(IpcEvents.JOBS_HUNT_PROGRESS, { fase, detalle })
+      onProgress: (phase, detail) =>
+        win?.webContents.send(IpcEvents.JOBS_HUNT_PROGRESS, { phase, detail })
     })
 
     return {
-      encontradas: report.encontradas,
-      repetidas: report.repetidas,
-      rankeadas: report.rankeadas,
-      califican: await conKit(report.califican),
-      descartadas: await conKit(report.descartadas),
-      notionEscritas: report.notion.escritas,
+      found: report.found,
+      duplicates: report.duplicates,
+      ranked: report.ranked,
+      qualified: await withKit(report.qualified),
+      rejected: await withKit(report.rejected),
+      notionWrites: report.notion.writes,
       notionError: report.notion.error,
-      resumen: report.resumen
+      summary: report.summary
     }
   })
 
   registerHandler(IpcChannels.JOBS_KIT, async (payload: unknown): Promise<KitResultRow> => {
     const req = KitSchema.parse(payload)
-    const win = ventana()
+    const win = mainWindow()
 
-    const { generarKit } = await import('../jobs/kit')
-    return generarKit({
+    const { generateKit } = await import('../jobs/kit')
+    return generateKit({
       url: req.url,
       company: req.company,
       role: req.role,
       slug: req.slug,
-      onLinea: (linea) => win?.webContents.send(IpcEvents.JOBS_KIT_PROGRESS, { id: req.id, linea })
+      onLine: (line) => win?.webContents.send(IpcEvents.JOBS_KIT_PROGRESS, { id: req.id, line })
     })
   })
 
   registerHandler(IpcChannels.JOBS_APPLY, async (payload: unknown): Promise<JobApplyResult> => {
     const req = ApplySchema.parse(payload)
-    const win = ventana()
+    const win = mainWindow()
 
     const report = await runApplication({
       url: req.url,
@@ -326,7 +326,7 @@ export function registerJobHandlers(): void {
       // Acá `null` NO es fatal: sin CLI el formulario igual se llena con las
       // reglas puras, solo que los campos que necesitan criterio quedan
       // vacíos. Es el escalón 4 de la cascada, y es opcional a propósito.
-      llm: await resolverLlm(req.providerId, req.modelId),
+      llm: await resolveLlm(req.providerId, req.modelId),
       onStep: (step) =>
         win?.webContents.send(IpcEvents.JOBS_STEP, {
           index: step.index,

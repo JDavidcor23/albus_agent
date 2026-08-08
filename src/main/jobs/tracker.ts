@@ -12,7 +12,12 @@ import { workspaceDir } from './workspace'
 
 export const TRACKER_FILE = 'job_search_tracker.csv'
 
-export const COLUMNAS: (keyof TrackerRow)[] = [
+/**
+ * The 13 header strings are FROZEN: they are the contract with the sibling
+ * `ai-job-search` workspace, which this repo does not solely own. `'source'`
+ * is the dedupe lookup key.
+ */
+export const COLUMNS: (keyof TrackerRow)[] = [
   'date',
   'company',
   'sector',
@@ -33,13 +38,13 @@ export function trackerPath(): string {
 }
 
 /** Comillas solo cuando hacen falta, y las internas se duplican. Es RFC 4180. */
-export function csvEscape(valor: string): string {
-  if (!/[",\n\r]/.test(valor)) return valor
-  return `"${valor.replace(/"/g, '""')}"`
+export function csvEscape(value: string): string {
+  if (!/[",\n\r]/.test(value)) return value
+  return `"${value.replace(/"/g, '""')}"`
 }
 
 export function toCsvLine(row: TrackerRow): string {
-  return COLUMNAS.map((c) => csvEscape(row[c] ?? '')).join(',')
+  return COLUMNS.map((c) => csvEscape(row[c] ?? '')).join(',')
 }
 
 /**
@@ -47,78 +52,78 @@ export function toCsvLine(row: TrackerRow): string {
  * (la columna `notes` lleva el historial completo entre comillas). Partir por
  * coma acá devolvería columnas corridas y el dedupe leería cualquier cosa.
  */
-export function parseCsv(texto: string): string[][] {
-  const filas: string[][] = []
-  let fila: string[] = []
-  let campo = ''
-  let enComillas = false
+export function parseCsv(text: string): string[][] {
+  const rows: string[][] = []
+  let row: string[] = []
+  let field = ''
+  let inQuotes = false
 
-  for (let i = 0; i < texto.length; i++) {
-    const c = texto[i]
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
 
-    if (enComillas) {
+    if (inQuotes) {
       if (c === '"') {
-        if (texto[i + 1] === '"') {
-          campo += '"'
+        if (text[i + 1] === '"') {
+          field += '"'
           i++
         } else {
-          enComillas = false
+          inQuotes = false
         }
       } else {
-        campo += c
+        field += c
       }
       continue
     }
 
     if (c === '"') {
-      enComillas = true
+      inQuotes = true
     } else if (c === ',') {
-      fila.push(campo)
-      campo = ''
+      row.push(field)
+      field = ''
     } else if (c === '\n') {
-      fila.push(campo)
-      filas.push(fila)
-      fila = []
-      campo = ''
+      row.push(field)
+      rows.push(row)
+      row = []
+      field = ''
     } else if (c !== '\r') {
-      campo += c
+      field += c
     }
   }
 
-  if (campo !== '' || fila.length > 0) {
-    fila.push(campo)
-    filas.push(fila)
+  if (field !== '' || row.length > 0) {
+    row.push(field)
+    rows.push(row)
   }
 
-  return filas
+  return rows
 }
 
 export function createCsvTracker(): TrackerSink {
   return {
     async append(row: TrackerRow): Promise<void> {
-      const ruta = trackerPath()
+      const path = trackerPath()
 
       // Si el archivo no termina en salto, la fila nueva se pega a la anterior.
-      const actual = await readFile(ruta, 'utf8').catch(() => '')
-      const prefijo = actual === '' || actual.endsWith('\n') ? '' : '\n'
+      const current = await readFile(path, 'utf8').catch(() => '')
+      const prefix = current === '' || current.endsWith('\n') ? '' : '\n'
 
-      await appendFile(ruta, `${prefijo}${toCsvLine(row)}\n`, 'utf8')
+      await appendFile(path, `${prefix}${toCsvLine(row)}\n`, 'utf8')
     },
 
     async seenUrls(): Promise<Set<string>> {
-      const crudo = await readFile(trackerPath(), 'utf8').catch(() => '')
-      if (crudo === '') return new Set()
+      const raw = await readFile(trackerPath(), 'utf8').catch(() => '')
+      if (raw === '') return new Set()
 
-      const filas = parseCsv(crudo)
-      if (filas.length === 0) return new Set()
+      const rows = parseCsv(raw)
+      if (rows.length === 0) return new Set()
 
-      const idx = filas[0].indexOf('source')
+      const idx = rows[0].indexOf('source')
       if (idx === -1) return new Set()
 
       return new Set(
-        filas
+        rows
           .slice(1)
-          .map((f) => (f[idx] ?? '').trim())
+          .map((r) => (r[idx] ?? '').trim())
           .filter((u) => u !== '')
       )
     }

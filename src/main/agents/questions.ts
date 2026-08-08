@@ -1,8 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { z } from 'zod'
-import { carpetaAgentes } from '../paths'
-import { rutaReglas } from './rules'
+import type { AgentQuestion } from '../../shared/ipc'
+import { agentsDir } from '../paths'
+import { rulesPath } from './rules'
 
 /**
  * Las preguntas del agente, y cómo una respuesta se vuelve regla.
@@ -30,9 +31,21 @@ import { rutaReglas } from './rules'
  * Porque la respuesta se perdería. Contestada acá, queda en el archivo y vale
  * para siempre — incluso para la corrida de mañana a las 7, con el usuario
  * durmiendo.
+ *
+ * ## Disco vs. cable: dos tipos, un mapeo explícito
+ *
+ * Lo que está en `<id>.preguntas.json` en la máquina del usuario tiene las
+ * claves en castellano —`pregunta`, `contexto`, `creada`, `opciones`,
+ * `respuesta`, `respondida`— y **no se tocan**: renombrarlas no rompe el
+ * typecheck, simplemente deja huérfana la cola que el usuario ya tiene.
+ *
+ * Lo que viaja por IPC es `AgentQuestion`, con las claves en inglés como todo
+ * el resto del contrato. Son dos formas distintas y se cruzan en UN solo lugar
+ * —`toAgentQuestion`—, para que nadie las confunda ni "arregle" el disco.
  */
 
-export interface PreguntaAgente {
+/** Lo que está EN EL DISCO. Claves en castellano: contrato con el archivo. */
+export interface StoredQuestion {
   id: string
   /** La pregunta, en castellano. */
   pregunta: string
@@ -50,7 +63,7 @@ export interface PreguntaAgente {
   respondida: string | null
 }
 
-const PreguntaSchema = z.object({
+const StoredQuestionSchema = z.object({
   id: z.string(),
   pregunta: z.string(),
   contexto: z.string().default(''),
@@ -60,51 +73,67 @@ const PreguntaSchema = z.object({
   respondida: z.string().nullable().default(null)
 })
 
-/** El archivo es JSON y no markdown: esto es una COLA, no algo que se edite. */
-function rutaPreguntas(agenteId: string): string {
-  const limpio = agenteId.replace(/[^a-z0-9-]/gi, '')
-  return join(carpetaAgentes(), `${limpio}.preguntas.json`)
+/**
+ * Disco → cable. El único punto donde las claves cambian de idioma.
+ *
+ * `respuesta` y `respondida` no cruzan: la UI muestra lo que sigue pendiente,
+ * y lo ya contestado vive en el `.md` como regla.
+ */
+export function toAgentQuestion(q: StoredQuestion): AgentQuestion {
+  return {
+    id: q.id,
+    question: q.pregunta,
+    context: q.contexto,
+    createdAt: q.creada,
+    options: q.opciones
+  }
 }
 
-export function leerPreguntas(agenteId: string): PreguntaAgente[] {
-  const ruta = rutaPreguntas(agenteId)
-  if (!existsSync(ruta)) return []
+/** El archivo es JSON y no markdown: esto es una COLA, no algo que se edite. */
+function questionsPath(agentId: string): string {
+  const clean = agentId.replace(/[^a-z0-9-]/gi, '')
+  return join(agentsDir(), `${clean}.preguntas.json`)
+}
+
+export function readQuestions(agentId: string): StoredQuestion[] {
+  const path = questionsPath(agentId)
+  if (!existsSync(path)) return []
 
   try {
-    const crudo: unknown = JSON.parse(readFileSync(ruta, 'utf8'))
-    if (!Array.isArray(crudo)) return []
+    const raw: unknown = JSON.parse(readFileSync(path, 'utf8'))
+    if (!Array.isArray(raw)) return []
 
     // Fila por fila, como todo lo que viene de afuera: una pregunta corrupta
     // no puede hacer que se pierdan las otras nueve.
-    const salida: PreguntaAgente[] = []
-    for (const item of crudo) {
-      const p = PreguntaSchema.safeParse(item)
-      if (p.success) salida.push(p.data)
+    const output: StoredQuestion[] = []
+    for (const item of raw) {
+      const p = StoredQuestionSchema.safeParse(item)
+      if (p.success) output.push(p.data)
     }
-    return salida
+    return output
   } catch {
-    console.warn(`[preguntas] ${ruta} no se pudo leer, lo ignoro`)
+    console.warn(`[preguntas] ${path} no se pudo leer, lo ignoro`)
     return []
   }
 }
 
-function escribirPreguntas(agenteId: string, lista: PreguntaAgente[]): void {
-  const ruta = rutaPreguntas(agenteId)
-  mkdirSync(dirname(ruta), { recursive: true })
-  writeFileSync(ruta, JSON.stringify(lista, null, 2), 'utf8')
+function writeQuestions(agentId: string, list: StoredQuestion[]): void {
+  const path = questionsPath(agentId)
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, JSON.stringify(list, null, 2), 'utf8')
 }
 
 /**
- * El agente pregunta. `ahora` entra por parámetro para que los chequeos sean
+ * El agente pregunta. `now` entra por parámetro para que los chequeos sean
  * deterministas y para no esconder un reloj adentro del dominio.
  */
-export function encolarPregunta(
-  agenteId: string,
-  pregunta: string,
-  opciones: { contexto?: string; opciones?: string[]; ahora?: string } = {}
-): PreguntaAgente {
-  const lista = leerPreguntas(agenteId)
-  const texto = pregunta.trim()
+export function enqueueQuestion(
+  agentId: string,
+  question: string,
+  opts: { context?: string; options?: string[]; now?: string } = {}
+): StoredQuestion {
+  const list = readQuestions(agentId)
+  const text = question.trim()
 
   /*
    * La misma duda dos veces es UNA pregunta.
@@ -113,32 +142,32 @@ export function encolarPregunta(
    * generan veinte preguntas idénticas y el usuario abandona el panel — que es
    * la forma más rápida de que este mecanismo no sirva para nada.
    */
-  const ya = lista.find((p) => p.respuesta === null && p.pregunta.trim() === texto)
-  if (ya !== undefined) return ya
+  const already = list.find((p) => p.respuesta === null && p.pregunta.trim() === text)
+  if (already !== undefined) return already
 
-  const nueva: PreguntaAgente = {
-    id: `q${lista.length + 1}-${texto.slice(0, 12).replace(/\W+/g, '')}`,
-    pregunta: texto,
-    contexto: opciones.contexto ?? '',
-    creada: opciones.ahora ?? new Date().toISOString(),
-    opciones: opciones.opciones ?? [],
+  const next: StoredQuestion = {
+    id: `q${list.length + 1}-${text.slice(0, 12).replace(/\W+/g, '')}`,
+    pregunta: text,
+    contexto: opts.context ?? '',
+    creada: opts.now ?? new Date().toISOString(),
+    opciones: opts.options ?? [],
     respuesta: null,
     respondida: null
   }
 
-  lista.push(nueva)
-  escribirPreguntas(agenteId, lista)
-  console.log(`[preguntas] ${agenteId}: ${texto}`)
-  return nueva
+  list.push(next)
+  writeQuestions(agentId, list)
+  console.log(`[preguntas] ${agentId}: ${text}`)
+  return next
 }
 
 /** Lo que se le anexa al `.md`. Separado para poder verificarlo sin tocar disco. */
-export function bloqueDeRespuesta(pregunta: string, respuesta: string, cuando: string): string {
-  const fecha = cuando.slice(0, 10)
-  return `\n- ${respuesta.trim()}  <!-- respondiste el ${fecha} a: ${pregunta.trim()} -->\n`
+export function answerBlock(question: string, answer: string, when: string): string {
+  const date = when.slice(0, 10)
+  return `\n- ${answer.trim()}  <!-- respondiste el ${date} a: ${question.trim()} -->\n`
 }
 
-const TITULO_SECCION = '## Respuestas a lo que el agente preguntó'
+const ANSWERS_SECTION_HEADING = '## Respuestas a lo que el agente preguntó'
 
 /**
  * Responder = escribir una regla.
@@ -148,39 +177,39 @@ const TITULO_SECCION = '## Respuestas a lo que el agente preguntó'
  * saltea `<!-- -->`— pero está ahí para cuando el usuario relea el archivo en
  * marzo y no se acuerde por qué escribió eso.
  */
-export function responderPregunta(
-  agenteId: string,
-  preguntaId: string,
-  respuesta: string,
-  ahora = new Date().toISOString()
-): PreguntaAgente | null {
-  const lista = leerPreguntas(agenteId)
-  const p = lista.find((x) => x.id === preguntaId)
+export function answerQuestion(
+  agentId: string,
+  questionId: string,
+  answer: string,
+  now = new Date().toISOString()
+): StoredQuestion | null {
+  const list = readQuestions(agentId)
+  const p = list.find((x) => x.id === questionId)
   if (p === undefined) return null
 
-  p.respuesta = respuesta.trim()
-  p.respondida = ahora
-  escribirPreguntas(agenteId, lista)
+  p.respuesta = answer.trim()
+  p.respondida = now
+  writeQuestions(agentId, list)
 
-  const ruta = rutaReglas(agenteId)
-  mkdirSync(dirname(ruta), { recursive: true })
+  const path = rulesPath(agentId)
+  mkdirSync(dirname(path), { recursive: true })
 
-  const actual = existsSync(ruta) ? readFileSync(ruta, 'utf8') : ''
-  const bloque = bloqueDeRespuesta(p.pregunta, p.respuesta, ahora)
+  const current = existsSync(path) ? readFileSync(path, 'utf8') : ''
+  const block = answerBlock(p.pregunta, p.respuesta, now)
 
-  if (actual.includes(TITULO_SECCION)) {
-    appendFileSync(ruta, bloque, 'utf8')
+  if (current.includes(ANSWERS_SECTION_HEADING)) {
+    appendFileSync(path, block, 'utf8')
   } else {
-    appendFileSync(ruta, `\n\n${TITULO_SECCION}\n${bloque}`, 'utf8')
+    appendFileSync(path, `\n\n${ANSWERS_SECTION_HEADING}\n${block}`, 'utf8')
   }
 
-  console.log(`[preguntas] ${agenteId}: respondida "${p.pregunta}" → regla nueva`)
+  console.log(`[preguntas] ${agentId}: respondida "${p.pregunta}" → regla nueva`)
   return p
 }
 
 /** Las que siguen esperando. Es lo que la UI muestra. */
-export function pendientes(agenteId: string): PreguntaAgente[] {
-  return leerPreguntas(agenteId).filter((p) => p.respuesta === null)
+export function pending(agentId: string): StoredQuestion[] {
+  return readQuestions(agentId).filter((p) => p.respuesta === null)
 }
 
 /**
@@ -189,8 +218,8 @@ export function pendientes(agenteId: string): PreguntaAgente[] {
  * Va aparte del `.md` completo por una razón práctica: cuando el agente vuelve
  * a dudar de algo parecido, esto es lo que hay que ponerle adelante.
  */
-export function respondidas(agenteId: string): { pregunta: string; respuesta: string }[] {
-  return leerPreguntas(agenteId)
+export function answered(agentId: string): { question: string; answer: string }[] {
+  return readQuestions(agentId)
     .filter((p) => p.respuesta !== null)
-    .map((p) => ({ pregunta: p.pregunta, respuesta: p.respuesta as string }))
+    .map((p) => ({ question: p.pregunta, answer: p.respuesta as string }))
 }

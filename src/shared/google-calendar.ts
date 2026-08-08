@@ -23,7 +23,7 @@
 
 const BASE = 'https://calendar.google.com/calendar/render'
 
-export interface EventoDeCalendario {
+export interface CalendarEvent {
   /** Lo que va en el título del evento. */
   title: string
   /** Contexto para el cuerpo. Opcional: muchos pendientes no tienen más que el título. */
@@ -48,18 +48,18 @@ export interface EventoDeCalendario {
  * "2026-08-26" como medianoche UTC, y sumarle un día con métodos locales cerca
  * de un cambio de horario puede saltar dos días o ninguno.
  */
-function rangoDeDiaCompleto(fecha: string): string | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(fecha.trim())
+function allDayRange(date: string): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date.trim())
   if (m === null) return null
 
-  const inicio = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
-  if (Number.isNaN(inicio)) return null
+  const start = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  if (Number.isNaN(start)) return null
 
-  const fin = new Date(inicio + 86400000)
-  const compacto = (d: Date): string =>
+  const end = new Date(start + 86400000)
+  const compact = (d: Date): string =>
     `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`
 
-  return `${m[1]}${m[2]}${m[3]}/${compacto(fin)}`
+  return `${m[1]}${m[2]}${m[3]}/${compact(end)}`
 }
 
 /**
@@ -73,19 +73,19 @@ function rangoDeDiaCompleto(fecha: string): string | null {
  * `URLSearchParams` y no concatenación: un título con `&`, `#` o un acento rompe
  * la URL armada a mano, y los títulos vienen de un modelo — o sea, de cualquier lado.
  */
-export function urlDeCalendario(evento: EventoDeCalendario): string {
-  const params = new URLSearchParams({ action: 'TEMPLATE', text: evento.title.trim() })
+export function calendarUrl(event: CalendarEvent): string {
+  const params = new URLSearchParams({ action: 'TEMPLATE', text: event.title.trim() })
 
-  const detalle = evento.details?.trim()
-  if (detalle !== undefined && detalle.length > 0) params.set('details', detalle)
+  const details = event.details?.trim()
+  if (details !== undefined && details.length > 0) params.set('details', details)
 
-  const lugar = evento.location?.trim()
-  if (lugar !== undefined && lugar.length > 0) params.set('location', lugar)
+  const location = event.location?.trim()
+  if (location !== undefined && location.length > 0) params.set('location', location)
 
   // Una fecha con forma inesperada se omite en silencio: el botón sigue abriendo
   // el formulario. Un `dates` inválido hace que Google ignore TODO el template.
-  const rango = evento.date != null ? rangoDeDiaCompleto(evento.date) : null
-  if (rango !== null) params.set('dates', rango)
+  const range = event.date != null ? allDayRange(event.date) : null
+  if (range !== null) params.set('dates', range)
 
   return `${BASE}?${params.toString()}`
 }

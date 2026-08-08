@@ -1,9 +1,9 @@
 import type { LlmTier } from '../core/jobs/answers-llm'
-import { aplicarPiso, rankJobs, type JobCandidate, type RankedJob } from '../core/jobs/rank'
-import { estadoNotion, scrubPii, type FilaNotion } from '../core/jobs/notion-map'
+import { applyFloor, rankJobs, type JobCandidate, type RankedJob } from '../core/jobs/rank'
+import { notionStatus, scrubPii, type NotionRow } from '../core/jobs/notion-map'
 import { isNotionConfigured } from '../notion/client'
 import { knownPostLinks, upsertApplication } from '../notion/applications'
-import { buscar, conDetalle, dedupe, type SearchQuery } from './search'
+import { search, withDetail, dedupe, type SearchQuery } from './search'
 import { loadProfile } from './workspace'
 
 /**
@@ -16,7 +16,7 @@ import { loadProfile } from './workspace'
  */
 
 /** Las búsquedas por defecto. La UI las puede pisar. */
-export const QUERIES_POR_DEFECTO = [
+export const DEFAULT_QUERIES = [
   'frontend developer',
   'react developer',
   'full stack developer',
@@ -36,10 +36,10 @@ export const QUERIES_POR_DEFECTO = [
  * misma regla que ya estaba escrita en el ritual del workspace: ampliar la
  * búsqueda ANTES que bajar la vara.
  */
-const ESCALERA_DIAS = [7, 14, 30]
+const DAY_LADDER = [7, 14, 30]
 
 /** Debajo de esto se amplía. Tres es el lote diario que el usuario definió. */
-const LOTE_OBJETIVO = 3
+const TARGET_BATCH = 3
 
 export interface HuntRequest {
   queries: string[]
@@ -48,36 +48,36 @@ export interface HuntRequest {
   maxRank: number
   llm: LlmTier
   /** Escribir las que califican en Notion como Backlog. */
-  guardarEnNotion: boolean
-  onProgress?: (fase: string, detalle: string) => void
+  saveToNotion: boolean
+  onProgress?: (phase: string, detail: string) => void
 }
 
 export interface HuntReport {
-  encontradas: number
-  repetidas: number
-  rankeadas: number
-  califican: RankedJob[]
-  descartadas: RankedJob[]
-  notion: { escritas: number; error: string | null }
+  found: number
+  duplicates: number
+  ranked: number
+  qualified: RankedJob[]
+  rejected: RankedJob[]
+  notion: { writes: number; error: string | null }
   /** Explica en una línea por qué el lote salió como salió. */
-  resumen: string
+  summary: string
 }
 
 export async function hunt(req: HuntRequest): Promise<HuntReport> {
-  const paso = (fase: string, detalle: string): void => {
-    console.log(`[hunt] ${fase}: ${detalle}`)
-    req.onProgress?.(fase, detalle)
+  const step = (phase: string, detail: string): void => {
+    console.log(`[hunt] ${phase}: ${detail}`)
+    req.onProgress?.(phase, detail)
   }
 
   const profile = await loadProfile()
 
   // ── 1. sacar lo ya visto (una sola vez, antes de scrapear) ───────────────
-  let enNotion = new Set<string>()
-  if (req.guardarEnNotion && isNotionConfigured()) {
+  let inNotion = new Set<string>()
+  if (req.saveToNotion && isNotionConfigured()) {
     try {
-      enNotion = await knownPostLinks()
+      inNotion = await knownPostLinks()
     } catch (error: unknown) {
-      paso('notion', `no pude leer la base para deduplicar: ${String(error)}`)
+      step('notion', `no pude leer la base para deduplicar: ${String(error)}`)
     }
   }
 
@@ -88,139 +88,139 @@ export async function hunt(req: HuntRequest): Promise<HuntReport> {
   // once vacantes —de sobra para no ampliar— y ninguna daba la talla, así que
   // el usuario se quedó con cero y con el rango sin abrir. Encontrar mucho no
   // es encontrar algo bueno.
-  const porUrl = new Map<string, JobCandidate>()
-  const rankeadas: RankedJob[] = []
-  const yaPuntuadas = new Set<string>()
-  let repetidas = 0
-  let diasUsados = ESCALERA_DIAS[0]
-  let sinPuntuarPorTope = 0
+  const byUrl = new Map<string, JobCandidate>()
+  const ranked: RankedJob[] = []
+  const alreadyScored = new Set<string>()
+  let duplicates = 0
+  let daysUsed = DAY_LADDER[0]
+  let skippedByCap = 0
 
-  for (const dias of ESCALERA_DIAS) {
-    diasUsados = dias
+  for (const days of DAY_LADDER) {
+    daysUsed = days
 
     for (const query of req.queries) {
-      paso('buscando', dias === ESCALERA_DIAS[0] ? query : `${query} · últimos ${dias} días`)
+      step('buscando', days === DAY_LADDER[0] ? query : `${query} · últimos ${days} días`)
       try {
         const q: SearchQuery = {
           query,
           location: req.location,
-          jobAgeDays: dias,
+          jobAgeDays: days,
           remote: 'remote',
           limit: 25
         }
         // El Map dedupe entre queries Y entre vueltas: la vuelta de 14 días
         // vuelve a traer todo lo de 7, y sin esto se pagaría el detalle dos veces.
-        for (const c of await buscar(q)) porUrl.set(c.url, c)
+        for (const c of await search(q)) byUrl.set(c.url, c)
       } catch (error: unknown) {
         // Un portal caído no puede tumbar la búsqueda entera.
-        paso('buscando', `"${query}" falló: ${String(error)}`)
+        step('buscando', `"${query}" falló: ${String(error)}`)
       }
     }
 
-    const r = await dedupe([...porUrl.values()], { notion: enNotion })
-    repetidas = r.repetidas
+    const r = await dedupe([...byUrl.values()], { notion: inNotion })
+    duplicates = r.duplicates
 
     // Solo lo que apareció en esta vuelta y todavía no se puntuó: repuntuar
     // lo mismo es gastar cuota para llegar al mismo número.
-    const pendientes = r.nuevas.filter((c) => !yaPuntuadas.has(c.url))
-    const presupuesto = req.maxRank - rankeadas.length
+    const pending = r.unseen.filter((c) => !alreadyScored.has(c.url))
+    const budget = req.maxRank - ranked.length
 
-    if (presupuesto <= 0) {
-      sinPuntuarPorTope += pendientes.length
-      paso('tope', `llegué al tope de ${req.maxRank} vacantes puntuadas`)
+    if (budget <= 0) {
+      skippedByCap += pending.length
+      step('tope', `llegué al tope de ${req.maxRank} vacantes puntuadas`)
       break
     }
 
-    const aRankear = pendientes.slice(0, presupuesto)
-    sinPuntuarPorTope += pendientes.length - aRankear.length
+    const toRank = pending.slice(0, budget)
+    skippedByCap += pending.length - toRank.length
 
-    if (aRankear.length > 0) {
-      paso('leyendo', `${aRankear.length} vacantes nuevas`)
-      const conTexto = await conDetalle(aRankear)
+    if (toRank.length > 0) {
+      step('leyendo', `${toRank.length} vacantes nuevas`)
+      const withText = await withDetail(toRank)
 
-      paso('puntuando', `${conTexto.length} contra tu perfil`)
-      rankeadas.push(...(await rankJobs(conTexto, profile, req.llm)))
-      for (const c of aRankear) yaPuntuadas.add(c.url)
+      step('puntuando', `${withText.length} contra tu perfil`)
+      ranked.push(...(await rankJobs(withText, profile, req.llm)))
+      for (const c of toRank) alreadyScored.add(c.url)
     }
 
-    const cuantasVan = aplicarPiso(rankeadas).califican.length
-    paso('criba', `${cuantasVan} valen la pena de ${rankeadas.length} miradas`)
+    const howMany = applyFloor(ranked).qualified.length
+    step('criba', `${howMany} valen la pena de ${ranked.length} miradas`)
 
-    if (cuantasVan >= LOTE_OBJETIVO) break
-    if (dias !== ESCALERA_DIAS[ESCALERA_DIAS.length - 1]) {
-      paso('ampliando', `con ${dias} días junté ${cuantasVan}, abro el rango`)
+    if (howMany >= TARGET_BATCH) break
+    if (days !== DAY_LADDER[DAY_LADDER.length - 1]) {
+      step('ampliando', `con ${days} días junté ${howMany}, abro el rango`)
     }
   }
 
-  const unicas = [...porUrl.values()]
-  paso('encontradas', `${unicas.length} únicas en los últimos ${diasUsados} días`)
+  const unique = [...byUrl.values()]
+  step('encontradas', `${unique.length} únicas en los últimos ${daysUsed} días`)
 
-  if (sinPuntuarPorTope > 0) {
+  if (skippedByCap > 0) {
     // Un tope silencioso se lee como "no había más". Se dice.
-    paso('tope', `${sinPuntuarPorTope} quedaron sin mirar por el tope de ${req.maxRank}`)
+    step('tope', `${skippedByCap} quedaron sin mirar por el tope de ${req.maxRank}`)
   }
 
-  if (rankeadas.length === 0) {
+  if (ranked.length === 0) {
     return {
-      encontradas: unicas.length,
-      repetidas,
-      rankeadas: 0,
-      califican: [],
-      descartadas: [],
-      notion: { escritas: 0, error: null },
-      resumen: 'no hay nada nuevo: todo lo que salió ya lo habías visto'
+      found: unique.length,
+      duplicates,
+      ranked: 0,
+      qualified: [],
+      rejected: [],
+      notion: { writes: 0, error: null },
+      summary: 'no hay nada nuevo: todo lo que salió ya lo habías visto'
     }
   }
 
-  const { califican, descartadas } = aplicarPiso(rankeadas)
+  const { qualified, rejected } = applyFloor(ranked)
 
   // ── 4. espejo en Notion ──────────────────────────────────────────────────
-  let escritas = 0
-  let errorNotion: string | null = null
+  let writes = 0
+  let notionError: string | null = null
 
-  if (req.guardarEnNotion) {
+  if (req.saveToNotion) {
     if (!isNotionConfigured()) {
-      errorNotion = 'falta NOTION_TOKEN en .env'
+      notionError = 'falta NOTION_TOKEN en .env'
     } else {
-      for (const j of califican) {
+      for (const j of qualified) {
         try {
-          await upsertApplication(filaDeRankeada(j, scrubPii(j.reason, profile)))
-          escritas++
+          await upsertApplication(rowFromRanked(j, scrubPii(j.reason, profile)))
+          writes++
         } catch (error: unknown) {
-          errorNotion = error instanceof Error ? error.message : String(error)
-          paso('notion', `falló ${j.company}: ${errorNotion}`)
+          notionError = error instanceof Error ? error.message : String(error)
+          step('notion', `falló ${j.company}: ${notionError}`)
         }
       }
     }
   }
 
   return {
-    encontradas: unicas.length,
-    repetidas,
-    rankeadas: rankeadas.length,
-    califican,
-    descartadas,
-    notion: { escritas, error: errorNotion },
-    resumen: resumir(califican.length, descartadas.length, repetidas, diasUsados)
+    found: unique.length,
+    duplicates,
+    ranked: ranked.length,
+    qualified,
+    rejected,
+    notion: { writes, error: notionError },
+    summary: summarize(qualified.length, rejected.length, duplicates, daysUsed)
   }
 }
 
-function filaDeRankeada(j: RankedJob, razonLimpia: string): FilaNotion {
-  const estado = estadoNotion('ranked')
-  if (estado === null) throw new Error('estado "ranked" sin mapear')
+function rowFromRanked(j: RankedJob, cleanReason: string): NotionRow {
+  const status = notionStatus('ranked')
+  if (status === null) throw new Error('estado "ranked" sin mapear')
 
   return {
     company: j.company,
     role: j.title,
-    estado,
-    fecha: new Date().toISOString().slice(0, 10),
+    status,
+    date: new Date().toISOString().slice(0, 10),
     fitScore: j.score,
     postLink: j.url,
     // Va la URL de la vacante, no un correo. La PII de contacto no entra acá.
     contactUrl: j.url,
     jobDescription: j.description.slice(0, 1200),
     coverLetter: '',
-    proximaAccion: j.angle !== '' ? `Ángulo: ${j.angle}` : razonLimpia
+    nextAction: j.angle !== '' ? `Ángulo: ${j.angle}` : cleanReason
   }
 }
 
@@ -229,20 +229,20 @@ function filaDeRankeada(j: RankedJob, razonLimpia: string): FilaNotion {
  * resultado; "encontré 3" habiendo rellenado con dos fits flojos es una
  * mentira que se paga con dos días de trabajo en CVs que no van a ningún lado.
  */
-function resumir(
-  califican: number,
-  descartadas: number,
-  repetidas: number,
-  dias: number
+function summarize(
+  qualified: number,
+  rejected: number,
+  duplicates: number,
+  days: number
 ): string {
   // El rango solo se menciona si hubo que ampliarlo: si no, es ruido.
-  const rango = dias === ESCALERA_DIAS[0] ? '' : ` (miré hasta ${dias} días atrás)`
+  const range = days === DAY_LADDER[0] ? '' : ` (miré hasta ${days} días atrás)`
 
-  if (califican === 0) {
-    return `ninguna de las ${descartadas} nuevas da la talla${rango}. Probá con otras palabras de búsqueda: bajar la vara no sirve.`
+  if (qualified === 0) {
+    return `ninguna de las ${rejected} nuevas da la talla${range}. Probá con otras palabras de búsqueda: bajar la vara no sirve.`
   }
-  if (califican < LOTE_OBJETIVO) {
-    return `${califican} valen la pena${rango}. Son las que hay: no relleno el lote con fits flojos para llegar a tres.`
+  if (qualified < TARGET_BATCH) {
+    return `${qualified} valen la pena${range}. Son las que hay: no relleno el lote con fits flojos para llegar a tres.`
   }
-  return `${califican} valen la pena${rango}, ${descartadas} quedaron afuera, ${repetidas} ya las habías visto.`
+  return `${qualified} valen la pena${range}, ${rejected} quedaron afuera, ${duplicates} ya las habías visto.`
 }

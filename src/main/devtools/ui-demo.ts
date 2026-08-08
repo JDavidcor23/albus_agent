@@ -17,7 +17,7 @@ import { is } from '@electron-toolkit/utils'
  * a cuatro en paralelo y este es el número que dice si sirvió.
  */
 
-function espera(ms: number): Promise<void> {
+function wait(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
 }
 
@@ -27,57 +27,57 @@ function espera(ms: number): Promise<void> {
  * ese buffer deja un PNG de 0 bytes que parece una captura y no lo es.
  * Se reintenta hasta que tenga bytes.
  */
-async function capturar(win: BrowserWindow, nombre: string): Promise<string> {
+async function capture(win: BrowserWindow, name: string): Promise<string> {
   const dir = join(app.getPath('userData'), 'ui-selftest')
   await mkdir(dir, { recursive: true })
-  const ruta = join(dir, `${nombre}.png`)
+  const path = join(dir, `${name}.png`)
 
   for (let i = 0; i < 5; i++) {
     win.show()
     win.focus()
-    await espera(500)
+    await wait(500)
     const png = (await win.webContents.capturePage()).toPNG()
     if (png.length > 1000) {
-      await writeFile(ruta, png)
-      console.log(`  captura → ${ruta} (${Math.round(png.length / 1024)} KB)`)
-      return ruta
+      await writeFile(path, png)
+      console.log(`  captura → ${path} (${Math.round(png.length / 1024)} KB)`)
+      return path
     }
   }
 
-  console.log(`  OJO la captura "${nombre}" salió vacía cinco veces`)
+  console.log(`  OJO la captura "${name}" salió vacía cinco veces`)
   return ''
 }
 
 /** Click por texto: no dependemos de clases que el rediseño puede mover. */
-function clickPorTexto(texto: string): string {
+function clickByText(text: string): string {
   return `JSON.stringify((() => {
     const b = [...document.querySelectorAll('button')]
-      .find((e) => (e.textContent || '').trim().toLowerCase().includes(${JSON.stringify(texto.toLowerCase())}))
+      .find((e) => (e.textContent || '').trim().toLowerCase().includes(${JSON.stringify(text.toLowerCase())}))
     if (!b) return { ok: false }
     b.click()
-    return { ok: true, texto: (b.textContent || '').trim() }
+    return { ok: true, text: (b.textContent || '').trim() }
   })())`
 }
 
-function clickPorClase(selector: string): string {
+function clickBySelector(selector: string): string {
   return `JSON.stringify((() => {
     const b = document.querySelector(${JSON.stringify(selector)})
     if (!b) return { ok: false }
     b.click()
-    return { ok: true, texto: (b.textContent || '').trim() }
+    return { ok: true, text: (b.textContent || '').trim() }
   })())`
 }
 
-const CONTAR_TARJETAS = `JSON.stringify({
-  tarjetas: document.querySelectorAll('.job-card').length,
-  acciones: [...document.querySelectorAll('.btn-accion')].map((b) => (b.textContent || '').trim()),
-  secundarios: [...document.querySelectorAll('.btn-secundario')].map((b) => (b.textContent || '').trim()),
-  resumen: (document.querySelector('.job-resumen-txt') || {}).textContent || '',
-  progreso: (document.querySelector('.processing-hint') || {}).textContent || '',
+const COUNT_CARDS = `JSON.stringify({
+  cards: document.querySelectorAll('.job-card').length,
+  actions: [...document.querySelectorAll('.btn-accion')].map((b) => (b.textContent || '').trim()),
+  secondary: [...document.querySelectorAll('.btn-secundario')].map((b) => (b.textContent || '').trim()),
+  summary: (document.querySelector('.job-resumen-txt') || {}).textContent || '',
+  progress: (document.querySelector('.processing-hint') || {}).textContent || '',
   // La descripción es el pedido concreto: poder leer de qué se trata la
   // vacante sin salir de Albus. Un largo de cero dice que el detalle no llegó.
-  descripciones: [...document.querySelectorAll('.job-desc')].map((d) => (d.textContent || '').length),
-  expansores: document.querySelectorAll('.job-desc-toggle').length
+  descriptions: [...document.querySelectorAll('.job-desc')].map((d) => (d.textContent || '').length),
+  expanders: document.querySelectorAll('.job-desc-toggle').length
 })`
 
 export async function runUiDemo(): Promise<boolean> {
@@ -99,29 +99,29 @@ export async function runUiDemo(): Promise<boolean> {
     } else {
       await win.loadFile(join(__dirname, '../renderer/index.html'))
     }
-    await espera(4000)
+    await wait(4000)
 
     // 1 · el panel de conexiones. Por CLASE y no por texto: la tarjeta del
     // agente dice "sin conectar: …" y se llevaba el click, colapsando el panel.
-    const abrio = JSON.parse(
-      (await win.webContents.executeJavaScript(clickPorClase('.job-conexiones-btn'))) as string
+    const opened = JSON.parse(
+      (await win.webContents.executeJavaScript(clickBySelector('.job-conexiones-btn'))) as string
     ) as { ok: boolean }
-    console.log(`  panel de conexiones: ${abrio.ok ? 'abierto' : 'NO se encontró el botón'}`)
-    await espera(1500)
-    await capturar(win, 'conexiones')
+    console.log(`  panel de conexiones: ${opened.ok ? 'abierto' : 'NO se encontró el botón'}`)
+    await wait(1500)
+    await capture(win, 'conexiones')
 
     // Se cierra para que la captura de resultados no lo tenga encima.
-    await win.webContents.executeJavaScript(clickPorClase('.job-conexiones-btn'))
-    await espera(800)
+    await win.webContents.executeJavaScript(clickBySelector('.job-conexiones-btn'))
+    await wait(800)
 
     // 2 · una búsqueda real, cronometrada
     console.log('\n  disparando "buscame trabajos"…')
     const t0 = Date.now()
-    const disparo = JSON.parse(
-      (await win.webContents.executeJavaScript(clickPorTexto('buscame trabajos'))) as string
+    const fired = JSON.parse(
+      (await win.webContents.executeJavaScript(clickByText('buscame trabajos'))) as string
     ) as { ok: boolean }
 
-    if (!disparo.ok) {
+    if (!fired.ok) {
       console.log('  FALLA no encontré el botón de búsqueda')
       return false
     }
@@ -129,32 +129,32 @@ export async function runUiDemo(): Promise<boolean> {
     // Hasta 10 minutos: scrapea, trae los detalles, puntúa, y si el lote sale
     // corto amplía el rango y repite. Con las descripciones reales adentro del
     // prompt, cada vuelta de puntaje es varias veces más pesada que antes.
-    let estado = {
-      tarjetas: 0,
-      acciones: [] as string[],
-      secundarios: [] as string[],
-      resumen: '',
-      progreso: '',
-      descripciones: [] as number[],
-      expansores: 0
+    let state = {
+      cards: 0,
+      actions: [] as string[],
+      secondary: [] as string[],
+      summary: '',
+      progress: '',
+      descriptions: [] as number[],
+      expanders: 0
     }
     for (let i = 0; i < 120; i++) {
-      await espera(5000)
-      estado = JSON.parse(
-        (await win.webContents.executeJavaScript(CONTAR_TARJETAS)) as string
-      ) as typeof estado
-      if (estado.resumen !== '') break
-      if (i % 4 === 0 && estado.progreso !== '') console.log(`    ${estado.progreso}`)
+      await wait(5000)
+      state = JSON.parse(
+        (await win.webContents.executeJavaScript(COUNT_CARDS)) as string
+      ) as typeof state
+      if (state.summary !== '') break
+      if (i % 4 === 0 && state.progress !== '') console.log(`    ${state.progress}`)
     }
 
-    const seg = Math.round((Date.now() - t0) / 1000)
-    console.log(`\n  la búsqueda tardó ${seg}s (antes: 106s)`)
-    console.log(`  tarjetas: ${estado.tarjetas}`)
-    console.log(`  resumen: ${estado.resumen}`)
-    console.log(`  acción principal por tarjeta: ${JSON.stringify(estado.acciones)}`)
-    console.log(`  acción secundaria: ${JSON.stringify(estado.secundarios)}`)
-    console.log(`  largo de cada descripción: ${JSON.stringify(estado.descripciones)}`)
-    console.log(`  tarjetas con "leer la vacante completa": ${estado.expansores}`)
+    const seconds = Math.round((Date.now() - t0) / 1000)
+    console.log(`\n  la búsqueda tardó ${seconds}s (antes: 106s)`)
+    console.log(`  tarjetas: ${state.cards}`)
+    console.log(`  resumen: ${state.summary}`)
+    console.log(`  acción principal por tarjeta: ${JSON.stringify(state.actions)}`)
+    console.log(`  acción secundaria: ${JSON.stringify(state.secondary)}`)
+    console.log(`  largo de cada descripción: ${JSON.stringify(state.descriptions)}`)
+    console.log(`  tarjetas con "leer la vacante completa": ${state.expanders}`)
 
     // Se oculta el panel de conexiones por CSS en vez de clickear el toggle:
     // el click depende del estado de React y ya nos dejó dos capturas con el
@@ -167,8 +167,8 @@ export async function runUiDemo(): Promise<boolean> {
     })()`)
 
     // React ya tiene el estado, pero el frame puede no estar pintado todavía.
-    await espera(1500)
-    await capturar(win, 'resultados')
+    await wait(1500)
+    await capture(win, 'resultados')
 
     // Y una de la tarjeta con la vacante abierta, que es el pedido concreto:
     // poder leer de qué se trata sin salir de Albus.
@@ -176,31 +176,31 @@ export async function runUiDemo(): Promise<boolean> {
       const t = document.querySelector('.job-desc-toggle')
       if (t) t.click()
     })()`)
-    await espera(1200)
+    await wait(1200)
     await win.webContents.executeJavaScript(`(() => {
       const c = document.querySelector('.job-card')
       if (c) c.scrollIntoView({ block: 'start' })
     })()`)
-    await espera(800)
-    await capturar(win, 'tarjeta-abierta')
+    await wait(800)
+    await capture(win, 'tarjeta-abierta')
 
     // Una tarjeta con una sola acción principal es el punto del rediseño.
-    const unaAccionPorTarjeta = estado.acciones.length === estado.tarjetas
+    const oneActionPerCard = state.actions.length === state.cards
     console.log(
-      `\n  ${unaAccionPorTarjeta ? 'ok   ' : 'FALLA'} una acción principal por tarjeta ` +
-        `(${estado.acciones.length} acciones / ${estado.tarjetas} tarjetas)`
+      `\n  ${oneActionPerCard ? 'ok   ' : 'FALLA'} una acción principal por tarjeta ` +
+        `(${state.actions.length} acciones / ${state.cards} tarjetas)`
     )
 
     // La descripción tiene que estar. Un `null` en un campo que ni usamos ya
     // se la tragó una vez en silencio, y las tarjetas decían "sin descripción"
     // con el texto ahí, intacto, en el JSON del CLI.
-    const conTexto = estado.descripciones.filter((n) => n > 200).length
+    const withText = state.descriptions.filter((n) => n > 200).length
     console.log(
-      `  ${conTexto === estado.tarjetas ? 'ok   ' : 'FALLA'} todas las tarjetas traen la vacante ` +
-        `(${conTexto}/${estado.tarjetas} con más de 200 caracteres)`
+      `  ${withText === state.cards ? 'ok   ' : 'FALLA'} todas las tarjetas traen la vacante ` +
+        `(${withText}/${state.cards} con más de 200 caracteres)`
     )
 
-    return estado.tarjetas > 0 && unaAccionPorTarjeta && conTexto === estado.tarjetas
+    return state.cards > 0 && oneActionPerCard && withText === state.cards
   } catch (error: unknown) {
     console.log(`  FALLA ${String(error)}`)
     return false

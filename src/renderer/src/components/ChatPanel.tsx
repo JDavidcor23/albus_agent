@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { esUrlAbrible, type TaskDetail, type TaskRow } from '../../../shared/ipc'
-import { urlDeCalendario } from '../../../shared/google-calendar'
+import { isOpenableUrl, type TaskDetail, type TaskRow } from '../../../shared/ipc'
+import { calendarUrl } from '../../../shared/google-calendar'
 
 /**
  * Los emails y links ya vienen resueltos del main, y el OCR ya viene limpio.
@@ -10,7 +10,7 @@ import { urlDeCalendario } from '../../../shared/google-calendar'
  * vive en el main —, y el `<pre>` volcaba la barra de estado del celular del
  * usuario como si fuera contenido.
  */
-const NOMBRE_FUENTE: Record<string, string> = {
+const SOURCE_NAME: Record<string, string> = {
   qr: 'código QR',
   receipt: 'comprobante',
   profile: 'perfil',
@@ -21,9 +21,9 @@ const NOMBRE_FUENTE: Record<string, string> = {
 }
 
 /** Arriba de esto, una nota sin resumen se muestra recortada con "ver todo". */
-const LARGO_COMODO = 320
+const COMFORTABLE_LENGTH = 320
 
-const RE_URL_EN_TEXTO = /https?:\/\/[^\s<>"')\]]+/g
+const RE_URL_IN_TEXT = /https?:\/\/[^\s<>"')\]]+/g
 
 /**
  * Cuánto de una URL se muestra.
@@ -33,7 +33,7 @@ const RE_URL_EN_TEXTO = /https?:\/\/[^\s<>"')\]]+/g
  * tapaba la nota; y aunque se pueda cortar por CSS, seis renglones de hash no le
  * dicen nada a nadie. El completo queda en el `title` del elemento.
  */
-function recortarUrl(url: string): string {
+function truncateUrl(url: string): string {
   return url.length > 62 ? `${url.slice(0, 62)}…` : url
 }
 
@@ -47,38 +47,38 @@ function recortarUrl(url: string): string {
  * Se copia la URL COMPLETA, no la recortada que se muestra. El recorte es para
  * que el párrafo se pueda leer; un link cortado a 62 caracteres no sirve para nada.
  */
-function LinkDeNota({ url, onAbrir }: { url: string; onAbrir: (u: string) => void }): React.JSX.Element {
-  const [copiado, setCopiado] = useState(false)
-  const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
+function NoteLink({ url, onOpen }: { url: string; onOpen: (u: string) => void }): React.JSX.Element {
+  const [copied, setCopied] = useState(false)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Sin esto, copiar y cerrar la tarjeta antes de que pase el segundo y medio
   // deja un setState corriendo sobre un componente desmontado.
   useEffect(() => {
     return () => {
-      if (temporizador.current !== null) clearTimeout(temporizador.current)
+      if (timer.current !== null) clearTimeout(timer.current)
     }
   }, [])
 
-  const copiar = (): void => {
+  const copy = (): void => {
     void window.api.copyToClipboard(url).then((res) => {
       // No hay banner de error: el "copiado" ES la confirmación. Si no aparece,
       // no se copió, y eso el usuario lo ve sin que nadie se lo explique.
       if (!res.ok) return
-      setCopiado(true)
-      if (temporizador.current !== null) clearTimeout(temporizador.current)
-      temporizador.current = setTimeout(() => setCopiado(false), 1500)
+      setCopied(true)
+      if (timer.current !== null) clearTimeout(timer.current)
+      timer.current = setTimeout(() => setCopied(false), 1500)
     })
   }
 
   return (
     <span className="task-url">
-      {esUrlAbrible(url) ? (
-        <button type="button" className="task-link-inline" title={url} onClick={() => onAbrir(url)}>
-          {recortarUrl(url)}
+      {isOpenableUrl(url) ? (
+        <button type="button" className="task-link-inline" title={url} onClick={() => onOpen(url)}>
+          {truncateUrl(url)}
         </button>
       ) : (
         <span className="task-url-plana" title={url}>
-          {recortarUrl(url)}
+          {truncateUrl(url)}
         </span>
       )}
 
@@ -86,9 +86,9 @@ function LinkDeNota({ url, onAbrir }: { url: string; onAbrir: (u: string) => voi
         type="button"
         className="task-copiar"
         title="Copiar el link completo"
-        onClick={copiar}
+        onClick={copy}
       >
-        {copiado ? 'copiado' : 'copiar'}
+        {copied ? 'copiado' : 'copiar'}
       </button>
     </span>
   )
@@ -102,43 +102,44 @@ function LinkDeNota({ url, onAbrir }: { url: string; onAbrir: (u: string) => voi
  * main va a aceptar — el resto queda como texto, porque un botón que falla al
  * clickearlo es peor que un texto que se copia.
  */
-function ConLinks({
-  texto,
-  onAbrir
+function WithLinks({
+  text,
+  onOpen
 }: {
-  texto: string
-  onAbrir: (url: string) => void
+  text: string
+  onOpen: (url: string) => void
 }): React.JSX.Element {
-  const partes: React.ReactNode[] = []
+  const parts: React.ReactNode[] = []
   let cursor = 0
 
-  for (const m of texto.matchAll(RE_URL_EN_TEXTO)) {
-    const desde = m.index
-    if (desde === undefined) continue
+  for (const m of text.matchAll(RE_URL_IN_TEXT)) {
+    const start = m.index
+    if (start === undefined) continue
 
-    if (desde > cursor) partes.push(texto.slice(cursor, desde))
-    partes.push(<LinkDeNota key={desde} url={m[0]} onAbrir={onAbrir} />)
-    cursor = desde + m[0].length
+    if (start > cursor) parts.push(text.slice(cursor, start))
+    parts.push(<NoteLink key={start} url={m[0]} onOpen={onOpen} />)
+    cursor = start + m[0].length
   }
 
-  if (cursor < texto.length) partes.push(texto.slice(cursor))
+  if (cursor < text.length) parts.push(text.slice(cursor))
 
-  return <>{partes}</>
+  return <>{parts}</>
 }
 
-function plural(n: number, singular: string, plural_: string): string {
-  return `${n} ${n === 1 ? singular : plural_}`
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`
 }
 
-interface Turno {
+/** `from` alimenta la clase CSS `chat-vos` / `chat-albus`: los valores no cambian. */
+interface Turn {
   id: number
-  de: 'vos' | 'albus'
-  texto: string
+  from: 'vos' | 'albus'
+  text: string
   tasks: TaskRow[]
 }
 
 interface Props {
-  onError: (mensaje: string) => void
+  onError: (message: string) => void
 }
 
 /**
@@ -148,7 +149,7 @@ interface Props {
  * 0.95, 0.90, 0.80 y 0.70. El corte deja marcadas 4 de 20 — las tres vacantes de
  * LinkedIn, donde la nota decía solo "Trabajo", y el evento de cripto.
  */
-const CONFIANZA_DUDOSA = 0.8
+const DOUBTFUL_CONFIDENCE = 0.8
 
 /**
  * Marca SOLO los pendientes dudosos.
@@ -162,9 +163,15 @@ const CONFIANZA_DUDOSA = 0.8
  * equivocada. Eso se marca donde hay duda, y en ningún otro lado: un indicador
  * que aparece en las 20 tarjetas no distingue nada.
  */
-function Origen({ source, confidence }: { source: string; confidence: number }): React.JSX.Element | null {
+function OriginBadge({
+  source,
+  confidence
+}: {
+  source: string
+  confidence: number
+}): React.JSX.Element | null {
   if (source.startsWith('regla')) return null
-  if (confidence >= CONFIANZA_DUDOSA) return null
+  if (confidence >= DOUBTFUL_CONFIDENCE) return null
 
   return (
     <span
@@ -184,34 +191,35 @@ function Origen({ source, confidence }: { source: string; confidence: number }):
  * Sin resumen (nota vieja, o modelo que no lo devolvió) se recorta y se ofrece
  * el mismo botón: nunca se esconde lo que el usuario escribió.
  */
-function Nota({
+function Note({
   body,
   summary,
-  onAbrir
+  onOpen
 }: {
   body: string
   summary: string | null
-  onAbrir: (url: string) => void
+  onOpen: (url: string) => void
 }): React.JSX.Element {
-  const [abierto, setAbierto] = useState(false)
+  const [open, setOpen] = useState(false)
 
-  const resumida = summary !== null && summary.length < body.length
-  const larga = body.length > LARGO_COMODO
-  const hayMas = resumida || larga
+  const summarized = summary !== null && summary.length < body.length
+  const long = body.length > COMFORTABLE_LENGTH
+  const hasMore = summarized || long
 
-  const visible = abierto || !hayMas ? body : resumida ? summary! : `${body.slice(0, LARGO_COMODO)}…`
+  const visible =
+    open || !hasMore ? body : summarized ? summary! : `${body.slice(0, COMFORTABLE_LENGTH)}…`
 
   return (
     <div className="task-block">
       <span className="task-block-label">
-        {resumida && !abierto ? 'lo que escribiste, en corto' : 'lo que escribiste'}
+        {summarized && !open ? 'lo que escribiste, en corto' : 'lo que escribiste'}
       </span>
       <p className="task-note">
-        <ConLinks texto={visible} onAbrir={onAbrir} />
+        <WithLinks text={visible} onOpen={onOpen} />
       </p>
-      {hayMas && (
-        <button type="button" className="task-toggle" onClick={() => setAbierto(!abierto)}>
-          {abierto ? 'ver en corto ▴' : `ver la nota completa (${body.length} caracteres) ▾`}
+      {hasMore && (
+        <button type="button" className="task-toggle" onClick={() => setOpen(!open)}>
+          {open ? 'ver en corto ▴' : `ver la nota completa (${body.length} caracteres) ▾`}
         </button>
       )}
     </div>
@@ -219,14 +227,14 @@ function Nota({
 }
 
 /** Un bloque por TIPO de captura, no por archivo. */
-function Fuente({
-  fuente,
-  onAbrir
+function SourceBlock({
+  source,
+  onOpen
 }: {
-  fuente: TaskDetail['sources'][number]
-  onAbrir: (url: string) => void
+  source: TaskDetail['sources'][number]
+  onOpen: (url: string) => void
 }): React.JSX.Element {
-  const [verCrudo, setVerCrudo] = useState(false)
+  const [showRaw, setShowRaw] = useState(false)
 
   return (
     <div className="task-block">
@@ -234,25 +242,25 @@ function Fuente({
           contabilidad de almacenamiento, no algo que el usuario esté leyendo. */}
       {/* Decir "11 capturas" cuando son fotos era mentir sobre lo que hay. */}
       <span className="task-block-label">
-        {NOMBRE_FUENTE[fuente.kind] ?? fuente.kind}
-        {fuente.captures > 1 &&
-          (fuente.photos === fuente.captures
-            ? ` · ${plural(fuente.captures, 'foto', 'fotos')}`
-            : fuente.photos > 0
-              ? ` · ${fuente.captures} archivos (${fuente.photos} fotos)`
-              : ` · ${plural(fuente.captures, 'captura', 'capturas')}`)}
+        {SOURCE_NAME[source.kind] ?? source.kind}
+        {source.captures > 1 &&
+          (source.photos === source.captures
+            ? ` · ${plural(source.captures, 'foto', 'fotos')}`
+            : source.photos > 0
+              ? ` · ${source.captures} archivos (${source.photos} fotos)`
+              : ` · ${plural(source.captures, 'captura', 'capturas')}`)}
       </span>
 
-      {fuente.text !== null ? (
-        <pre className="task-ocr">{fuente.text}</pre>
+      {source.text !== null ? (
+        <pre className="task-ocr">{source.text}</pre>
       ) : (
         <p className="task-vacio">
-          {fuente.kind === 'qr'
+          {source.kind === 'qr'
             ? 'El código no se puede mostrar: está cifrado.'
-            : fuente.photos > 0
+            : source.photos > 0
               ? // Nombra la causa en vez de decir "no se pudo": una foto de un
                 // cartel no es un OCR que falló, es un OCR que no aplica.
-                `${plural(fuente.photos, 'es una foto', 'son fotos')}, no capturas de pantalla. ` +
+                `${plural(source.photos, 'es una foto', 'son fotos')}, no capturas de pantalla. ` +
                 'El OCR de una foto no es confiable, así que no lo mostramos. Abrilas para ver qué hay.'
               : 'El texto de esta captura no se pudo leer. Abrí la imagen original.'}
         </p>
@@ -262,18 +270,18 @@ function Fuente({
           renglones para once destinos indistinguibles. Con más de dos se pasan a
           una fila numerada: mismo acceso, un renglón. No se recorta la lista —
           esconder archivos que el usuario guardó no es una simplificación. */}
-      {fuente.driveLinks.length > 2 ? (
+      {source.driveLinks.length > 2 ? (
         <div className="task-links-fila">
           <span className="task-vacio">
-            {plural(fuente.driveLinks.length, 'archivo', 'archivos')} en Drive:
+            {plural(source.driveLinks.length, 'archivo', 'archivos')} en Drive:
           </span>
-          {fuente.driveLinks.map((link, i) => (
+          {source.driveLinks.map((link, i) => (
             <button
               key={link}
               type="button"
               className="task-link-num"
               title="Abrir en Drive"
-              onClick={() => onAbrir(link)}
+              onClick={() => onOpen(link)}
             >
               {i + 1}
             </button>
@@ -281,9 +289,9 @@ function Fuente({
         </div>
       ) : (
         <div className="task-links">
-          {fuente.driveLinks.map((link, i) => (
-            <button key={link} type="button" className="task-link" onClick={() => onAbrir(link)}>
-              {fuente.driveLinks.length > 1 ? `abrir la captura ${i + 1} ↗` : 'abrir la original ↗'}
+          {source.driveLinks.map((link, i) => (
+            <button key={link} type="button" className="task-link" onClick={() => onOpen(link)}>
+              {source.driveLinks.length > 1 ? `abrir la captura ${i + 1} ↗` : 'abrir la original ↗'}
             </button>
           ))}
         </div>
@@ -292,31 +300,31 @@ function Fuente({
       {/* El crudo queda accesible pero no encima: un heurístico que decide qué es
           basura tiene que poder auditarse, y el usuario tiene que poder
           desconfiar de él. */}
-      {fuente.rawText !== null && fuente.rawText !== fuente.text && (
+      {source.rawText !== null && source.rawText !== source.text && (
         <>
-          <button type="button" className="task-toggle" onClick={() => setVerCrudo(!verCrudo)}>
-            {verCrudo ? 'ocultar el texto crudo ▴' : 'ver el texto crudo del OCR ▾'}
+          <button type="button" className="task-toggle" onClick={() => setShowRaw(!showRaw)}>
+            {showRaw ? 'ocultar el texto crudo ▴' : 'ver el texto crudo del OCR ▾'}
           </button>
-          {verCrudo && <pre className="task-ocr task-ocr-crudo">{fuente.rawText}</pre>}
+          {showRaw && <pre className="task-ocr task-ocr-crudo">{source.rawText}</pre>}
         </>
       )}
     </div>
   )
 }
 
-function Detalle({
-  detalle,
-  onAbrir
+function Detail({
+  detail,
+  onOpen
 }: {
-  detalle: TaskDetail
-  onAbrir: (url: string) => void
+  detail: TaskDetail
+  onOpen: (url: string) => void
 }): React.JSX.Element {
-  const { emails, urls } = detalle.contacts
+  const { emails, urls } = detail.contacts
 
   return (
     <div className="task-expand">
-      {detalle.noteBody.length > 0 && (
-        <Nota body={detalle.noteBody} summary={detalle.noteSummary} onAbrir={onAbrir} />
+      {detail.noteBody.length > 0 && (
+        <Note body={detail.noteBody} summary={detail.noteSummary} onOpen={onOpen} />
       )}
 
       {(emails.length > 0 || urls.length > 0) && (
@@ -334,8 +342,8 @@ function Detalle({
             {urls.map((u) =>
               // Un botón que el allowlist del main va a rechazar es una promesa
               // que la app no puede cumplir. Si no se puede abrir, es texto.
-              esUrlAbrible(u) ? (
-                <button key={u} type="button" className="task-link" onClick={() => onAbrir(u)}>
+              isOpenableUrl(u) ? (
+                <button key={u} type="button" className="task-link" onClick={() => onOpen(u)}>
                   {u.length > 54 ? `${u.slice(0, 54)}…` : u}
                 </button>
               ) : (
@@ -348,53 +356,53 @@ function Detalle({
         </div>
       )}
 
-      {detalle.sources.map((s) => (
-        <Fuente key={s.kind} fuente={s} onAbrir={onAbrir} />
+      {detail.sources.map((s) => (
+        <SourceBlock key={s.kind} source={s} onOpen={onOpen} />
       ))}
 
-      {detalle.sources.length === 0 && (
+      {detail.sources.length === 0 && (
         <p className="task-vacio">Esta nota no tenía capturas: el pendiente salió solo del texto.</p>
       )}
     </div>
   )
 }
 
-function Tarjeta({
+function Card({
   task,
-  detalle,
-  abierta,
-  cargando,
+  detail,
+  open,
+  loading,
   onToggle,
-  onCerrar,
-  onAbrir
+  onClose,
+  onOpen
 }: {
   task: TaskRow
-  detalle: TaskDetail | null
-  abierta: boolean
-  cargando: boolean
+  detail: TaskDetail | null
+  open: boolean
+  loading: boolean
   onToggle: (id: string) => void
-  onCerrar: (id: string, status: 'done' | 'dismissed') => void
-  onAbrir: (url: string) => void
+  onClose: (id: string, status: 'done' | 'dismissed') => void
+  onOpen: (url: string) => void
 }): React.JSX.Element {
   return (
-    <li className={`task-card ${abierta ? 'task-card-open' : ''}`}>
+    <li className={`task-card ${open ? 'task-card-open' : ''}`}>
       <div className="task-row">
         {/* Toda la fila es el disparador; los botones cortan la propagación
             para que "hecho" no despliegue el detalle al mismo tiempo. */}
         <button
           type="button"
           className="task-body"
-          aria-expanded={abierta}
+          aria-expanded={open}
           onClick={() => onToggle(task.id)}
         >
           <span className="task-title">{task.title}</span>
-          {!abierta && task.detail !== null && task.detail.length > 0 && (
+          {!open && task.detail !== null && task.detail.length > 0 && (
             <span className="task-detail">{task.detail}</span>
           )}
         </button>
 
         <div className="task-actions" onClick={(e) => e.stopPropagation()}>
-          <Origen source={task.source} confidence={task.confidence} />
+          <OriginBadge source={task.source} confidence={task.confidence} />
 
           {/* Antes de "hecho" y "no va" a propósito: agendar es construir algo con
               el pendiente, cerrarlo es terminarlo. Las acciones terminales quedan
@@ -404,8 +412,8 @@ function Tarjeta({
             className="task-btn task-btn-ghost"
             title="Abre Google Calendar con el evento precargado. Vos apretás Guardar."
             onClick={() =>
-              onAbrir(
-                urlDeCalendario({
+              onOpen(
+                calendarUrl({
                   title: task.title,
                   details: task.detail,
                   // Cuando el pendiente tiene fecha, va precargada como evento de
@@ -418,38 +426,38 @@ function Tarjeta({
             + calendar
           </button>
 
-          <button type="button" className="task-btn" onClick={() => onCerrar(task.id, 'done')}>
+          <button type="button" className="task-btn" onClick={() => onClose(task.id, 'done')}>
             hecho
           </button>
           <button
             type="button"
             className="task-btn task-btn-ghost"
-            onClick={() => onCerrar(task.id, 'dismissed')}
+            onClick={() => onClose(task.id, 'dismissed')}
           >
             no va
           </button>
         </div>
       </div>
 
-      {abierta && cargando && <p className="task-vacio task-expand">buscando el origen…</p>}
-      {abierta && detalle !== null && <Detalle detalle={detalle} onAbrir={onAbrir} />}
+      {open && loading && <p className="task-vacio task-expand">buscando el origen…</p>}
+      {open && detail !== null && <Detail detail={detail} onOpen={onOpen} />}
     </li>
   )
 }
 
 export function ChatPanel({ onError }: Props): React.JSX.Element {
-  const [turnos, setTurnos] = useState<Turno[]>([])
-  const [texto, setTexto] = useState('')
-  const [pensando, setPensando] = useState(false)
-  const [abierta, setAbierta] = useState<string | null>(null)
+  const [turns, setTurns] = useState<Turn[]>([])
+  const [text, setText] = useState('')
+  const [thinking, setThinking] = useState(false)
+  const [openId, setOpenId] = useState<string | null>(null)
   // Cacheado por id: volver a abrir la misma tarjeta no re-consulta la base.
-  const [detalles, setDetalles] = useState<Record<string, TaskDetail>>({})
-  const [cargandoDetalle, setCargandoDetalle] = useState<string | null>(null)
-  const finRef = useRef<HTMLDivElement>(null)
-  const siguienteId = useRef(0)
+  const [details, setDetails] = useState<Record<string, TaskDetail>>({})
+  const [loadingDetail, setLoadingDetail] = useState<string | null>(null)
+  const endRef = useRef<HTMLDivElement>(null)
+  const nextId = useRef(0)
 
-  const agregar = (de: Turno['de'], texto: string, tasks: TaskRow[] = []): void => {
-    setTurnos((prev) => [...prev, { id: siguienteId.current++, de, texto, tasks }])
+  const add = (from: Turn['from'], text: string, tasks: TaskRow[] = []): void => {
+    setTurns((prev) => [...prev, { id: nextId.current++, from, text, tasks }])
   }
 
   // Arranca mostrando los pendientes: si el chat abre vacío, no se entiende
@@ -460,7 +468,7 @@ export function ChatPanel({ onError }: Props): React.JSX.Element {
         onError(res.error.message)
         return
       }
-      agregar(
+      add(
         'albus',
         res.data.length === 0
           ? 'No te queda nada pendiente.'
@@ -473,58 +481,58 @@ export function ChatPanel({ onError }: Props): React.JSX.Element {
   }, [])
 
   useEffect(() => {
-    finRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [turnos])
+    endRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [turns])
 
-  const enviar = async (mensaje: string): Promise<void> => {
-    const limpio = mensaje.trim()
-    if (limpio.length === 0 || pensando) return
+  const send = async (message: string): Promise<void> => {
+    const clean = message.trim()
+    if (clean.length === 0 || thinking) return
 
-    agregar('vos', limpio)
-    setTexto('')
-    setPensando(true)
+    add('vos', clean)
+    setText('')
+    setThinking(true)
 
     try {
-      const res = await window.api.askTasks(limpio)
+      const res = await window.api.askTasks(clean)
       if (!res.ok) {
         onError(res.error.message)
         return
       }
-      agregar('albus', res.data.text, res.data.tasks)
+      add('albus', res.data.text, res.data.tasks)
     } finally {
-      setPensando(false)
+      setThinking(false)
     }
   }
 
   const toggle = async (id: string): Promise<void> => {
-    if (abierta === id) {
-      setAbierta(null)
+    if (openId === id) {
+      setOpenId(null)
       return
     }
-    setAbierta(id)
+    setOpenId(id)
 
-    if (detalles[id] !== undefined) return
+    if (details[id] !== undefined) return
 
-    setCargandoDetalle(id)
+    setLoadingDetail(id)
     try {
       const res = await window.api.taskDetail(id)
       if (!res.ok) {
         onError(res.error.message)
         return
       }
-      setDetalles((prev) => ({ ...prev, [id]: res.data }))
+      setDetails((prev) => ({ ...prev, [id]: res.data }))
     } finally {
-      setCargandoDetalle(null)
+      setLoadingDetail(null)
     }
   }
 
-  const abrirLink = (url: string): void => {
+  const openLink = (url: string): void => {
     void window.api.openExternal(url).then((res) => {
       if (!res.ok) onError(res.error.message)
     })
   }
 
-  const cerrar = async (id: string, status: 'done' | 'dismissed'): Promise<void> => {
+  const close = async (id: string, status: 'done' | 'dismissed'): Promise<void> => {
     const res = await window.api.closeTask(id, status)
     if (!res.ok) {
       onError(res.error.message)
@@ -532,63 +540,63 @@ export function ChatPanel({ onError }: Props): React.JSX.Element {
     }
     // Sacar la tarjeta de TODOS los turnos, no solo del último: si aparece
     // repetida más arriba en la conversación, dejarla ahí es mentirle al usuario.
-    setTurnos((prev) => prev.map((t) => ({ ...t, tasks: t.tasks.filter((x) => x.id !== id) })))
+    setTurns((prev) => prev.map((t) => ({ ...t, tasks: t.tasks.filter((x) => x.id !== id) })))
 
-    const quedan = res.data.length
-    agregar(
+    const left = res.data.length
+    add(
       'albus',
       `${status === 'done' ? 'Tachado' : 'Descartado'}. ` +
-        (quedan === 0 ? 'No te queda nada pendiente.' : `Te quedan ${quedan}.`)
+        (left === 0 ? 'No te queda nada pendiente.' : `Te quedan ${left}.`)
     )
   }
 
   return (
     <div className="chat">
       <div className="chat-hilo">
-        {turnos.map((t) => (
-          <div key={t.id} className={`chat-turno chat-${t.de}`}>
-            <p className="chat-texto">{t.texto}</p>
+        {turns.map((t) => (
+          <div key={t.id} className={`chat-turno chat-${t.from}`}>
+            <p className="chat-texto">{t.text}</p>
             {t.tasks.length > 0 && (
               <ul className="task-list">
                 {t.tasks.map((task) => (
-                  <Tarjeta
+                  <Card
                     key={task.id}
                     task={task}
-                    detalle={detalles[task.id] ?? null}
-                    abierta={abierta === task.id}
-                    cargando={cargandoDetalle === task.id}
+                    detail={details[task.id] ?? null}
+                    open={openId === task.id}
+                    loading={loadingDetail === task.id}
                     onToggle={(id) => void toggle(id)}
-                    onCerrar={cerrar}
-                    onAbrir={abrirLink}
+                    onClose={close}
+                    onOpen={openLink}
                   />
                 ))}
               </ul>
             )}
           </div>
         ))}
-        {pensando && (
+        {thinking && (
           <div className="chat-turno chat-albus">
             <p className="chat-texto chat-pensando">…</p>
           </div>
         )}
-        <div ref={finRef} />
+        <div ref={endRef} />
       </div>
 
       <form
         className="chat-input"
         onSubmit={(e) => {
           e.preventDefault()
-          void enviar(texto)
+          void send(text)
         }}
       >
         <input
           type="text"
-          value={texto}
+          value={text}
           placeholder="¿qué tengo pendiente?"
-          onChange={(e) => setTexto(e.target.value)}
-          disabled={pensando}
+          onChange={(e) => setText(e.target.value)}
+          disabled={thinking}
         />
-        <button type="submit" disabled={pensando || texto.trim().length === 0}>
+        <button type="submit" disabled={thinking || text.trim().length === 0}>
           preguntar
         </button>
       </form>

@@ -44,13 +44,13 @@
  */
 
 /** Tokens separados por espacios, sin los vacíos. */
-function tokens(linea: string): string[] {
-  return linea.split(/\s+/).filter((t) => t.length > 0)
+function tokens(line: string): string[] {
+  return line.split(/\s+/).filter((t) => t.length > 0)
 }
 
 /** Solo letras y dígitos, sin acentos ni símbolos. */
-function alnum(texto: string): string {
-  return texto.replace(/[^0-9a-záéíóúüñ]/gi, '')
+function alnum(text: string): string {
+  return text.replace(/[^0-9a-záéíóúüñ]/gi, '')
 }
 
 /**
@@ -60,8 +60,8 @@ function alnum(texto: string): string {
  * del texto es la hora de un evento y hay que conservarla — por eso el llamador
  * solo aplica esto a la primera línea.
  */
-function pareceReloj(linea: string): boolean {
-  return /^\d{1,2}[:.]\d{2}\b/.test(linea.trim())
+function looksLikeClock(line: string): boolean {
+  return /^\d{1,2}[:.]\d{2}\b/.test(line.trim())
 }
 
 /**
@@ -73,8 +73,8 @@ function pareceReloj(linea: string): boolean {
  * El umbral es sobre alfanuméricos y no sobre letras para que `2026` sobreviva:
  * ante la duda preferimos conservar un año suelto antes que perder un dato.
  */
-function sonTodosTokensCortos(linea: string): boolean {
-  return tokens(linea).every((t) => alnum(t).length < 3)
+function allTokensShort(line: string): boolean {
+  return tokens(line).every((t) => alnum(t).length < 3)
 }
 
 /**
@@ -86,12 +86,12 @@ function sonTodosTokensCortos(linea: string): boolean {
  * Conserva lo que importa, con margen cómodo: `26 Agosto: Business Day` da 5%,
  * `Bogotá - Colombia` 6%, y un email 8% — el `@` y el punto no lo condenan.
  */
-function demasiadosSimbolos(linea: string): boolean {
-  const sinEspacios = linea.replace(/\s/g, '')
-  if (sinEspacios.length === 0) return true
+function tooManySymbols(line: string): boolean {
+  const noSpaces = line.replace(/\s/g, '')
+  if (noSpaces.length === 0) return true
 
-  const simbolos = sinEspacios.length - alnum(sinEspacios).length
-  return simbolos / sinEspacios.length > 0.25
+  const symbols = noSpaces.length - alnum(noSpaces).length
+  return symbols / noSpaces.length > 0.25
 }
 
 /**
@@ -109,21 +109,21 @@ function demasiadosSimbolos(linea: string): boolean {
  * (`27`, `y`, `28`, `de`) y es justo la línea que el usuario necesita leer. Las
  * palabras cortas del español van en minúscula; los iconos, no.
  */
-function demasiadosGlifos(linea: string): boolean {
-  const glifos = tokens(linea).filter((t) => {
-    const limpio = alnum(t)
-    return limpio.length > 0 && limpio.length <= 2 && /[A-ZÁÉÍÓÚÜÑ]/.test(limpio)
+function tooManyGlyphs(line: string): boolean {
+  const glyphs = tokens(line).filter((t) => {
+    const clean = alnum(t)
+    return clean.length > 0 && clean.length <= 2 && /[A-ZÁÉÍÓÚÜÑ]/.test(clean)
   })
-  return glifos.length >= 2
+  return glyphs.length >= 2
 }
 
 /** Iconos pegados al principio o al final: `Compartir perfil <` → `Compartir perfil`. */
-function sacarSimbolosDeLosBordes(linea: string): string {
-  return linea
+function stripEdgeSymbols(line: string): string {
+  return line
     .split(/\s+/)
-    .filter((t, i, todos) => {
-      const esBorde = i === 0 || i === todos.length - 1
-      return !esBorde || alnum(t).length > 0
+    .filter((t, i, all) => {
+      const isEdge = i === 0 || i === all.length - 1
+      return !isEdge || alnum(t).length > 0
     })
     .join(' ')
     .trim()
@@ -135,39 +135,39 @@ function sacarSimbolosDeLosBordes(linea: string): string {
  * Nunca lanza: un OCR ilegible devuelve '' y el llamador decide qué decir. Que
  * una captura no se pueda leer no puede tumbar el detalle entero.
  */
-export function limpiarOcr(bruto: string): string {
-  const lineas = bruto.split(/\r?\n/)
-  const salida: string[] = []
-  const vistas = new Set<string>()
-  let primeraUtil = true
+export function cleanOcr(raw: string): string {
+  const lines = raw.split(/\r?\n/)
+  const output: string[] = []
+  const seen = new Set<string>()
+  let firstUseful = true
 
-  for (const cruda of lineas) {
-    const linea = cruda.trim()
-    if (linea.length === 0) continue
+  for (const rawLine of lines) {
+    const line = rawLine.trim()
+    if (line.length === 0) continue
 
     // La barra de estado solo puede ser la primera línea con contenido.
-    if (primeraUtil && pareceReloj(linea)) {
-      primeraUtil = false
+    if (firstUseful && looksLikeClock(line)) {
+      firstUseful = false
       continue
     }
-    primeraUtil = false
+    firstUseful = false
 
-    if (sonTodosTokensCortos(linea)) continue
-    if (demasiadosSimbolos(linea)) continue
-    if (demasiadosGlifos(linea)) continue
+    if (allTokensShort(line)) continue
+    if (tooManySymbols(line)) continue
+    if (tooManyGlyphs(line)) continue
 
-    const limpia = sacarSimbolosDeLosBordes(linea)
-    if (limpia.length === 0) continue
+    const clean = stripEdgeSymbols(line)
+    if (clean.length === 0) continue
 
     // Las capturas repiten cabeceras ("Tus Tickets") entre pantallas contiguas.
-    const clave = alnum(limpia).toLowerCase()
-    if (clave.length === 0 || vistas.has(clave)) continue
-    vistas.add(clave)
+    const key = alnum(clean).toLowerCase()
+    if (key.length === 0 || seen.has(key)) continue
+    seen.add(key)
 
-    salida.push(limpia)
+    output.push(clean)
   }
 
-  return salida.join('\n')
+  return output.join('\n')
 }
 
 /**
@@ -177,7 +177,7 @@ export function limpiarOcr(bruto: string): string {
  * inicial, o todo mayúscula. Una palabra real cumple una de las tres; el OCR
  * fallado produce `COmunid`, `iLooking`, `ZE` — mayúsculas en el medio.
  */
-function pareceePalabra(token: string): boolean {
+function looksLikeWord(token: string): boolean {
   const t = alnum(token)
   if (t.length < 3) return false
   return t === t.toLowerCase() || t === t.toUpperCase() || /^[A-ZÁÉÍÓÚÜÑ][^A-ZÁÉÍÓÚÜÑ]*$/.test(t)
@@ -186,7 +186,7 @@ function pareceePalabra(token: string): boolean {
 /**
  * ¿El texto limpio se puede leer, o el OCR falló en origen?
  *
- * Esto NO es lo mismo que limpiar. `limpiarOcr` saca el marco del teléfono; acá
+ * Esto NO es lo mismo que limpiar. `cleanOcr` saca el marco del teléfono; acá
  * la pregunta es si lo que quedó adentro significa algo. En los datos reales, la
  * foto del cartel del meetup salió así:
  *
@@ -203,12 +203,12 @@ function pareceePalabra(token: string): boolean {
  * Meetup — `Unete a AWS User Group Serverles / Mestup Linked`, imperfecta pero
  * perfectamente entendible — da 0.71. El umbral va entre las dos.
  */
-export function esLegible(textoLimpio: string): boolean {
-  const todos = tokens(textoLimpio.replace(/\n/g, ' ')).filter((t) => alnum(t).length > 0)
-  if (todos.length === 0) return false
+export function isReadable(cleanText: string): boolean {
+  const all = tokens(cleanText.replace(/\n/g, ' ')).filter((t) => alnum(t).length > 0)
+  if (all.length === 0) return false
 
-  const palabras = todos.filter(pareceePalabra).length
-  return palabras / todos.length >= 0.45
+  const words = all.filter(looksLikeWord).length
+  return words / all.length >= 0.45
 }
 
 /**
@@ -219,14 +219,14 @@ export function esLegible(textoLimpio: string): boolean {
  * mató las cuatro peores (0% y 5% conservado) y dejó pasar las del medio, que
  * conservan 30-80% y siguen produciendo `Fr [aos` e `iaa | Esti,`.
  *
- * La conclusión de ese fracaso está en `esFotoDeCamara`: quién decide es el TIPO
+ * La conclusión de ese fracaso está en `isCameraPhoto`: quién decide es el TIPO
  * DE ARCHIVO, no la forma del texto. Esto queda solo como red de seguridad para
  * una captura de pantalla que salga rarísima.
  */
-export function conservaSuficiente(bruto: string, limpio: string): boolean {
-  const original = bruto.replace(/\s/g, '').length
+export function keepsEnough(raw: string, clean: string): boolean {
+  const original = raw.replace(/\s/g, '').length
   if (original === 0) return false
-  return limpio.replace(/\s/g, '').length / original >= 0.15
+  return clean.replace(/\s/g, '').length / original >= 0.15
 }
 
 /**
@@ -256,12 +256,12 @@ export function conservaSuficiente(bruto: string, limpio: string): boolean {
  * cámara, una captura no — pero eso hay que registrarlo al extraer, y hoy la
  * única pista disponible sobre lo ya procesado es el nombre.
  */
-export function esFotoDeCamara(attachmentPath: string): boolean {
-  const nombre = (attachmentPath.split('/').pop() ?? '')
+export function isCameraPhoto(attachmentPath: string): boolean {
+  const name = (attachmentPath.split('/').pop() ?? '')
     // El uploader le prefija un uuid al nombre original.
     .replace(/^[0-9a-f-]{36}-/i, '')
 
-  return /^(IMG[_-]\d|PXL[_-]\d|DSC[_-]?\d|DSCN\d|photo[_-]?\d|\d{8}_\d{6})/i.test(nombre)
+  return /^(IMG[_-]\d|PXL[_-]\d|DSC[_-]?\d|DSCN\d|photo[_-]?\d|\d{8}_\d{6})/i.test(name)
 }
 
 /**
@@ -298,26 +298,26 @@ export function esFotoDeCamara(attachmentPath: string): boolean {
  *
  * Cada captura se juzga sola. Una imagen ilegible no aporta nada que sumar.
  */
-export function fusionarCapturas(textos: string[]): string {
-  const salida: string[] = []
-  const vistas = new Set<string>()
+export function mergeScreenshots(texts: string[]): string {
+  const output: string[] = []
+  const seen = new Set<string>()
 
-  for (const texto of textos) {
-    const limpio = limpiarOcr(texto)
-    // Dos preguntas distintas: `esLegible` mira si lo que quedó parece palabras,
-    // `conservaSuficiente` si quedó lo bastante como para ser contenido y no
+  for (const text of texts) {
+    const clean = cleanOcr(text)
+    // Dos preguntas distintas: `isReadable` mira si lo que quedó parece palabras,
+    // `keepsEnough` si quedó lo bastante como para ser contenido y no
     // sobrevivientes de casualidad. Una foto ilegible pasa la primera y falla la
     // segunda — por eso hacen falta las dos.
-    if (!esLegible(limpio) || !conservaSuficiente(texto, limpio)) continue
+    if (!isReadable(clean) || !keepsEnough(text, clean)) continue
 
-    for (const linea of limpio.split('\n')) {
-      if (linea.length === 0) continue
-      const clave = alnum(linea).toLowerCase()
-      if (clave.length === 0 || vistas.has(clave)) continue
-      vistas.add(clave)
-      salida.push(linea)
+    for (const line of clean.split('\n')) {
+      if (line.length === 0) continue
+      const key = alnum(line).toLowerCase()
+      if (key.length === 0 || seen.has(key)) continue
+      seen.add(key)
+      output.push(line)
     }
   }
 
-  return salida.join('\n')
+  return output.join('\n')
 }

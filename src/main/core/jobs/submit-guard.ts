@@ -11,21 +11,21 @@ import type { ApplyMode, ButtonKind } from './types'
  * afuera: la que manda es esta.
  */
 
-const ENVIAR =
+const SUBMIT =
   /^(submit|send|apply now|submit application|send application|finish|enviar|postular|postularme|enviar solicitud|enviar postulacion|finalizar)\b/
 
-const SIGUIENTE = /^(next|continue|review|siguiente|continuar|revisar|save and continue)\b/
+const NEXT = /^(next|continue|review|siguiente|continuar|revisar|save and continue)\b/
 
-const ABRIR = /^(easy apply|apply|solicitud sencilla|solicitud simple|postularse|aplicar)\b/
+const OPEN = /^(easy apply|apply|solicitud sencilla|solicitud simple|postularse|aplicar)\b/
 
 export function classifyButton(label: string): ButtonKind {
   const t = normalize(label)
   if (t === '') return 'other'
   // `enviar` antes que `apply`: "Submit application" empieza con submit, pero
   // "Apply now" también es un envío en los portales de una sola pantalla.
-  if (ENVIAR.test(t)) return 'submit'
-  if (SIGUIENTE.test(t)) return 'next'
-  if (ABRIR.test(t)) return 'apply'
+  if (SUBMIT.test(t)) return 'submit'
+  if (NEXT.test(t)) return 'next'
+  if (OPEN.test(t)) return 'apply'
   return 'other'
 }
 

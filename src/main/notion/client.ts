@@ -37,15 +37,15 @@ export const DEFAULT_DATABASE_ID = '81e09fb24cbb4a76bb7015cec17003e2'
  * entorno, y la app lo pisa con lo que diga el `.md` de reglas. Así este
  * archivo sigue sin importar electron y los chequeos lo pueden correr con tsx.
  */
-let resolverDatabaseId: () => string | null = () => process.env.NOTION_JOBS_DATABASE_ID ?? null
+let databaseIdResolver: () => string | null = () => process.env.NOTION_JOBS_DATABASE_ID ?? null
 
 export function setNotionDatabaseIdResolver(fn: () => string | null): void {
-  resolverDatabaseId = fn
+  databaseIdResolver = fn
 }
 
 export function notionDatabaseId(): string {
-  const elegida = resolverDatabaseId()
-  return elegida !== null && elegida.trim() !== '' ? elegida.trim() : DEFAULT_DATABASE_ID
+  const chosen = databaseIdResolver()
+  return chosen !== null && chosen.trim() !== '' ? chosen.trim() : DEFAULT_DATABASE_ID
 }
 
 /**
@@ -56,19 +56,19 @@ export function notionDatabaseId(): string {
  * lo reemplaza por uno que además mira lo que el usuario pegó en la UI, que
  * está cifrado con safeStorage y gana sobre el `.env`.
  */
-let resolverToken: () => string | null = () => process.env.NOTION_TOKEN ?? null
+let tokenResolver: () => string | null = () => process.env.NOTION_TOKEN ?? null
 
 export function setNotionTokenResolver(fn: () => string | null): void {
-  resolverToken = fn
+  tokenResolver = fn
 }
 
 export function isNotionConfigured(): boolean {
-  const t = resolverToken()
+  const t = tokenResolver()
   return t !== null && t.trim() !== ''
 }
 
 function requireToken(): string {
-  const token = resolverToken()
+  const token = tokenResolver()
   if (!token) {
     // Ruidoso: sin token no hay espejo en Notion, y descubrirlo por una fila
     // que nunca apareció es peor que fallar acá.
@@ -95,10 +95,10 @@ export async function notionFetch(path: string, init: RequestInit = {}): Promise
   const json: unknown = await res.json().catch(() => ({}))
 
   if (!res.ok) {
-    const detalle = z
-      .object({ message: z.string() })
-      .safeParse(json)
-    throw new Error(`Notion ${res.status}: ${detalle.success ? detalle.data.message : JSON.stringify(json)}`)
+    const detail = z.object({ message: z.string() }).safeParse(json)
+    throw new Error(
+      `Notion ${res.status}: ${detail.success ? detail.data.message : JSON.stringify(json)}`
+    )
   }
 
   return json

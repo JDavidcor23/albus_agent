@@ -34,7 +34,7 @@
  * segundo chequeo cubre binario crudo: si no es ASCII imprimible, no hay nada que
  * mostrarle a nadie.
  */
-export function esCifrado(code: string): boolean {
+export function isEncrypted(code: string): boolean {
   return code.startsWith('U2FsdGVkX1') || !/^[\x20-\x7E]+$/.test(code)
 }
 
@@ -46,23 +46,23 @@ export function esCifrado(code: string): boolean {
  * existe forma de distinguirlas sin la clave del organizador. Ante lo
  * indistinguible, colapsar es la única respuesta honesta.
  */
-const IDENTIDAD_CIFRADA = 'qr:cifrado'
+const ENCRYPTED_IDENTITY = 'qr:cifrado'
 
 /** Params que no cambian a dónde apunta un link, solo de dónde venís. */
-const PARAMS_DE_TRACKING = new Set([
+const TRACKING_PARAMS = new Set([
   'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'utm_id',
   'fbclid', 'gclid', 'msclkid', 'igshid', 'mc_cid', 'mc_eid', 'ref', 'referrer',
   'source', 'src', '_branch_match_id', 'rcid', 'gi', 'usp'
 ])
 
 /** Segmentos de path que no dicen QUÉ es: son la estructura del sitio. */
-const SEGMENTOS_GENERICOS = new Set([
+const GENERIC_SEGMENTS = new Set([
   'events', 'event', 'e', 'u', 'p', 'in', 'profile', 'profiles', 'groups', 'group',
   'invite', 'invites', 'join', 's', 'r', 'd', 'view', 'watch', 'share', 'home',
   'index', 'page', 'pages', 'l', 'c', 'i', 'go', 'link', 'links', 'about'
 ])
 
-const NOMBRE_DE_HOST: Record<string, string> = {
+const HOST_NAMES: Record<string, string> = {
   'meetup.com': 'Meetup',
   'linkedin.com': 'LinkedIn',
   'lnkd.in': 'LinkedIn',
@@ -92,14 +92,14 @@ const NOMBRE_DE_HOST: Record<string, string> = {
 }
 
 /** Siglas que en un slug van en mayúscula: `aws-user-group` → `AWS User Group`. */
-const SIGLAS = new Set([
+const ACRONYMS = new Set([
   'aws', 'gcp', 'api', 'ai', 'ia', 'ui', 'ux', 'js', 'ts', 'css', 'html', 'sql',
   'php', 'ml', 'llm', 'qr', 'sdk', 'cli', 'ci', 'cd', 'k8s', 'iot', 'vr', 'ar',
   'nft', 'dao', 'db', 'os', 'pm', 'qa', 'hr', 'it', 'seo', 'crm', 'erp', 'saas'
 ])
 
 /** Palabras con mayúsculas internas que ninguna regla general acierta. */
-const CAPITALIZACION_ESPECIAL: Record<string, string> = {
+const SPECIAL_CAPITALIZATION: Record<string, string> = {
   devops: 'DevOps',
   nodejs: 'Node.js',
   nextjs: 'Next.js',
@@ -122,11 +122,11 @@ const CAPITALIZACION_ESPECIAL: Record<string, string> = {
   ios: 'iOS'
 }
 
-function esUrl(code: string): boolean {
+function isUrl(code: string): boolean {
   return /^https?:\/\//i.test(code)
 }
 
-function hostSinWww(hostname: string): string {
+function hostWithoutWww(hostname: string): string {
   return hostname.toLowerCase().replace(/^www\./, '')
 }
 
@@ -137,22 +137,22 @@ function hostSinWww(hostname: string): string {
  * hexadecimal largo, y cualquier cosa larga sin una sola vocal — que es como se
  * ven las claves generadas al azar.
  */
-function pareceIdentificador(segmento: string): boolean {
-  if (/^\d+$/.test(segmento)) return true
-  if (/^[0-9a-f]{8,}$/i.test(segmento)) return true
-  return segmento.length >= 8 && !/[aeiou]/i.test(segmento)
+function looksLikeIdentifier(segment: string): boolean {
+  if (/^\d+$/.test(segment)) return true
+  if (/^[0-9a-f]{8,}$/i.test(segment)) return true
+  return segment.length >= 8 && !/[aeiou]/i.test(segment)
 }
 
 /** `aws-user-group-serverless-colombia` → `AWS User Group Serverless Colombia`. */
-function desSluguear(segmento: string): string {
-  return decodeURIComponent(segmento)
+function unslug(segment: string): string {
+  return decodeURIComponent(segment)
     .split(/[-_+.]+/)
     .filter((p) => p.length > 0)
     .map((p) => {
-      const bajo = p.toLowerCase()
-      if (CAPITALIZACION_ESPECIAL[bajo] !== undefined) return CAPITALIZACION_ESPECIAL[bajo]
-      if (SIGLAS.has(bajo)) return bajo.toUpperCase()
-      return bajo.charAt(0).toUpperCase() + bajo.slice(1)
+      const lower = p.toLowerCase()
+      if (SPECIAL_CAPITALIZATION[lower] !== undefined) return SPECIAL_CAPITALIZATION[lower]
+      if (ACRONYMS.has(lower)) return lower.toUpperCase()
+      return lower.charAt(0).toUpperCase() + lower.slice(1)
     })
     .join(' ')
 }
@@ -166,19 +166,19 @@ function desSluguear(segmento: string): string {
  *           mismo lugar y tienen que dar la misma identidad.
  * Texto   → normalizado en minúsculas.
  */
-export function identidadDe(code: string): string {
-  if (esCifrado(code)) return IDENTIDAD_CIFRADA
+export function identityOf(code: string): string {
+  if (isEncrypted(code)) return ENCRYPTED_IDENTITY
 
-  if (esUrl(code)) {
+  if (isUrl(code)) {
     try {
       const url = new URL(code)
       const params = [...url.searchParams.entries()]
-        .filter(([k]) => !PARAMS_DE_TRACKING.has(k.toLowerCase()))
+        .filter(([k]) => !TRACKING_PARAMS.has(k.toLowerCase()))
         .map(([k, v]) => `${k.toLowerCase()}=${v}`)
         .sort()
 
       const path = url.pathname.replace(/\/+$/, '').toLowerCase()
-      return `url:${hostSinWww(url.hostname)}${path}${params.length ? `?${params.join('&')}` : ''}`
+      return `url:${hostWithoutWww(url.hostname)}${path}${params.length ? `?${params.join('&')}` : ''}`
     } catch {
       // Una URL que no parsea se trata como texto: peor identidad, nunca un throw.
     }
@@ -199,35 +199,35 @@ export function identidadDe(code: string): string {
  * misma captura decía "Screenshots fotos y videos de aws serverless día también
  * hay links de linkedin...", que como título es ruido.
  */
-export function etiquetaDe(code: string): string | null {
-  if (esCifrado(code)) return null
+export function labelOf(code: string): string | null {
+  if (isEncrypted(code)) return null
 
-  if (esUrl(code)) {
+  if (isUrl(code)) {
     try {
       const url = new URL(code)
-      const host = hostSinWww(url.hostname)
-      const sitio = NOMBRE_DE_HOST[host] ?? host
+      const host = hostWithoutWww(url.hostname)
+      const site = HOST_NAMES[host] ?? host
 
-      const utiles = url.pathname
+      const useful = url.pathname
         .split('/')
         .map((s) => s.trim())
         .filter((s) => s.length > 0)
-        .filter((s) => !SEGMENTOS_GENERICOS.has(s.toLowerCase()))
-        .filter((s) => !pareceIdentificador(s))
+        .filter((s) => !GENERIC_SEGMENTS.has(s.toLowerCase()))
+        .filter((s) => !looksLikeIdentifier(s))
 
       // El más largo es el más descriptivo: entre `aws-user-group-serverless-colombia`
       // y `2024`, el nombre del grupo es lo que ubica al usuario.
-      const mejor = utiles.sort((a, b) => b.length - a.length)[0]
-      if (mejor === undefined) return sitio
+      const best = useful.sort((a, b) => b.length - a.length)[0]
+      if (best === undefined) return site
 
-      const nombre = desSluguear(mejor)
-      return nombre.length > 0 ? `${sitio} · ${nombre}` : sitio
+      const name = unslug(best)
+      return name.length > 0 ? `${site} · ${name}` : site
     } catch {
       // Cae al texto plano de abajo.
     }
   }
 
-  const plano = code.replace(/\s+/g, ' ').trim()
-  if (plano.length === 0) return null
-  return plano.length > 80 ? `${plano.slice(0, 80)}…` : plano
+  const plain = code.replace(/\s+/g, ' ').trim()
+  if (plain.length === 0) return null
+  return plain.length > 80 ? `${plain.slice(0, 80)}…` : plain
 }

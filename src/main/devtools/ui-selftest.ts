@@ -12,48 +12,53 @@ import { is } from '@electron-toolkit/utils'
  *   npm run ui:selftest
  */
 
-let pasados = 0
-let fallados = 0
+let passed = 0
+let failed = 0
 
-function check(nombre: string, real: unknown, esperado: unknown): void {
-  if (JSON.stringify(real) === JSON.stringify(esperado)) {
-    pasados++
-    console.log(`  ok    ${nombre}`)
+function check(name: string, actual: unknown, expected: unknown): void {
+  if (JSON.stringify(actual) === JSON.stringify(expected)) {
+    passed++
+    console.log(`  ok    ${name}`)
   } else {
-    fallados++
-    console.log(`  FALLA ${nombre}`)
-    console.log(`          esperado ${JSON.stringify(esperado)}`)
-    console.log(`          real     ${JSON.stringify(real)}`)
+    failed++
+    console.log(`  FALLA ${name}`)
+    console.log(`          esperado ${JSON.stringify(expected)}`)
+    console.log(`          real     ${JSON.stringify(actual)}`)
   }
 }
 
-function espera(ms: number): Promise<void> {
+function wait(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
 }
 
-/** Corre en la página y devuelve JSON. Nada de esto se arma con datos externos. */
-const LEER_UI = `JSON.stringify((() => {
-  const textos = (sel) => [...document.querySelectorAll(sel)].map((e) => (e.textContent || '').trim())
-  const activa = document.querySelector('.tabs .pick-on')
+/**
+ * Corre en la página y devuelve JSON. Nada de esto se arma con datos externos.
+ *
+ * Los selectores y los textos esperados quedan en castellano a propósito: son
+ * el DOM y la copy del renderer, que no se traducen.
+ */
+const READ_UI = `JSON.stringify((() => {
+  const texts = (sel) => [...document.querySelectorAll(sel)].map((e) => (e.textContent || '').trim())
+  const active = document.querySelector('.tabs .pick-on')
   return {
-    tabs: textos('.tabs .pick'),
-    tabActiva: activa ? (activa.textContent || '').trim() : null,
-    agentes: textos('.agente-nombre'),
-    motivos: textos('.agente-motivo'),
-    botones: textos('button'),
-    hayFormulario: !!document.querySelector('.job-form'),
-    hayModo: !!document.querySelector('.job-barra'),
-    modos: textos('.job-barra .pick'),
+    tabs: texts('.tabs .pick'),
+    activeTab: active ? (active.textContent || '').trim() : null,
+    agents: texts('.agente-nombre'),
+    reasons: texts('.agente-motivo'),
+    buttons: texts('button'),
+    hasForm: !!document.querySelector('.job-form'),
+    hasModeBar: !!document.querySelector('.job-barra'),
+    modes: texts('.job-barra .pick'),
     // El chat reemplazó al formulario: se le habla, no se llenan campos.
-    hayChat: !!document.querySelector('.jobchat'),
-    hayEntrada: !!document.querySelector('.jobchat-entrada input'),
-    placeholderChat: (() => {
+    hasChat: !!document.querySelector('.jobchat'),
+    hasInput: !!document.querySelector('.jobchat-entrada input'),
+    chatPlaceholder: (() => {
       const i = document.querySelector('.jobchat-entrada input')
       return i ? i.getAttribute('placeholder') || '' : ''
     })(),
-    ejemplos: textos('.jobchat-vacio li'),
-    hayConexiones: !!document.querySelector('.job-conexiones-btn'),
-    conexionesTexto: (() => {
+    examples: texts('.jobchat-vacio li'),
+    hasConnections: !!document.querySelector('.job-conexiones-btn'),
+    connectionsText: (() => {
       const b = document.querySelector('.job-conexiones-btn')
       return b ? (b.textContent || '').trim() : ''
     })()
@@ -79,59 +84,59 @@ export async function runUiSelfTest(): Promise<boolean> {
 
     // React monta y después pide los agentes por IPC. Sin este respiro leemos
     // la pantalla de "buscando agentes…".
-    await espera(4000)
+    await wait(4000)
 
-    const crudo = (await win.webContents.executeJavaScript(LEER_UI)) as string
-    const ui = JSON.parse(crudo) as {
+    const raw = (await win.webContents.executeJavaScript(READ_UI)) as string
+    const ui = JSON.parse(raw) as {
       tabs: string[]
-      tabActiva: string | null
-      agentes: string[]
-      motivos: string[]
-      botones: string[]
-      hayFormulario: boolean
-      hayModo: boolean
-      modos: string[]
-      hayChat: boolean
-      hayEntrada: boolean
-      placeholderChat: string
-      ejemplos: string[]
-      hayConexiones: boolean
-      conexionesTexto: string
+      activeTab: string | null
+      agents: string[]
+      reasons: string[]
+      buttons: string[]
+      hasForm: boolean
+      hasModeBar: boolean
+      modes: string[]
+      hasChat: boolean
+      hasInput: boolean
+      chatPlaceholder: string
+      examples: string[]
+      hasConnections: boolean
+      connectionsText: string
     }
 
     console.log('── assert 10 · la pestaña existe y lista el registro')
     check('hay una pestaña "agentes"', ui.tabs.includes('agentes'), true)
     check('las otras pestañas siguen', ui.tabs, ['agentes', 'pendientes', 'extracciones', 'grafo'])
-    check('abre en agentes', ui.tabActiva, 'agentes')
-    check('el registro llegó por IPC', ui.agentes, ['Búsqueda de trabajo'])
+    check('abre en agentes', ui.activeTab, 'agentes')
+    check('el registro llegó por IPC', ui.agents, ['Búsqueda de trabajo'])
 
     console.log('\n── assert 12 · al agente se le HABLA, no se le llenan campos')
-    check('hay chat', ui.hayChat, true)
-    check('con su campo para escribir', ui.hayEntrada, true)
-    check('que invita a escribir, no a completar', /escribile/i.test(ui.placeholderChat), true)
+    check('hay chat', ui.hasChat, true)
+    check('con su campo para escribir', ui.hasInput, true)
+    check('que invita a escribir, no a completar', /escribile/i.test(ui.chatPlaceholder), true)
     // Sin ejemplos, un chat vacío es una pantalla que no dice qué se puede pedir.
-    check('y muestra ejemplos de qué pedir', ui.ejemplos.length >= 2, true)
-    if (ui.ejemplos.length > 0) console.log(`          ejemplo: "${ui.ejemplos[0]}"`)
+    check('y muestra ejemplos de qué pedir', ui.examples.length >= 2, true)
+    if (ui.examples.length > 0) console.log(`          ejemplo: "${ui.examples[0]}"`)
 
     // El formulario y sus perillas SE FUERON: el chat los reemplazó.
-    check('ya no hay formulario de búsqueda', ui.hayFormulario, false)
-    check('ya no hay perillas de dry-run/review/auto', ui.modos, [])
-    check('tampoco el campo de "últimos días"', ui.hayModo, false)
+    check('ya no hay formulario de búsqueda', ui.hasForm, false)
+    check('ya no hay perillas de dry-run/review/auto', ui.modes, [])
+    check('tampoco el campo de "últimos días"', ui.hasModeBar, false)
 
     console.log('\n── conexiones: se conectan desde acá, no desde la terminal')
-    check('hay botón de conexiones', ui.hayConexiones, true)
+    check('hay botón de conexiones', ui.hasConnections, true)
     check(
       'el botón dice qué falta, no manda a correr un comando',
-      /npm run/.test(ui.conexionesTexto),
+      /npm run/.test(ui.connectionsText),
       false
     )
-    console.log(`          botón: "${ui.conexionesTexto}"`)
+    console.log(`          botón: "${ui.connectionsText}"`)
 
     console.log('\n── lo que falta se muestra, no se esconde')
     // El agente reporta sus credenciales faltantes en la tarjeta. Hoy faltan
     // Notion y Gmail, así que el motivo TIENE que estar visible.
-    check('la tarjeta dice qué le falta', ui.motivos.length >= 1, true)
-    if (ui.motivos.length > 0) console.log(`          motivo: "${ui.motivos[0]}"`)
+    check('la tarjeta dice qué le falta', ui.reasons.length >= 1, true)
+    if (ui.reasons.length > 0) console.log(`          motivo: "${ui.reasons[0]}"`)
 
     // Evidencia mirable. Un assert sobre el DOM prueba que los nodos están;
     // la captura prueba que además se ve.
@@ -150,23 +155,23 @@ export async function runUiSelfTest(): Promise<boolean> {
     await win.webContents.executeJavaScript(
       `(() => { const b = document.querySelector('.job-conexiones-btn'); if (b) b.click(); return true })()`
     )
-    await new Promise((r) => setTimeout(r, 1200))
+    await wait(1200)
 
-    const conexiones = (await win.webContents.executeJavaScript(`(() => ({
-      tarjetas: [...document.querySelectorAll('.conexion-grupo')].length,
-      nombres: [...document.querySelectorAll('.conexion-nombre')].map((n) => n.textContent.trim()),
-      textos: [...document.querySelectorAll('.conexion-para')].map((n) => n.textContent.trim())
-    }))()`)) as { tarjetas: number; nombres: string[]; textos: string[] }
+    const connections = (await win.webContents.executeJavaScript(`(() => ({
+      cards: [...document.querySelectorAll('.conexion-grupo')].length,
+      names: [...document.querySelectorAll('.conexion-nombre')].map((n) => n.textContent.trim()),
+      texts: [...document.querySelectorAll('.conexion-para')].map((n) => n.textContent.trim())
+    }))()`)) as { cards: number; names: string[]; texts: string[] }
 
-    check('hay tarjetas de conexión', conexiones.tarjetas >= 1, true)
+    check('hay tarjetas de conexión', connections.cards >= 1, true)
     check(
       'Google aparece UNA vez como cuenta, no dos como servicios',
-      conexiones.nombres.filter((n) => n === 'Google').length,
+      connections.names.filter((n) => n === 'Google').length,
       1
     )
     check(
       'y ninguna descripción habla de postulaciones',
-      conexiones.textos.some((t) => /postulaci|vacante/i.test(t)),
+      connections.texts.some((t) => /postulaci|vacante/i.test(t)),
       false
     )
 
@@ -175,22 +180,22 @@ export async function runUiSelfTest(): Promise<boolean> {
     await win.webContents.executeJavaScript(
       `(() => { const g = document.querySelector('.conexion-grupo'); if (g) g.scrollIntoView({ block: 'start' }); return true })()`
     )
-    await new Promise((r) => setTimeout(r, 600))
+    await wait(600)
 
     const shotConn = join(dir, 'conexiones.png')
     await writeFile(shotConn, (await win.webContents.capturePage()).toPNG())
     console.log(`          captura: ${shotConn}`)
   } catch (error: unknown) {
-    fallados++
+    failed++
     console.log(`  FALLA excepción leyendo la UI: ${String(error)}`)
   } finally {
     if (!win.isDestroyed()) win.destroy()
   }
 
-  const total = pasados + fallados
+  const total = passed + failed
   console.log(`\n${'='.repeat(60)}`)
-  console.log(`UI DE AGENTES   ${pasados}/${total} ${fallados === 0 ? '✓' : '✗'}`)
+  console.log(`UI DE AGENTES   ${passed}/${total} ${failed === 0 ? '✓' : '✗'}`)
   console.log(`${'='.repeat(60)}\n`)
 
-  return fallados === 0
+  return failed === 0
 }

@@ -10,9 +10,9 @@
  * detalle no funciona".
  */
 import { getTaskDetail, listTasks } from '../src/main/supabase/tasks-repo'
-import { esUrlAbrible } from '../src/shared/ipc'
+import { isOpenableUrl } from '../src/shared/ipc'
 
-const NOMBRE_FUENTE: Record<string, string> = {
+const SOURCE_NAME: Record<string, string> = {
   qr: 'código QR',
   receipt: 'comprobante',
   profile: 'perfil',
@@ -22,7 +22,7 @@ const NOMBRE_FUENTE: Record<string, string> = {
   failed: 'falló'
 }
 
-async function mostrar(id: string): Promise<void> {
+async function show(id: string): Promise<void> {
   const d = await getTaskDetail(id)
   if (d === null) {
     console.log('El pendiente ya no existe.')
@@ -40,8 +40,8 @@ async function mostrar(id: string): Promise<void> {
     console.log(`  RESUMEN: ${d.noteSummary}`)
     console.log(`  (original de ${d.noteBody.length} chars, detrás de "ver la nota completa")`)
   } else {
-    const corto = d.noteBody.length > 320 ? `${d.noteBody.slice(0, 320)}…` : d.noteBody
-    console.log(`  ${corto || '(nada)'}`)
+    const short = d.noteBody.length > 320 ? `${d.noteBody.slice(0, 320)}…` : d.noteBody
+    console.log(`  ${short || '(nada)'}`)
     if (d.noteBody.length > 320) {
       console.log(`  SIN RESUMEN — se recorta de ${d.noteBody.length} a 320 chars`)
     }
@@ -53,24 +53,24 @@ async function mostrar(id: string): Promise<void> {
   } else {
     for (const e of d.contacts.emails) console.log(`  email: ${e}`)
     for (const u of d.contacts.urls) {
-      console.log(`  link : ${u}  ${esUrlAbrible(u) ? '[botón]' : '[solo texto: host no permitido]'}`)
+      console.log(`  link : ${u}  ${isOpenableUrl(u) ? '[botón]' : '[solo texto: host no permitido]'}`)
     }
   }
 
   console.log(`\n--- capturas: ${d.sources.length} bloque(s) ---`)
   for (const s of d.sources) {
-    const nombre = NOMBRE_FUENTE[s.kind] ?? s.kind
-    console.log(`\n  [${nombre}${s.captures > 1 ? ` · ${s.captures} capturas` : ''}]`)
+    const name = SOURCE_NAME[s.kind] ?? s.kind
+    console.log(`\n  [${name}${s.captures > 1 ? ` · ${s.captures} capturas` : ''}]`)
     console.log(`      links: ${s.driveLinks.length > 0 ? s.driveLinks.length : 'NINGUNO'}`)
 
     if (s.text === null) {
       console.log('      (sin texto legible — la UI explica por qué)')
       continue
     }
-    const lineas = s.text.split('\n')
-    console.log(`      texto limpio (${s.text.length} chars, ${lineas.length} líneas):`)
-    for (const l of lineas.slice(0, 16)) console.log(`        ${l}`)
-    if (lineas.length > 16) console.log(`        … y ${lineas.length - 16} línea(s) más`)
+    const lines = s.text.split('\n')
+    console.log(`      texto limpio (${s.text.length} chars, ${lines.length} líneas):`)
+    for (const l of lines.slice(0, 16)) console.log(`        ${l}`)
+    if (lines.length > 16) console.log(`        … y ${lines.length - 16} línea(s) más`)
 
     if (s.rawText !== null && s.rawText !== s.text) {
       console.log(`      crudo detrás del toggle: ${s.rawText.length} chars`)
@@ -81,26 +81,26 @@ async function mostrar(id: string): Promise<void> {
 
 async function main(): Promise<void> {
   const arg = process.argv[2] ?? ''
-  const abiertos = await listTasks('open')
+  const open = await listTasks('open')
 
   if (arg === '--todos') {
-    console.log(`${abiertos.length} pendientes abiertos\n`)
-    for (const t of abiertos) await mostrar(t.id)
+    console.log(`${open.length} pendientes abiertos\n`)
+    for (const t of open) await show(t.id)
     return
   }
 
-  const filtro = arg.toLowerCase()
-  const elegido =
-    filtro.length > 0 ? abiertos.find((t) => t.title.toLowerCase().includes(filtro)) : abiertos[0]
+  const filter = arg.toLowerCase()
+  const chosen =
+    filter.length > 0 ? open.find((t) => t.title.toLowerCase().includes(filter)) : open[0]
 
-  if (elegido === undefined) {
+  if (chosen === undefined) {
     console.log(
-      filtro ? `Ningún pendiente abierto matchea "${filtro}".` : 'No hay pendientes abiertos.'
+      filter ? `Ningún pendiente abierto matchea "${filter}".` : 'No hay pendientes abiertos.'
     )
     return
   }
 
-  await mostrar(elegido.id)
+  await show(chosen.id)
 }
 
 main().catch((err) => {

@@ -28,7 +28,7 @@ import { getFileMeta } from './lib/drive'
 const APPLY = process.argv.includes('--apply')
 const MB = 1024 * 1024
 
-const Fila = z.object({
+const Row = z.object({
   attachment_path: z.string(),
   kind: z.string(),
   payload: z
@@ -48,21 +48,21 @@ async function main(): Promise<void> {
     .select('attachment_path, kind, payload')
   if (error) throw new Error(error.message)
 
-  const candidatos: { path: string; fileId: string; kind: string; context: string }[] = []
-  let sinDrive = 0
+  const candidates: { path: string; fileId: string; kind: string; context: string }[] = []
+  let withoutDrive = 0
 
   for (const raw of Array.isArray(data) ? data : []) {
-    const parsed = Fila.safeParse(raw)
+    const parsed = Row.safeParse(raw)
     if (!parsed.success) continue
     const f = parsed.data
     if (f.attachment_path === '') continue
 
     const drive = f.payload?.drive
     if (!drive) {
-      sinDrive++
+      withoutDrive++
       continue
     }
-    candidatos.push({
+    candidates.push({
       path: f.attachment_path,
       fileId: drive.fileId,
       kind: f.kind,
@@ -70,13 +70,13 @@ async function main(): Promise<void> {
     })
   }
 
-  console.log(`Adjuntos con copia en Drive : ${candidatos.length}`)
-  console.log(`Adjuntos SIN copia en Drive : ${sinDrive}  (no se tocan, se perderian)\n`)
+  console.log(`Adjuntos con copia en Drive : ${candidates.length}`)
+  console.log(`Adjuntos SIN copia en Drive : ${withoutDrive}  (no se tocan, se perderian)\n`)
 
-  const aBorrar: string[] = []
-  let liberado = 0
+  const toDelete: string[] = []
+  let freed = 0
 
-  for (const c of candidatos) {
+  for (const c of candidates) {
     const meta = await getFileMeta(c.fileId)
 
     if (meta === null) {
@@ -112,20 +112,20 @@ async function main(): Promise<void> {
       `  ${APPLY ? 'BORRADO ' : 'se borraria'}  ${(c.context || c.kind).padEnd(38)} ` +
         `${(bytes.length / 1024).toFixed(0)} KB  md5 ok`
     )
-    aBorrar.push(c.path)
-    liberado += bytes.length
+    toDelete.push(c.path)
+    freed += bytes.length
   }
 
-  if (APPLY && aBorrar.length > 0) {
-    const { error: e } = await supabase.storage.from('attachments').remove(aBorrar)
+  if (APPLY && toDelete.length > 0) {
+    const { error: e } = await supabase.storage.from('attachments').remove(toDelete)
     if (e) throw new Error(`Error borrando de Storage: ${e.message}`)
   }
 
   console.log(
-    `\n${APPLY ? 'Liberados' : 'Se liberarian'} ${(liberado / MB).toFixed(2)} MB ` +
-      `en ${aBorrar.length} archivos.`
+    `\n${APPLY ? 'Liberados' : 'Se liberarian'} ${(freed / MB).toFixed(2)} MB ` +
+      `en ${toDelete.length} archivos.`
   )
-  if (!APPLY && aBorrar.length > 0) {
+  if (!APPLY && toDelete.length > 0) {
     console.log('\nPara aplicar: npx tsx scripts/storage-prune.ts --apply')
     console.log('Recorda: My Notes va a mostrar esas fotos rotas hasta que lea desde Drive.')
   }

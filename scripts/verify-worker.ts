@@ -119,13 +119,13 @@ async function main(): Promise<void> {
   // Caso b3) si el sink tambien falla, NO se cuenta como guardado: reintentar
   // en la proxima corrida es lo correcto cuando la base esta caida.
   // -------------------------------------------------------------------------
-  const sinkRoto: ResultSink = {
+  const brokenSink: ResultSink = {
     async save() {
       throw new Error('base caida')
     }
   }
 
-  const resBroken = await processBatch(sourceB, sinkRoto, 10)
+  const resBroken = await processBatch(sourceB, brokenSink, 10)
   check(
     'b3) sink roto no tira la excepcion hacia afuera',
     resBroken.failed === 3 && resBroken.processed === 0,

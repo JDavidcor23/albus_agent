@@ -18,14 +18,14 @@ export function resolveBinary(
         return
       }
 
-      const primera =
+      const first =
         stdout
           .split('\n')
           .map((l) => l.trim())
           .find((l) => l.length > 0) ?? null
 
-      if (primera !== null) cache.value = primera
-      resolve(primera)
+      if (first !== null) cache.value = first
+      resolve(first)
     })
   })
 }
@@ -35,18 +35,18 @@ export const TIMEOUT_MS = 120_000
 /**
  * Envoltorio de un spawn con timeout duro y una sola resolución.
  *
- * `timeoutMs` y `onLinea` existen por un caso concreto: generar un CV a medida
+ * `timeoutMs` y `onLine` existen por un caso concreto: generar un CV a medida
  * corre un agente que compila LaTeX, lee el PDF y lo verifica contra veinte
  * puntos. Eso tarda minutos, no segundos, y el usuario necesita ver que algo
  * pasa mientras tanto o va a pensar que se colgó.
  */
 export function collect(
   child: import('node:child_process').ChildProcess,
-  etiqueta: string,
+  label: string,
   prompt: string | null,
-  opciones: { timeoutMs?: number; onLinea?: (linea: string) => void } = {}
+  options: { timeoutMs?: number; onLine?: (line: string) => void } = {}
 ): Promise<string> {
-  const limite = opciones.timeoutMs ?? TIMEOUT_MS
+  const limit = options.timeoutMs ?? TIMEOUT_MS
 
   return new Promise((resolve, reject) => {
     let settled = false
@@ -59,21 +59,21 @@ export function collect(
     let stdout = ''
     let stderr = ''
 
-    let pendiente = ''
+    let pending = ''
 
     child.stdout?.on('data', (c: Buffer) => {
-      const texto = c.toString('utf8')
-      stdout += texto
+      const text = c.toString('utf8')
+      stdout += text
 
-      if (opciones.onLinea === undefined) return
+      if (options.onLine === undefined) return
       // Se emiten líneas completas: un chunk parte una línea al medio y la UI
       // mostraría medio renglón.
-      pendiente += texto
-      const lineas = pendiente.split('\n')
-      pendiente = lineas.pop() ?? ''
-      for (const l of lineas) {
-        const limpia = l.trim()
-        if (limpia !== '') opciones.onLinea(limpia)
+      pending += text
+      const lines = pending.split('\n')
+      pending = lines.pop() ?? ''
+      for (const l of lines) {
+        const clean = l.trim()
+        if (clean !== '') options.onLine(clean)
       }
     })
     child.stderr?.on('data', (c: Buffer) => {
@@ -82,8 +82,8 @@ export function collect(
 
     const timer = setTimeout(() => {
       child.kill()
-      settle(() => reject(new Error(`${etiqueta} excedió ${limite / 1000}s`)))
-    }, limite)
+      settle(() => reject(new Error(`${label} excedió ${limit / 1000}s`)))
+    }, limit)
 
     child.on('error', (err) => {
       clearTimeout(timer)
@@ -92,10 +92,10 @@ export function collect(
 
     child.on('close', (code) => {
       clearTimeout(timer)
-      const texto = stdout.trim()
+      const text = stdout.trim()
       settle(() => {
-        if (code === 0 && texto.length > 0) resolve(texto)
-        else reject(new Error(`${etiqueta} falló (exit ${code}): ${stderr.slice(0, 300)}`))
+        if (code === 0 && text.length > 0) resolve(text)
+        else reject(new Error(`${label} falló (exit ${code}): ${stderr.slice(0, 300)}`))
       })
     })
 

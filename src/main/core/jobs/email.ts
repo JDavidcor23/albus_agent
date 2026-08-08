@@ -27,38 +27,38 @@ export interface EmailDraft {
 }
 
 /** ¿Todo el string entra en US-ASCII imprimible? Decide si hay que codificar. */
-export function esAscii(texto: string): boolean {
-  return /^[ -~]*$/.test(texto)
+export function isAscii(text: string): boolean {
+  return /^[ -~]*$/.test(text)
 }
 
 /**
  * RFC 2047. Un asunto con tildes mandado crudo llega con caracteres rotos, y
  * "Postulación" con la ó partida en un mail de trabajo es un mal primer gesto.
  */
-export function encodeHeader(valor: string): string {
-  if (esAscii(valor)) return valor
-  return `=?UTF-8?B?${Buffer.from(valor, 'utf8').toString('base64')}?=`
+export function encodeHeader(value: string): string {
+  if (isAscii(value)) return value
+  return `=?UTF-8?B?${Buffer.from(value, 'utf8').toString('base64')}?=`
 }
 
 /** RFC 2231 para nombres de archivo con acentos; comillas para el resto. */
 function contentDisposition(filename: string): string {
-  if (esAscii(filename)) {
+  if (isAscii(filename)) {
     return `Content-Disposition: attachment; filename="${filename.replace(/"/g, '')}"`
   }
-  const codificado = encodeURIComponent(filename)
-  return `Content-Disposition: attachment; filename*=UTF-8''${codificado}`
+  const encoded = encodeURIComponent(filename)
+  return `Content-Disposition: attachment; filename*=UTF-8''${encoded}`
 }
 
 /** El base64 de un adjunto va cortado en líneas de 76. Es parte del estándar. */
-function base64EnLineas(bytes: Uint8Array): string {
-  const crudo = Buffer.from(bytes).toString('base64')
-  const lineas: string[] = []
-  for (let i = 0; i < crudo.length; i += 76) lineas.push(crudo.slice(i, i + 76))
-  return lineas.join('\r\n')
+function base64Lines(bytes: Uint8Array): string {
+  const raw = Buffer.from(bytes).toString('base64')
+  const lines: string[] = []
+  for (let i = 0; i < raw.length; i += 76) lines.push(raw.slice(i, i + 76))
+  return lines.join('\r\n')
 }
 
-function direccion(nombre: string, email: string): string {
-  return nombre === '' ? email : `${encodeHeader(nombre)} <${email}>`
+function address(name: string, email: string): string {
+  return name === '' ? email : `${encodeHeader(name)} <${email}>`
 }
 
 /**
@@ -66,8 +66,8 @@ function direccion(nombre: string, email: string): string {
  * tolerante pero otros servidores no.
  */
 export function buildMime(draft: EmailDraft, boundary: string): string {
-  const cabeceras = [
-    `From: ${direccion(draft.fromName, draft.fromEmail)}`,
+  const headers = [
+    `From: ${address(draft.fromName, draft.fromEmail)}`,
     `To: ${draft.to.join(', ')}`,
     ...(draft.cc.length > 0 ? [`Cc: ${draft.cc.join(', ')}`] : []),
     `Subject: ${encodeHeader(draft.subject)}`,
@@ -76,38 +76,38 @@ export function buildMime(draft: EmailDraft, boundary: string): string {
 
   if (draft.attachments.length === 0) {
     return [
-      ...cabeceras,
+      ...headers,
       'Content-Type: text/plain; charset="UTF-8"',
       'Content-Transfer-Encoding: base64',
       '',
-      base64EnLineas(Buffer.from(draft.body, 'utf8'))
+      base64Lines(Buffer.from(draft.body, 'utf8'))
     ].join('\r\n')
   }
 
-  const partes: string[] = [
-    ...cabeceras,
+  const parts: string[] = [
+    ...headers,
     `Content-Type: multipart/mixed; boundary="${boundary}"`,
     '',
     `--${boundary}`,
     'Content-Type: text/plain; charset="UTF-8"',
     'Content-Transfer-Encoding: base64',
     '',
-    base64EnLineas(Buffer.from(draft.body, 'utf8'))
+    base64Lines(Buffer.from(draft.body, 'utf8'))
   ]
 
   for (const a of draft.attachments) {
-    partes.push(
+    parts.push(
       `--${boundary}`,
       `Content-Type: ${a.mimeType}; name="${a.filename.replace(/"/g, '')}"`,
       contentDisposition(a.filename),
       'Content-Transfer-Encoding: base64',
       '',
-      base64EnLineas(a.content)
+      base64Lines(a.content)
     )
   }
 
-  partes.push(`--${boundary}--`, '')
-  return partes.join('\r\n')
+  parts.push(`--${boundary}--`, '')
+  return parts.join('\r\n')
 }
 
 /** Lo que la API de Gmail espera en `raw`. */
@@ -119,7 +119,7 @@ export function toGmailRaw(mime: string): string {
  * Un boundary que no puede aparecer dentro del contenido. Se pasa desde afuera
  * para que el verificador pueda fijarlo y comparar bytes exactos.
  */
-export function nuevoBoundary(): string {
+export function newBoundary(): string {
   return `albus-${crypto.randomUUID()}`
 }
 
@@ -131,15 +131,15 @@ export function nuevoBoundary(): string {
  * está acá afuera justamente para que un assert pueda afirmarla sin necesitar
  * una cuenta de Google.
  */
-export function modoGmail(mode: 'dry-run' | 'review' | 'auto'): 'draft' | 'send' | 'nada' {
+export function gmailMode(mode: 'dry-run' | 'review' | 'auto'): 'draft' | 'send' | 'none' {
   if (mode === 'auto') return 'send'
   if (mode === 'review') return 'draft'
-  return 'nada'
+  return 'none'
 }
 
 /** Direcciones que el main acepta como destino. No se manda a cualquier lado. */
-export function esEmailValido(valor: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(valor)
+export function isValidEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value)
 }
 
 /**
@@ -147,14 +147,14 @@ export function esEmailValido(valor: string): boolean {
  * NO sea el del propio candidato — postularse a uno mismo es el bug que uno
  * descubre tarde y con vergüenza.
  */
-export function extraerEmailDeVacante(texto: string, propio: string): string | null {
-  const encontrados = texto.match(/[\w.+-]+@[\w-]+\.[\w.]{2,}/g) ?? []
-  const limpio = encontrados
+export function extractEmailFromJob(text: string, own: string): string | null {
+  const found = text.match(/[\w.+-]+@[\w-]+\.[\w.]{2,}/g) ?? []
+  const clean = found
     .map((e) => e.replace(/[.,;:)]+$/, ''))
-    .filter((e) => e.toLowerCase() !== propio.toLowerCase())
-    .filter(esEmailValido)
+    .filter((e) => e.toLowerCase() !== own.toLowerCase())
+    .filter(isValidEmail)
     // Los dominios de imagen y tracking que se cuelan en los HTML de vacantes.
     .filter((e) => !/\.(png|jpg|jpeg|gif|svg|webp)$/i.test(e))
 
-  return limpio[0] ?? null
+  return clean[0] ?? null
 }

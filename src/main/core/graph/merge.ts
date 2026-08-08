@@ -9,16 +9,16 @@ export interface Contribution {
 }
 
 function mergeAttrs(
-  destino: Record<string, string>,
-  nuevos: Record<string, string>
+  current: Record<string, string>,
+  incoming: Record<string, string>
 ): Record<string, string> {
   // Lo que ya estaba gana: un dato determinista no lo pisa uno inferido después.
-  const salida = { ...nuevos, ...destino }
-  return salida
+  const output = { ...incoming, ...current }
+  return output
 }
 
-function pushUnique(lista: string[], valor: string): void {
-  if (!lista.includes(valor)) lista.push(valor)
+function pushUnique(list: string[], value: string): void {
+  if (!list.includes(value)) list.push(value)
 }
 
 /**
@@ -27,74 +27,74 @@ function pushUnique(lista: string[], valor: string): void {
  * Dos nodos con el mismo tipo y nombre son el mismo nodo, así que una persona
  * que aparece en tres capturas queda una sola vez con sus tres fuentes.
  */
-export function mergeContributions(base: Graph, aportes: Contribution[]): Graph {
-  const nodos = new Map<string, GraphNode>(base.nodes.map((n) => [n.id, n]))
-  const aristas = new Map<string, GraphEdge>(base.edges.map((e) => [e.id, e]))
+export function mergeContributions(base: Graph, contributions: Contribution[]): Graph {
+  const nodes = new Map<string, GraphNode>(base.nodes.map((n) => [n.id, n]))
+  const edges = new Map<string, GraphEdge>(base.edges.map((e) => [e.id, e]))
 
-  for (const aporte of aportes) {
-    for (const n of aporte.nodes) {
-      const etiqueta = n.label.trim()
-      if (etiqueta.length === 0) continue
+  for (const contribution of contributions) {
+    for (const n of contribution.nodes) {
+      const label = n.label.trim()
+      if (label.length === 0) continue
 
-      const id = nodeId(n.type, etiqueta)
-      const existente = nodos.get(id)
+      const id = nodeId(n.type, label)
+      const existing = nodes.get(id)
 
-      if (existente === undefined) {
-        nodos.set(id, {
+      if (existing === undefined) {
+        nodes.set(id, {
           id,
           type: n.type,
-          label: etiqueta,
-          provenance: aporte.provenance,
+          label,
+          provenance: contribution.provenance,
           attrs: n.attrs ?? {},
-          sources: [aporte.source]
+          sources: [contribution.source]
         })
       } else {
-        existente.attrs = mergeAttrs(existente.attrs, n.attrs ?? {})
-        pushUnique(existente.sources, aporte.source)
+        existing.attrs = mergeAttrs(existing.attrs, n.attrs ?? {})
+        pushUnique(existing.sources, contribution.source)
         // Si un dato determinista confirma algo inferido, sube de categoría.
-        if (aporte.provenance === 'EXTRACTED') existente.provenance = 'EXTRACTED'
+        if (contribution.provenance === 'EXTRACTED') existing.provenance = 'EXTRACTED'
       }
     }
 
-    for (const e of aporte.edges) {
-      const desde = nodeId(e.fromType, e.from.trim())
-      const hacia = nodeId(e.toType, e.to.trim())
-      if (desde === hacia) continue
-      if (!nodos.has(desde) || !nodos.has(hacia)) continue
+    for (const e of contribution.edges) {
+      const from = nodeId(e.fromType, e.from.trim())
+      const to = nodeId(e.toType, e.to.trim())
+      if (from === to) continue
+      if (!nodes.has(from) || !nodes.has(to)) continue
 
-      const id = `${desde}|${e.label}|${hacia}`
-      const existente = aristas.get(id)
+      const id = `${from}|${e.label}|${to}`
+      const existing = edges.get(id)
 
-      if (existente === undefined) {
-        aristas.set(id, {
+      if (existing === undefined) {
+        edges.set(id, {
           id,
-          from: desde,
-          to: hacia,
+          from,
+          to,
           label: e.label,
-          provenance: aporte.provenance,
-          sources: [aporte.source]
+          provenance: contribution.provenance,
+          sources: [contribution.source]
         })
       } else {
-        pushUnique(existente.sources, aporte.source)
-        if (aporte.provenance === 'EXTRACTED') existente.provenance = 'EXTRACTED'
+        pushUnique(existing.sources, contribution.source)
+        if (contribution.provenance === 'EXTRACTED') existing.provenance = 'EXTRACTED'
       }
     }
   }
 
-  const listaNodos = [...nodos.values()]
-  const listaAristas = [...aristas.values()]
-  const todo = [...listaNodos, ...listaAristas]
+  const nodeList = [...nodes.values()]
+  const edgeList = [...edges.values()]
+  const all = [...nodeList, ...edgeList]
 
   return {
     version: 1,
     generatedAt: base.generatedAt,
-    nodes: listaNodos,
-    edges: listaAristas,
+    nodes: nodeList,
+    edges: edgeList,
     stats: {
-      nodes: listaNodos.length,
-      edges: listaAristas.length,
-      extracted: todo.filter((x) => x.provenance === 'EXTRACTED').length,
-      inferred: todo.filter((x) => x.provenance === 'INFERRED').length
+      nodes: nodeList.length,
+      edges: edgeList.length,
+      extracted: all.filter((x) => x.provenance === 'EXTRACTED').length,
+      inferred: all.filter((x) => x.provenance === 'INFERRED').length
     }
   }
 }

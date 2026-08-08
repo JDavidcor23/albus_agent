@@ -20,24 +20,24 @@ import { createWorkspaceKitSource, workspaceDir } from '../jobs/workspace'
  * real y nada escribe en el tracker del usuario.
  */
 
-let pasados = 0
-let fallados = 0
+let passed = 0
+let failed = 0
 
-function check(nombre: string, real: unknown, esperado: unknown): void {
-  const ok = JSON.stringify(real) === JSON.stringify(esperado)
+function check(name: string, actual: unknown, expected: unknown): void {
+  const ok = JSON.stringify(actual) === JSON.stringify(expected)
   if (ok) {
-    pasados++
-    console.log(`  ok    ${nombre}`)
+    passed++
+    console.log(`  ok    ${name}`)
   } else {
-    fallados++
-    console.log(`  FALLA ${nombre}`)
-    console.log(`          esperado ${JSON.stringify(esperado)}`)
-    console.log(`          real     ${JSON.stringify(real)}`)
+    failed++
+    console.log(`  FALLA ${name}`)
+    console.log(`          esperado ${JSON.stringify(expected)}`)
+    console.log(`          real     ${JSON.stringify(actual)}`)
   }
 }
 
 /** PDF mínimo pero válido: alcanza para que el input lo acepte y lo nombre. */
-const PDF_MINIMO = Buffer.from(
+const MINIMAL_PDF = Buffer.from(
   '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n' +
     '2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n' +
     '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\n' +
@@ -51,7 +51,7 @@ export async function runJobsSelfTest(): Promise<boolean> {
   const tmp = join(app.getPath('userData'), 'selftest')
   await rm(tmp, { recursive: true, force: true })
   await mkdir(join(tmp, 'cv'), { recursive: true })
-  await writeFile(join(tmp, 'cv', 'main_examplecorp.pdf'), PDF_MINIMO)
+  await writeFile(join(tmp, 'cv', 'main_examplecorp.pdf'), MINIMAL_PDF)
 
   let profile
   try {
@@ -65,7 +65,7 @@ export async function runJobsSelfTest(): Promise<boolean> {
   console.log('\n── assert 5 · la partición guarda cookies entre corridas')
 
   const cookies = jobsSession().cookies
-  const previas = await cookies.get({ url: 'https://albus.selftest.invalid', name: 'albus_probe' })
+  const previous = await cookies.get({ url: 'https://albus.selftest.invalid', name: 'albus_probe' })
 
   await cookies.set({
     url: 'https://albus.selftest.invalid',
@@ -73,11 +73,11 @@ export async function runJobsSelfTest(): Promise<boolean> {
     value: 'ok',
     expirationDate: Math.floor(Date.now() / 1000) + 86_400
   })
-  const escrita = await cookies.get({ url: 'https://albus.selftest.invalid', name: 'albus_probe' })
+  const written = await cookies.get({ url: 'https://albus.selftest.invalid', name: 'albus_probe' })
 
-  check('la cookie se escribe en la partición', escrita.length, 1)
-  if (previas.length > 0) {
-    check('la cookie sobrevivió a la corrida anterior', previas[0].value, 'ok')
+  check('la cookie se escribe en la partición', written.length, 1)
+  if (previous.length > 0) {
+    check('la cookie sobrevivió a la corrida anterior', previous[0].value, 'ok')
   } else {
     console.log('  info  primera corrida: volvé a correr el autochequeo para probar persistencia')
   }
@@ -90,7 +90,7 @@ export async function runJobsSelfTest(): Promise<boolean> {
   // El perfil ya está leído del workspace real; de acá en adelante el "workspace"
   // es la carpeta temporal, para no depender de que exista un PDF compilado de
   // una empresa concreta ni de tocar nada del repo del usuario.
-  const workspaceReal = process.env.JOB_WORKSPACE_DIR
+  const realWorkspace = process.env.JOB_WORKSPACE_DIR
   process.env.JOB_WORKSPACE_DIR = tmp
 
   const kit = await kitSource.findKit({
@@ -99,14 +99,14 @@ export async function runJobsSelfTest(): Promise<boolean> {
     role: 'Frontend',
     slug: 'examplecorp'
   })
-  process.env.JOB_WORKSPACE_DIR = workspaceReal
+  process.env.JOB_WORKSPACE_DIR = realWorkspace
 
   check('encuentra el CV compilado del workspace', kit.cv !== null, true)
 
   const staged =
     kit.cv !== null ? await kitSource.stageForUpload(kit.cv, profile.cvFileBaseName) : null
-  const nombreStaged = staged === null ? null : staged.replace(/\\/g, '/').split('/').pop()
-  check('la copia se llama como el candidato', nombreStaged, cvUploadName(profile, 'x.pdf'))
+  const stagedName = staged === null ? null : staged.replace(/\\/g, '/').split('/').pop()
+  check('la copia se llama como el candidato', stagedName, cvUploadName(profile, 'x.pdf'))
 
   // ── el bucle completo contra el fixture ──────────────────────────────────
   console.log('\n── assert 4 + 6 · leer el formulario, llenarlo y NO enviarlo')
@@ -162,24 +162,24 @@ export async function runJobsSelfTest(): Promise<boolean> {
     check('dejó un screenshot como evidencia', outcome.steps[0]?.screenshot !== null, true)
 
     // El assert que importa: el flag del fixture sigue sin tocarse.
-    const enviado = await browser.window.webContents.executeJavaScript(
+    const submitted = await browser.window.webContents.executeJavaScript(
       'JSON.stringify(!!window.__albusSubmitted)'
     )
-    check('NUNCA se apretó el submit', JSON.parse(enviado as string), false)
+    check('NUNCA se apretó el submit', JSON.parse(submitted as string), false)
 
     // Y este es el assert 3 de verdad: qué nombre ve la página, no qué nombre
     // calculamos nosotros.
-    const nombreEnPagina = await browser.window.webContents.executeJavaScript(
+    const nameOnPage = await browser.window.webContents.executeJavaScript(
       `JSON.stringify((() => { const i = document.querySelector('input[name=resume]'); return i && i.files[0] ? i.files[0].name : null })())`
     )
     check(
       'el formulario recibió "CV Jorge David Diaz.pdf"',
-      JSON.parse(nombreEnPagina as string),
+      JSON.parse(nameOnPage as string),
       cvUploadName(profile, 'x.pdf')
     )
 
     // Verificación de valores escritos, leídos del DOM y no de nuestro plan.
-    const leido = await browser.window.webContents.executeJavaScript(
+    const domJson = await browser.window.webContents.executeJavaScript(
       `JSON.stringify((() => {
         const v = (n) => { const e = document.querySelector('[name="' + n + '"]'); return e ? e.value : null }
         const r = (n) => { const e = document.querySelector('input[name="' + n + '"]:checked'); return e ? e.value : null }
@@ -193,7 +193,7 @@ export async function runJobsSelfTest(): Promise<boolean> {
         }
       })())`
     )
-    const dom = JSON.parse(leido as string) as Record<string, unknown>
+    const dom = JSON.parse(domJson as string) as Record<string, unknown>
 
     console.log('\n── lo que quedó escrito en el DOM')
     check('nombre', dom.first, profile.firstName)
@@ -210,16 +210,16 @@ export async function runJobsSelfTest(): Promise<boolean> {
     check('el consentimiento sigue SIN tildar', dom.privacy, false)
     check('nivel académico → vacío, no un título falso', dom.education, '')
   } catch (error: unknown) {
-    fallados++
+    failed++
     console.log(`  FALLA excepción en el bucle: ${String(error)}`)
   } finally {
     await browser.close()
   }
 
-  const total = pasados + fallados
+  const total = passed + failed
   console.log(`\n${'='.repeat(60)}`)
-  console.log(`NAVEGADOR   ${pasados}/${total} ${fallados === 0 ? '✓' : '✗'}`)
+  console.log(`NAVEGADOR   ${passed}/${total} ${failed === 0 ? '✓' : '✗'}`)
   console.log(`${'='.repeat(60)}\n`)
 
-  return fallados === 0
+  return failed === 0
 }

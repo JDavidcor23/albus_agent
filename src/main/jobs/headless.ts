@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { z } from 'zod'
-import { esUrlPostulable } from '../../shared/ipc'
+import { isApplicableUrl } from '../../shared/ipc'
 import { hasLinkedInSession, openLoginWindow } from '../browser/session'
 import { getProvider } from '../providers/registry'
 import type { LlmTier } from '../core/jobs/answers-llm'
@@ -20,7 +20,7 @@ import { loadProfile } from './workspace'
  */
 
 const ApplyEnvSchema = z.object({
-  url: z.string().url().refine(esUrlPostulable, 'host fuera de la allowlist de postulación'),
+  url: z.string().url().refine(isApplicableUrl, 'host fuera de la allowlist de postulación'),
   company: z.string().min(1),
   role: z.string().min(1),
   slug: z.string().default(''),
@@ -42,12 +42,12 @@ function tier(providerId: string | null, modelId: string | null): LlmTier | null
   return { provider, model: modelId }
 }
 
-function titulo(texto: string): void {
-  console.log(`\n${'═'.repeat(64)}\n${texto}\n${'═'.repeat(64)}`)
+function heading(text: string): void {
+  console.log(`\n${'═'.repeat(64)}\n${text}\n${'═'.repeat(64)}`)
 }
 
-async function comandoLogin(): Promise<number> {
-  titulo('LOGIN DE LINKEDIN — una sola vez, después queda guardado')
+async function loginCommand(): Promise<number> {
+  heading('LOGIN DE LINKEDIN — una sola vez, después queda guardado')
 
   if (await hasLinkedInSession()) {
     console.log('Ya hay sesión guardada en la partición de Albus. No hace falta nada.')
@@ -62,16 +62,16 @@ async function comandoLogin(): Promise<number> {
   return ok ? 0 : 1
 }
 
-async function comandoApply(crudo: string): Promise<number> {
+async function applyCommand(raw: string): Promise<number> {
   let req: z.infer<typeof ApplyEnvSchema>
   try {
-    req = ApplyEnvSchema.parse(JSON.parse(crudo))
+    req = ApplyEnvSchema.parse(JSON.parse(raw))
   } catch (error: unknown) {
     console.error(`[jobs] la petición no es válida: ${String(error)}`)
     return 1
   }
 
-  titulo(`POSTULACIÓN — ${req.company} · ${req.role}   [modo ${req.mode}]`)
+  heading(`POSTULACIÓN — ${req.company} · ${req.role}   [modo ${req.mode}]`)
 
   const profile = await loadProfile()
   console.log(`Perfil: ${profile.fullName} · el CV se sube como "${profile.cvFileBaseName}.pdf"`)
@@ -135,10 +135,10 @@ export async function runJobsCommand(): Promise<number | null> {
     return (await runNavSelfTest()) ? 0 : 1
   }
 
-  const inspeccionar = process.env.ALBUS_NAV_INSPECT
-  if (inspeccionar !== undefined && inspeccionar.trim() !== '') {
-    const { inspeccionar: mirar } = await import('../devtools/inspect')
-    return (await mirar(inspeccionar.trim())) ? 0 : 1
+  const inspectUrl = process.env.ALBUS_NAV_INSPECT
+  if (inspectUrl !== undefined && inspectUrl.trim() !== '') {
+    const { inspectPage: inspect } = await import('../devtools/inspect')
+    return (await inspect(inspectUrl.trim())) ? 0 : 1
   }
 
   if (process.env.ALBUS_SUPA_REPRO === '1') {
@@ -147,8 +147,8 @@ export async function runJobsCommand(): Promise<number | null> {
   }
 
   if (process.env.ALBUS_NOTION_PROBE === '1') {
-    const { probarNotion } = await import('../devtools/probe-notion')
-    return (await probarNotion()) ? 0 : 1
+    const { probeNotion } = await import('../devtools/probe-notion')
+    return (await probeNotion()) ? 0 : 1
   }
 
   if (process.env.ALBUS_UI_DEMO === '1') {
@@ -162,13 +162,13 @@ export async function runJobsCommand(): Promise<number | null> {
   }
 
   if (process.env.ALBUS_JOBS_LOGIN === '1') {
-    return comandoLogin()
+    return loginCommand()
   }
 
   const apply = process.env.ALBUS_JOBS_APPLY
   if (apply !== undefined && apply.trim() !== '') {
     try {
-      return await comandoApply(apply)
+      return await applyCommand(apply)
     } catch (error: unknown) {
       console.error(`\n[jobs] la corrida falló: ${String(error)}`)
       return 1
@@ -180,7 +180,7 @@ export async function runJobsCommand(): Promise<number | null> {
 
 /** Ata el comando al ciclo de vida de Electron. Lo llama `main/index.ts`. */
 export function maybeRunJobsCommand(): boolean {
-  const hayComando =
+  const hasCommand =
     process.env.ALBUS_JOBS_SELFTEST === '1' ||
     process.env.ALBUS_NAV_CHECK === '1' ||
     (process.env.ALBUS_NAV_INSPECT ?? '').trim() !== '' ||
@@ -191,7 +191,7 @@ export function maybeRunJobsCommand(): boolean {
     process.env.ALBUS_JOBS_LOGIN === '1' ||
     (process.env.ALBUS_JOBS_APPLY ?? '').trim() !== ''
 
-  if (!hayComando) return false
+  if (!hasCommand) return false
 
   void runJobsCommand().then((code) => {
     if (code === null || code === -1) return

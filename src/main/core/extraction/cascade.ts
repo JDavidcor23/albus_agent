@@ -14,7 +14,7 @@ export interface LlmTier {
 }
 
 /** El vocabulario del modelo es más rico que el de la tabla; se colapsa. */
-const KIND_LLM_A_TABLA: Record<string, ExtractionKind> = {
+const LLM_KIND_TO_TABLE: Record<string, ExtractionKind> = {
   receipt: 'receipt',
   profile: 'profile',
   job_offer: 'document',
@@ -66,11 +66,11 @@ function classifyText(text: string, source: string): ExtractionResult | null {
  * pero el body dice "pago de gym". Se anota, no se reclasifica: cambiar el kind
  * por una frase suelta produciría comprobantes fantasma.
  */
-function conContexto(result: ExtractionResult, context: string | null): ExtractionResult {
-  const limpio = context?.trim()
-  if (!limpio) return result
+function withContext(result: ExtractionResult, context: string | null): ExtractionResult {
+  const clean = context?.trim()
+  if (!clean) return result
 
-  const payload: Record<string, unknown> = { ...result.payload, context: limpio }
+  const payload: Record<string, unknown> = { ...result.payload, context: clean }
 
   // Muchos comprobantes NO traen fecha. La pantalla de confirmación de Bre-B, por
   // ejemplo, muestra monto, destino y llave — y ninguna fecha. Ahí la nota del
@@ -78,9 +78,9 @@ function conContexto(result: ExtractionResult, context: string | null): Extracti
   //
   // La de la imagen siempre gana: es el dato del banco, no una interpretación.
   if (result.kind === 'receipt' && payload.date == null) {
-    const deLaNota = findDate(limpio)
-    if (deLaNota !== null) {
-      payload.date = deLaNota
+    const fromNote = findDate(clean)
+    if (fromNote !== null) {
+      payload.date = fromNote
       payload.dateSource = 'context'
     }
   }
@@ -105,17 +105,17 @@ function classifyQr(codes: string[]): ExtractionResult {
  * que habían sacado los patrones: perder el enriquecimiento es aceptable, perder
  * el item no.
  */
-async function escalarALlm(
+async function escalateToLlm(
   llm: LlmTier,
-  texto: string,
+  text: string,
   fallback: ExtractionResult
 ): Promise<ExtractionResult> {
   try {
-    const c = await classifyWithLlm(llm.provider, llm.model, texto)
+    const c = await classifyWithLlm(llm.provider, llm.model, text)
 
     return {
-      kind: KIND_LLM_A_TABLA[c.kind] ?? 'text',
-      payload: { ...c.fields, summary: c.summary, llmKind: c.kind, text: texto },
+      kind: LLM_KIND_TO_TABLE[c.kind] ?? 'text',
+      payload: { ...c.fields, summary: c.summary, llmKind: c.kind, text },
       confidence: c.kind === 'none' ? 0.2 : 0.8,
       source: `cli:${llm.provider.id}${llm.model !== null ? `/${llm.model}` : ''}`
     }
@@ -147,19 +147,19 @@ export async function runCascade(
     if (!item.mime.startsWith('image/')) return NONE
 
     const codes = await readQrCodes(bytes)
-    if (codes.length > 0) return conContexto(classifyQr(codes), item.context)
+    if (codes.length > 0) return withContext(classifyQr(codes), item.context)
 
     const text = await readText(bytes)
-    const porPatrones = classifyText(text, 'tesseract') ?? NONE
+    const byPatterns = classifyText(text, 'tesseract') ?? NONE
 
     // Escalón 4. Solo si los baratos no resolvieron: un 'receipt' o un 'profile'
     // ya reconocido por regex no necesita gastar cuota.
-    const resuelto = porPatrones.kind !== 'text' && porPatrones.kind !== 'none'
-    if (llm === undefined || resuelto || text.trim().length < 15) {
-      return conContexto(porPatrones, item.context)
+    const resolved = byPatterns.kind !== 'text' && byPatterns.kind !== 'none'
+    if (llm === undefined || resolved || text.trim().length < 15) {
+      return withContext(byPatterns, item.context)
     }
 
-    return conContexto(await escalarALlm(llm, text, porPatrones), item.context)
+    return withContext(await escalateToLlm(llm, text, byPatterns), item.context)
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error)
     console.error(`[cascade] ${item.entryId}/${item.attachmentPath || 'body'}: ${message}`)

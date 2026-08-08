@@ -1,13 +1,13 @@
 import { z } from 'zod'
 import type { LlmClassification, LlmProvider } from './llm-port'
 
-const RespuestaSchema = z.object({
+const ResponseSchema = z.object({
   kind: z.enum(['receipt', 'profile', 'job_offer', 'event', 'note', 'none']),
   summary: z.string(),
   fields: z.record(z.string(), z.string()).default({})
 })
 
-const INSTRUCCIONES = `Sos un clasificador. Recibís texto sacado por OCR de una captura de
+const INSTRUCTIONS = `Sos un clasificador. Recibís texto sacado por OCR de una captura de
 pantalla o una foto de celular. El OCR es RUIDOSO: viene con caracteres sueltos, palabras
 partidas y basura. Reconstruí el sentido; no te frenes por los errores.
 
@@ -33,22 +33,22 @@ fields: pares clave/valor con lo que puedas extraer. Todos los valores son strin
 Si un campo no está, omitilo. No inventes datos que no estén en el texto.`
 
 /** Saca el JSON aunque el modelo lo haya envuelto en markdown o prosa. */
-function extraerJson(bruto: string): unknown {
-  const sinCerca = bruto.replace(/```(?:json)?/gi, '').trim()
+function extractJson(raw: string): unknown {
+  const withoutFences = raw.replace(/```(?:json)?/gi, '').trim()
 
-  const inicio = sinCerca.indexOf('{')
-  const fin = sinCerca.lastIndexOf('}')
-  if (inicio === -1 || fin <= inicio) throw new Error('la respuesta no traía JSON')
+  const start = withoutFences.indexOf('{')
+  const end = withoutFences.lastIndexOf('}')
+  if (start === -1 || end <= start) throw new Error('la respuesta no traía JSON')
 
-  return JSON.parse(sinCerca.slice(inicio, fin + 1))
+  return JSON.parse(withoutFences.slice(start, end + 1))
 }
 
 export async function classifyWithLlm(
   provider: LlmProvider,
   model: string | null,
-  texto: string
+  text: string
 ): Promise<LlmClassification> {
-  const prompt = `${INSTRUCCIONES}\n\n--- TEXTO ---\n${texto}`
-  const bruto = await provider.run(prompt, model)
-  return RespuestaSchema.parse(extraerJson(bruto))
+  const prompt = `${INSTRUCTIONS}\n\n--- TEXTO ---\n${text}`
+  const raw = await provider.run(prompt, model)
+  return ResponseSchema.parse(extractJson(raw))
 }

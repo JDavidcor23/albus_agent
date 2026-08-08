@@ -24,38 +24,38 @@ export const READ_FORM = `(() => {
     return s.visibility !== 'hidden' && s.display !== 'none'
   }
 
-  const texto = (el) => (el && el.textContent ? el.textContent.replace(/\\s+/g, ' ').trim() : '')
+  const text = (el) => (el && el.textContent ? el.textContent.replace(/\\s+/g, ' ').trim() : '')
 
-  const etiqueta = (el) => {
+  const label = (el) => {
     if (el.getAttribute('aria-label')) return el.getAttribute('aria-label').trim()
 
     const by = el.getAttribute('aria-labelledby')
     if (by) {
-      const partes = by.split(/\\s+/).map((id) => texto(document.getElementById(id))).filter(Boolean)
-      if (partes.length) return partes.join(' ')
+      const parts = by.split(/\\s+/).map((id) => text(document.getElementById(id))).filter(Boolean)
+      if (parts.length) return parts.join(' ')
     }
 
     if (el.id) {
-      const escapado = window.CSS && CSS.escape ? CSS.escape(el.id) : el.id
-      const l = document.querySelector('label[for="' + escapado + '"]')
-      if (l) return texto(l)
+      const escaped = window.CSS && CSS.escape ? CSS.escape(el.id) : el.id
+      const l = document.querySelector('label[for="' + escaped + '"]')
+      if (l) return text(l)
     }
 
-    const propio = el.closest('label')
-    if (propio) return texto(propio)
+    const own = el.closest('label')
+    if (own) return text(own)
 
     // Greenhouse y Workday envuelven cada campo en un div con el label arriba.
     let n = el.parentElement
     for (let i = 0; i < 4 && n; i++, n = n.parentElement) {
       const l = n.querySelector('label, legend, .artdeco-text-input--label')
-      if (l && texto(l)) return texto(l)
+      if (l && text(l)) return text(l)
     }
 
     // Última chance: el fieldset que lo agrupa (típico de los radios).
     const fs = el.closest('fieldset')
     if (fs) {
       const lg = fs.querySelector('legend')
-      if (lg && texto(lg)) return texto(lg)
+      if (lg && text(lg)) return text(lg)
     }
 
     return el.placeholder || el.name || ''
@@ -66,31 +66,31 @@ export const READ_FORM = `(() => {
    * botón. Sin esto, "¿Estás autorizado a trabajar?" se lee como "Sí" y
    * ninguna regla la reconoce.
    */
-  const etiquetaGrupo = (el) => {
+  const groupLabel = (el) => {
     const fs = el.closest('fieldset')
     if (fs) {
       const lg = fs.querySelector('legend')
-      if (lg && texto(lg)) return texto(lg)
+      if (lg && text(lg)) return text(lg)
     }
-    const grupo = el.closest('[role=radiogroup], [role=group]')
-    if (grupo) {
-      if (grupo.getAttribute('aria-label')) return grupo.getAttribute('aria-label').trim()
-      const by = grupo.getAttribute('aria-labelledby')
+    const group = el.closest('[role=radiogroup], [role=group]')
+    if (group) {
+      if (group.getAttribute('aria-label')) return group.getAttribute('aria-label').trim()
+      const by = group.getAttribute('aria-labelledby')
       if (by) {
-        const t = texto(document.getElementById(by))
+        const t = text(document.getElementById(by))
         if (t) return t
       }
     }
-    return etiqueta(el)
+    return label(el)
   }
 
-  const tipo = (el) => {
+  const kindOf = (el) => {
     const tag = el.tagName.toLowerCase()
     if (tag === 'textarea') return 'textarea'
     if (tag === 'select') return 'select'
     const t = (el.type || 'text').toLowerCase()
-    const conocidos = ['text','number','tel','email','url','date','file','checkbox','radio']
-    return conocidos.includes(t) ? t : 'unknown'
+    const known = ['text','number','tel','email','url','date','file','checkbox','radio']
+    return known.includes(t) ? t : 'unknown'
   }
 
   document.querySelectorAll('[data-albus-fid]').forEach((el) => el.removeAttribute('data-albus-fid'))
@@ -101,29 +101,29 @@ export const READ_FORM = `(() => {
    * del modelo para nada.
    */
   const modal = document.querySelector('[role=dialog]:not([aria-hidden=true]), dialog[open]')
-  const raiz = modal || document
+  const root = modal || document
 
-  const ruido = (el) => !!el.closest('header, nav, [role=navigation], [role=search], [role=banner]')
+  const noise = (el) => !!el.closest('header, nav, [role=navigation], [role=search], [role=banner]')
 
-  const controles = [...raiz.querySelectorAll('input, select, textarea')]
+  const controls = [...root.querySelectorAll('input, select, textarea')]
     .filter(visible)
-    .filter((el) => modal || !ruido(el))
+    .filter((el) => modal || !noise(el))
     .filter((el) => (el.type || '').toLowerCase() !== 'search')
 
   const fields = []
-  const radiosVistos = new Set()
+  const seenRadios = new Set()
   let n = 0
 
-  for (const el of controles) {
-    const kind = tipo(el)
+  for (const el of controls) {
+    const kind = kindOf(el)
 
     if (kind === 'radio') {
-      const grupo = el.name || ''
-      if (grupo && radiosVistos.has(grupo)) continue
-      if (grupo) radiosVistos.add(grupo)
+      const group = el.name || ''
+      if (group && seenRadios.has(group)) continue
+      if (group) seenRadios.add(group)
 
-      const hermanos = grupo
-        ? [...document.querySelectorAll('input[type=radio][name="' + grupo.replace(/"/g, '\\\\"') + '"]')]
+      const siblings = group
+        ? [...document.querySelectorAll('input[type=radio][name="' + group.replace(/"/g, '\\\\"') + '"]')]
         : [el]
 
       const fid = 'f' + n++
@@ -133,12 +133,12 @@ export const READ_FORM = `(() => {
         id: fid,
         selector: '[data-albus-fid="' + fid + '"]',
         kind: 'radio',
-        label: etiquetaGrupo(el),
-        name: grupo,
+        label: groupLabel(el),
+        name: group,
         placeholder: '',
-        required: hermanos.some((h) => h.required),
-        value: (hermanos.find((h) => h.checked) || {}).value || '',
-        options: hermanos.map((h) => ({ value: h.value, label: etiqueta(h) || h.value })),
+        required: siblings.some((h) => h.required),
+        value: (siblings.find((h) => h.checked) || {}).value || '',
+        options: siblings.map((h) => ({ value: h.value, label: label(h) || h.value })),
         maxLength: null
       })
       continue
@@ -151,30 +151,30 @@ export const READ_FORM = `(() => {
       id: fid,
       selector: '[data-albus-fid="' + fid + '"]',
       kind: kind,
-      label: etiqueta(el),
+      label: label(el),
       name: el.name || '',
       placeholder: el.placeholder || '',
       required: !!el.required || el.getAttribute('aria-required') === 'true',
       value: kind === 'checkbox' ? String(el.checked) : (el.value || ''),
       options: kind === 'select'
-        ? [...el.options].map((o) => ({ value: o.value, label: texto(o) || o.value }))
+        ? [...el.options].map((o) => ({ value: o.value, label: text(o) || o.value }))
         : [],
       maxLength: el.maxLength && el.maxLength > 0 ? el.maxLength : null
     })
   }
 
-  const candidatos = [...raiz.querySelectorAll('button, input[type=submit], [role=button]')]
+  const candidates = [...root.querySelectorAll('button, input[type=submit], [role=button]')]
     .filter(visible)
-    .filter((el) => modal || !ruido(el))
+    .filter((el) => modal || !noise(el))
 
   const buttons = []
   let b = 0
-  for (const el of candidatos) {
-    const label = texto(el) || el.value || el.getAttribute('aria-label') || ''
-    if (!label) continue
+  for (const el of candidates) {
+    const lbl = text(el) || el.value || el.getAttribute('aria-label') || ''
+    if (!lbl) continue
     const bid = 'b' + b++
     el.setAttribute('data-albus-fid', bid)
-    buttons.push({ selector: '[data-albus-fid="' + bid + '"]', label: label, kind: 'other' })
+    buttons.push({ selector: '[data-albus-fid="' + bid + '"]', label: lbl, kind: 'other' })
   }
 
   return JSON.stringify({
@@ -198,13 +198,13 @@ export function fillScript(selector: string, value: string): string {
     const el = document.querySelector(${sel})
     if (!el) return JSON.stringify({ ok: false, error: 'no existe el campo' })
 
-    const valor = ${val}
-    const disparar = (n) => {
+    const value = ${val}
+    const dispatch = (n) => {
       n.dispatchEvent(new Event('input', { bubbles: true }))
       n.dispatchEvent(new Event('change', { bubbles: true }))
     }
 
-    const setNativo = (n, v) => {
+    const setNative = (n, v) => {
       const proto = n instanceof HTMLTextAreaElement
         ? HTMLTextAreaElement.prototype
         : n instanceof HTMLSelectElement
@@ -215,48 +215,48 @@ export function fillScript(selector: string, value: string): string {
       else n.value = v
     }
 
-    const tipo = (el.type || el.tagName).toLowerCase()
+    const kind = (el.type || el.tagName).toLowerCase()
 
-    if (tipo === 'radio') {
-      const grupo = el.name
-      const lista = grupo
-        ? [...document.querySelectorAll('input[type=radio][name="' + grupo.replace(/"/g, '\\\\"') + '"]')]
+    if (kind === 'radio') {
+      const group = el.name
+      const list = group
+        ? [...document.querySelectorAll('input[type=radio][name="' + group.replace(/"/g, '\\\\"') + '"]')]
         : [el]
-      const elegido = lista.find((r) => r.value === valor)
-        || lista.find((r) => (r.labels && r.labels[0] ? r.labels[0].textContent : '').trim() === valor)
-      if (!elegido) return JSON.stringify({ ok: false, error: 'ninguna opción coincide' })
-      elegido.click()
+      const chosen = list.find((r) => r.value === value)
+        || list.find((r) => (r.labels && r.labels[0] ? r.labels[0].textContent : '').trim() === value)
+      if (!chosen) return JSON.stringify({ ok: false, error: 'ninguna opción coincide' })
+      chosen.click()
       return JSON.stringify({ ok: true })
     }
 
-    if (tipo === 'checkbox') {
-      const deseado = valor === 'true' || valor === 'Yes' || valor === 'yes'
-      if (el.checked !== deseado) el.click()
+    if (kind === 'checkbox') {
+      const desired = value === 'true' || value === 'Yes' || value === 'yes'
+      if (el.checked !== desired) el.click()
       return JSON.stringify({ ok: true })
     }
 
     if (el instanceof HTMLSelectElement) {
-      const porValor = [...el.options].find((o) => o.value === valor)
-      const porTexto = [...el.options].find((o) => (o.textContent || '').trim() === valor)
-      const opcion = porValor || porTexto
-      if (!opcion) return JSON.stringify({ ok: false, error: 'ninguna opción coincide' })
-      setNativo(el, opcion.value)
-      disparar(el)
+      const byValue = [...el.options].find((o) => o.value === value)
+      const byText = [...el.options].find((o) => (o.textContent || '').trim() === value)
+      const option = byValue || byText
+      if (!option) return JSON.stringify({ ok: false, error: 'ninguna opción coincide' })
+      setNative(el, option.value)
+      dispatch(el)
       return JSON.stringify({ ok: true })
     }
 
     if (el.isContentEditable) {
       el.focus()
-      el.textContent = valor
-      disparar(el)
+      el.textContent = value
+      dispatch(el)
       return JSON.stringify({ ok: true })
     }
 
     el.focus()
-    setNativo(el, valor)
-    disparar(el)
+    setNative(el, value)
+    dispatch(el)
     el.blur()
-    return JSON.stringify({ ok: true, escrito: el.value === valor })
+    return JSON.stringify({ ok: true, written: el.value === value })
   })()`
 }
 
@@ -282,10 +282,10 @@ export const COUNT_FIELDS = `(() => document.querySelectorAll('input, select, te
  * integration", "Show", "Copy"— es lo único que sobrevive a un rediseño, y si
  * cambia también, cambió la UI de verdad y queremos enterarnos.
  */
-export function clickTextoScript(textos: string[], exacto = false): string {
-  const lista = JSON.stringify(textos.map((t) => t.toLowerCase()))
+export function clickTextScript(texts: string[], exact = false): string {
+  const list = JSON.stringify(texts.map((t) => t.toLowerCase()))
   return `(() => {
-    const buscados = ${lista}
+    const wanted = ${list}
     const visible = (el) => {
       const r = el.getBoundingClientRect()
       if (r.width === 0 && r.height === 0) return false
@@ -300,22 +300,22 @@ export function clickTextoScript(textos: string[], exacto = false): string {
      * <th> "Created" de la tabla de atrás — y devolvió ok. Un falso positivo
      * es peor que no encontrar nada: el que llama cree que avanzó.
      */
-    const accionable = (el) => {
+    const actionable = (el) => {
       if (el.closest('thead, th')) return false
       if (el.disabled || el.getAttribute('aria-disabled') === 'true') return false
       return true
     }
 
-    const candidatos = [...document.querySelectorAll(
+    const candidates = [...document.querySelectorAll(
       'button, a, [role=button], [role=menuitem], [role=option], div[tabindex], span[role]'
-    )].filter(visible).filter(accionable)
+    )].filter(visible).filter(actionable)
 
     const normal = (el) => (el.textContent || '').replace(/\\s+/g, ' ').trim().toLowerCase()
 
-    const apretar = (hit) => {
+    const press = (hit) => {
       hit.scrollIntoView({ block: 'center' })
       hit.click()
-      return JSON.stringify({ ok: true, texto: (hit.textContent || '').trim().slice(0, 80) })
+      return JSON.stringify({ ok: true, text: (hit.textContent || '').trim().slice(0, 80) })
     }
 
     /**
@@ -323,34 +323,34 @@ export function clickTextoScript(textos: string[], exacto = false): string {
      * con", y ese gana sobre "lo contiene". Sin esta escala, "create" elige
      * "Created" antes que "Create connection" solo porque está más arriba.
      */
-    for (const b of buscados) {
-      const hit = candidatos.find((el) => normal(el) === b)
-      if (hit) return apretar(hit)
+    for (const b of wanted) {
+      const hit = candidates.find((el) => normal(el) === b)
+      if (hit) return press(hit)
     }
 
-    if (${exacto ? 'true' : 'false'}) {
-      return JSON.stringify({ ok: false, error: 'no encontré exacto ' + buscados.join(' / ') })
+    if (${exact ? 'true' : 'false'}) {
+      return JSON.stringify({ ok: false, error: 'no encontré exacto ' + wanted.join(' / ') })
     }
 
-    for (const b of buscados) {
-      const hit = candidatos.find((el) => normal(el).startsWith(b))
-      if (hit) return apretar(hit)
+    for (const b of wanted) {
+      const hit = candidates.find((el) => normal(el).startsWith(b))
+      if (hit) return press(hit)
     }
 
-    for (const b of buscados) {
-      const hit = candidatos.find((el) => normal(el).includes(b))
-      if (hit) return apretar(hit)
+    for (const b of wanted) {
+      const hit = candidates.find((el) => normal(el).includes(b))
+      if (hit) return press(hit)
     }
 
-    return JSON.stringify({ ok: false, error: 'no encontré ' + buscados.join(' / ') })
+    return JSON.stringify({ ok: false, error: 'no encontré ' + wanted.join(' / ') })
   })()`
 }
 
 /**
- * El INVENTARIO: todo lo que se puede clickear o escribir, con un id nuestro.
+ * `INVENTORY`: todo lo que se puede clickear o escribir, con un id nuestro.
  *
- * Esto es lo que el modelo MIRA. La diferencia con `clickTexto` es de fondo:
- * `clickTexto` va con una lista de textos esperados y falla si el sitio no dice
+ * Esto es lo que el modelo MIRA. La diferencia con `clickText` es de fondo:
+ * `clickText` va con una lista de textos esperados y falla si el sitio no dice
  * exactamente eso. El inventario no espera nada — describe lo que HAY y deja
  * que el modelo elija. Cuando Notion le cambie el nombre a su botón, el
  * inventario lo sigue viendo; la lista de strings no.
@@ -361,8 +361,14 @@ export function clickTextoScript(textos: string[], exacto = false): string {
  * `rect` va a propósito: es lo que le permite al modelo cruzar este texto con
  * la captura de pantalla. Sin coordenadas, mirar la imagen no alcanza para
  * decidir cuál de dos botones que dicen lo mismo es el bueno.
+ *
+ * Las claves que emite son el contrato de `Inventory` / `InventoryItem` en
+ * `core/jobs/ports.ts`, y `action` vale exactamente `'click'` o `'type'`: es
+ * lo que consume el enum de zod de `connections/navigate-llm.ts`. Este archivo
+ * es texto para el navegador, así que el typecheck no puede verificarlo — si
+ * las tres partes no dicen lo mismo, falla en ejecución y en silencio.
  */
-export const INVENTARIO = `(() => {
+export const INVENTORY = `(() => {
   const visible = (el) => {
     const r = el.getBoundingClientRect()
     if (r.width === 0 && r.height === 0) return false
@@ -381,9 +387,9 @@ export const INVENTARIO = `(() => {
    * separadores. Cuesta un reflow; vale lo que cuesta, porque de esto depende
    * que quien elige entienda qué está eligiendo.
    */
-  const texto = (el) => {
-    const crudo = el.innerText !== undefined && el.innerText !== null ? el.innerText : el.textContent
-    return (crudo || '')
+  const text = (el) => {
+    const raw = el.innerText !== undefined && el.innerText !== null ? el.innerText : el.textContent
+    return (raw || '')
       .split('\\n')
       .map((l) => l.trim())
       .filter(Boolean)
@@ -408,7 +414,7 @@ export const INVENTARIO = `(() => {
    * pintó después. Se incluyen menús y listboxes, no solo dialogs: casi nadie
    * le pone role=dialog a un flyout.
    */
-  const capa = (el) => {
+  const layer = (el) => {
     const s = getComputedStyle(el)
     const z = parseInt(s.zIndex, 10)
     return Number.isNaN(z) ? 0 : z
@@ -427,10 +433,10 @@ export const INVENTARIO = `(() => {
   for (const el of overlays) {
     // >= y no >: ante z-index iguales gana el último recorrido, que es el que
     // se montó después — el flyout que acaba de abrirse sobre el menú.
-    if (modal === null || capa(el) >= capa(modal)) modal = el
+    if (modal === null || layer(el) >= layer(modal)) modal = el
   }
 
-  const raiz = modal || document
+  const root = modal || document
 
   /*
    * Lo semánticamente interactivo. Es la mitad barata del problema.
@@ -442,7 +448,7 @@ export const INVENTARIO = `(() => {
    * "su fila no está en el inventario". Enumerar selectores no iba a terminar
    * nunca: siempre falta uno.
    */
-  const SELECTOR_CLICK = [
+  const CLICK_SELECTOR = [
     'button', 'a[href]', '[role=button]', '[role=menuitem]', '[role=option]',
     '[role=tab]', '[role=switch]', '[role=checkbox]', '[role=row]', '[role=gridcell]',
     '[role=link]', '[role=treeitem]', '[role=listitem]', 'summary', 'tr', 'li',
@@ -450,7 +456,7 @@ export const INVENTARIO = `(() => {
     '[onclick]', '[tabindex]:not([tabindex="-1"])'
   ].join(', ')
 
-  const SELECTOR_ESCRIBIR = 'input:not([type=submit]):not([type=button]):not([type=checkbox]):not([type=radio]):not([type=hidden]), textarea, select, [contenteditable=true]'
+  const TYPE_SELECTOR = 'input:not([type=submit]):not([type=button]):not([type=checkbox]):not([type=radio]):not([type=hidden]), textarea, select, [contenteditable=true]'
 
   /*
    * Un encabezado de tabla NO es un control, aunque tenga tabindex.
@@ -461,7 +467,7 @@ export const INVENTARIO = `(() => {
    *
    * (Sin backticks: este comentario vive DENTRO de un template literal.)
    */
-  const esEncabezado = (el) => {
+  const isTableHeader = (el) => {
     const t = el.tagName
     if (t === 'TH' || t === 'THEAD') return true
     if (!el.closest('thead')) return false
@@ -471,9 +477,9 @@ export const INVENTARIO = `(() => {
   const items = []
   let n = 0
 
-  const agregar = (el, accion) => {
+  const add = (el, action) => {
     if (el.hasAttribute('data-albus-cid')) return
-    if (esEncabezado(el)) return
+    if (isTableHeader(el)) return
     const r = el.getBoundingClientRect()
     const cid = 'c' + n++
     el.setAttribute('data-albus-cid', cid)
@@ -486,42 +492,42 @@ export const INVENTARIO = `(() => {
      * propio aria-label, queda un item que dice "···" y nada más — ilegible
      * para quien tiene que elegir.
      */
-    const heredado = (attr) => {
-      let n = el
-      for (let i = 0; i < 3 && n; i++, n = n.parentElement) {
-        const v = n.getAttribute && n.getAttribute(attr)
+    const inherited = (attr) => {
+      let node = el
+      for (let i = 0; i < 3 && node; i++, node = node.parentElement) {
+        const v = node.getAttribute && node.getAttribute(attr)
         if (v) return v
       }
       return ''
     }
 
     // Todo lo que identifica al elemento para un humano que mira la pantalla.
-    const etiqueta = [
-      texto(el).slice(0, 120),
-      heredado('aria-label'),
-      heredado('title'),
+    const label = [
+      text(el).slice(0, 120),
+      inherited('aria-label'),
+      inherited('title'),
       el.placeholder || '',
       el.getAttribute('name') || ''
     ].filter(Boolean).join(' | ')
 
     items.push({
       cid: cid,
-      accion: accion,
+      action: action,
       tag: el.tagName.toLowerCase(),
-      rol: el.getAttribute('role') || (el.type || ''),
-      texto: etiqueta.slice(0, 200),
-      valor: accion === 'escribir' ? String(el.value || '').slice(0, 60) : '',
+      role: el.getAttribute('role') || (el.type || ''),
+      text: label.slice(0, 200),
+      value: action === 'type' ? String(el.value || '').slice(0, 60) : '',
       href: (el.getAttribute('href') || '').slice(0, 120),
-      deshabilitado: !!el.disabled || el.getAttribute('aria-disabled') === 'true',
+      disabled: !!el.disabled || el.getAttribute('aria-disabled') === 'true',
       rect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) }
     })
   }
 
-  for (const el of raiz.querySelectorAll(SELECTOR_CLICK)) {
-    if (visible(el)) agregar(el, 'click')
+  for (const el of root.querySelectorAll(CLICK_SELECTOR)) {
+    if (visible(el)) add(el, 'click')
   }
-  for (const el of raiz.querySelectorAll(SELECTOR_ESCRIBIR)) {
-    if (visible(el)) agregar(el, 'escribir')
+  for (const el of root.querySelectorAll(TYPE_SELECTOR)) {
+    if (visible(el)) add(el, 'type')
   }
 
   /*
@@ -542,25 +548,25 @@ export const INVENTARIO = `(() => {
    * —el wrapper de toda la app— no es un control, y si entrara taparía a todo
    * lo de adentro.
    */
-  const areaVentana = (window.innerWidth || 1280) * (window.innerHeight || 900)
+  const viewportArea = (window.innerWidth || 1280) * (window.innerHeight || 900)
 
-  const candidatosPointer = [...raiz.querySelectorAll(
+  const pointerCandidates = [...root.querySelectorAll(
     'div, span, li, tr, td, p, h1, h2, h3, section, article, label, img, svg'
   )].filter(visible)
 
-  for (const el of candidatosPointer) {
+  for (const el of pointerCandidates) {
     if (el.hasAttribute('data-albus-cid')) continue
     if (el.parentElement && el.parentElement.closest('[data-albus-cid]')) continue
     if (getComputedStyle(el).cursor !== 'pointer') continue
 
     const r = el.getBoundingClientRect()
-    if (r.width * r.height > areaVentana * 0.6) continue
+    if (r.width * r.height > viewportArea * 0.6) continue
 
-    if (texto(el) !== '' || el.getAttribute('aria-label')) agregar(el, 'click')
+    if (text(el) !== '' || el.getAttribute('aria-label')) add(el, 'click')
   }
 
   // Sin texto y sin ser un campo no le dice nada a nadie: gasta tokens al pedo.
-  const utiles = items.filter((i) => i.texto !== '' || i.accion === 'escribir')
+  const useful = items.filter((i) => i.text !== '' || i.action === 'type')
 
   /*
    * El recorte por CERCANÍA A LA PANTALLA, no por orden en el DOM.
@@ -569,20 +575,20 @@ export const INVENTARIO = `(() => {
    * 30 del documento puede tirar justo el botón que importa —que suele estar
    * abajo, después de todo el menú lateral—. Lo que está a la vista primero.
    */
-  const alto = window.innerHeight || 900
-  const enPantalla = (i) => i.rect.y >= -50 && i.rect.y <= alto
-  const ordenados = [
-    ...utiles.filter(enPantalla),
-    ...utiles.filter((i) => !enPantalla(i))
+  const height = window.innerHeight || 900
+  const onScreen = (i) => i.rect.y >= -50 && i.rect.y <= height
+  const sorted = [
+    ...useful.filter(onScreen),
+    ...useful.filter((i) => !onScreen(i))
   ]
 
   return JSON.stringify({
     url: location.href,
     title: document.title,
-    enModal: !!modal,
-    texto: (document.body.innerText || '').replace(/\\n{3,}/g, '\\n\\n').slice(0, 2500),
-    recortado: ordenados.length > 150,
-    items: ordenados.slice(0, 150)
+    inModal: !!modal,
+    text: (document.body.innerText || '').replace(/\\n{3,}/g, '\\n\\n').slice(0, 2500),
+    truncated: sorted.length > 150,
+    items: sorted.slice(0, 150)
   })
 })()`
 
@@ -593,7 +599,7 @@ export const INVENTARIO = `(() => {
  * nosotros—, nunca un selector ni JavaScript. Si inventa uno que no existe,
  * esto falla ruidoso en vez de clickear cualquier cosa.
  */
-export function clickPorIdScript(cid: string): string {
+export function clickByIdScript(cid: string): string {
   const id = JSON.stringify(cid)
   return `(() => {
     const el = document.querySelector('[data-albus-cid=' + JSON.stringify(${id}) + ']')
@@ -602,27 +608,27 @@ export function clickPorIdScript(cid: string): string {
     // innerText y no textContent, por lo mismo que en el inventario: si no, el
     // log dice clickeé "AAlbus AgentRead, update, and insert contentJorge Diaz"
     // y el usuario no reconoce qué apretó.
-    const crudo = el.innerText !== undefined && el.innerText !== null ? el.innerText : el.textContent
-    const visto = (crudo || '').split('\\n').map((l) => l.trim()).filter(Boolean).join(' · ')
+    const raw = el.innerText !== undefined && el.innerText !== null ? el.innerText : el.textContent
+    const seen = (raw || '').split('\\n').map((l) => l.trim()).filter(Boolean).join(' · ')
 
     el.scrollIntoView({ block: 'center' })
     el.click()
-    return JSON.stringify({ ok: true, texto: visto.slice(0, 80) })
+    return JSON.stringify({ ok: true, text: seen.slice(0, 80) })
   })()`
 }
 
 /** Escribe en el elemento que el inventario marcó con ese id. */
-export function escribirPorIdScript(cid: string, valor: string): string {
+export function typeByIdScript(cid: string, value: string): string {
   const id = JSON.stringify(cid)
-  const val = JSON.stringify(valor)
+  const val = JSON.stringify(value)
   return `(() => {
     const el = document.querySelector('[data-albus-cid=' + JSON.stringify(${id}) + ']')
     if (!el) return JSON.stringify({ ok: false, error: 'ese id ya no está en la página' })
 
-    const valor = ${val}
+    const value = ${val}
     if (el.isContentEditable) {
       el.focus()
-      el.textContent = valor
+      el.textContent = value
       el.dispatchEvent(new Event('input', { bubbles: true }))
       return JSON.stringify({ ok: true })
     }
@@ -634,21 +640,21 @@ export function escribirPorIdScript(cid: string, valor: string): string {
         : HTMLInputElement.prototype
     const desc = Object.getOwnPropertyDescriptor(proto, 'value')
     el.focus()
-    if (desc && desc.set) desc.set.call(el, valor)
-    else el.value = valor
+    if (desc && desc.set) desc.set.call(el, value)
+    else el.value = value
     el.dispatchEvent(new Event('input', { bubbles: true }))
     el.dispatchEvent(new Event('change', { bubbles: true }))
-    return JSON.stringify({ ok: true, escrito: el.value === valor })
+    return JSON.stringify({ ok: true, written: el.value === value })
   })()`
 }
 
 /** ¿Está alguno de estos textos en la página? Para esperar a que cargue. */
-export function hayTextoScript(textos: string[]): string {
-  const lista = JSON.stringify(textos.map((t) => t.toLowerCase()))
+export function hasTextScript(texts: string[]): string {
+  const list = JSON.stringify(texts.map((t) => t.toLowerCase()))
   return `(() => {
-    const cuerpo = (document.body.innerText || '').toLowerCase()
-    const cual = ${lista}.find((t) => cuerpo.includes(t)) || ''
-    return JSON.stringify({ ok: cual !== '', cual: cual })
+    const body = (document.body.innerText || '').toLowerCase()
+    const which = ${list}.find((t) => body.includes(t)) || ''
+    return JSON.stringify({ ok: which !== '', which: which })
   })()`
 }
 
@@ -657,48 +663,48 @@ export function hayTextoScript(textos: string[]): string {
  * token que Notion pinta en pantalla después de crear la integración.
  *
  * El patrón viaja como string y se compila del otro lado. NO se interpola nada
- * del usuario: los patrones son constantes de `notion-auto.ts`.
+ * del usuario: los patrones son el `secretPattern` de `connections/services.ts`.
  */
-export function extraerPatronScript(patron: string, bandera = ''): string {
+export function extractPatternScript(pattern: string, flags = ''): string {
   return `(() => {
-    const re = new RegExp(${JSON.stringify(patron)}, ${JSON.stringify(bandera)})
+    const re = new RegExp(${JSON.stringify(pattern)}, ${JSON.stringify(flags)})
 
     // Primero los inputs: Notion muestra el secreto dentro de un <input readonly>,
     // y su valor NO está en innerText.
     for (const el of document.querySelectorAll('input, textarea')) {
       const v = el.value || ''
       const m = v.match(re)
-      if (m) return JSON.stringify({ ok: true, valor: m[0], donde: 'input' })
+      if (m) return JSON.stringify({ ok: true, value: m[0], where: 'input' })
     }
 
-    const texto = document.body.innerText || ''
-    const m = texto.match(re)
+    const text = document.body.innerText || ''
+    const m = text.match(re)
     return m
-      ? JSON.stringify({ ok: true, valor: m[0], donde: 'texto' })
+      ? JSON.stringify({ ok: true, value: m[0], where: 'text' })
       : JSON.stringify({ ok: false, error: 'no encontré el patrón en la página' })
   })()`
 }
 
 /** Escribe en el primer input visible que matchee el placeholder o la etiqueta. */
-export function escribirPorEtiquetaScript(pistas: string[], valor: string): string {
+export function typeByLabelScript(hints: string[], value: string): string {
   return `(() => {
-    const pistas = ${JSON.stringify(pistas.map((p) => p.toLowerCase()))}
-    const val = ${JSON.stringify(valor)}
+    const hints = ${JSON.stringify(hints.map((p) => p.toLowerCase()))}
+    const val = ${JSON.stringify(value)}
     const visible = (el) => {
       const r = el.getBoundingClientRect()
       return r.width > 0 || r.height > 0
     }
 
-    const campos = [...document.querySelectorAll('input[type=text], input:not([type]), textarea')]
+    const fields = [...document.querySelectorAll('input[type=text], input:not([type]), textarea')]
       .filter(visible)
 
-    const coincide = (el) => {
+    const matches = (el) => {
       const s = [el.placeholder, el.getAttribute('aria-label'), el.name, el.id]
         .filter(Boolean).join(' ').toLowerCase()
-      return pistas.some((p) => s.includes(p))
+      return hints.some((p) => s.includes(p))
     }
 
-    const el = campos.find(coincide) || campos[0]
+    const el = fields.find(matches) || fields[0]
     if (!el) return JSON.stringify({ ok: false, error: 'no hay dónde escribir' })
 
     const proto = el instanceof HTMLTextAreaElement

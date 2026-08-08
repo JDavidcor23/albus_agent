@@ -32,62 +32,63 @@ interface Props {
   onError: (m: string | null) => void
 }
 
-type Autor = 'vos' | 'agente'
+/** Alimenta la clase CSS `msg-vos` / `msg-agente`: los valores no cambian. */
+type Author = 'vos' | 'agente'
 
-interface Adjunto {
-  etiqueta: string
+interface Attachment {
+  label: string
   /** Ruta local o URL. La UI decide cómo abrirla. */
-  destino: string
-  tipo: 'captura' | 'archivo' | 'link'
+  target: string
+  type: 'screenshot' | 'file' | 'link'
 }
 
-interface Mensaje {
+interface Message {
   id: string
-  autor: Autor
-  texto: string
+  author: Author
+  text: string
   /** Vacantes que se muestran como tarjetas dentro del mensaje. */
-  vacantes?: RankedJobRow[]
+  jobs?: RankedJobRow[]
   /** Evidencia: captura, PDF, link a Notion. */
-  adjuntos?: Adjunto[]
+  attachments?: Attachment[]
   /** `true` mientras el agente está trabajando en esto. */
-  trabajando?: boolean
+  working?: boolean
 }
 
-let contador = 0
-const nuevoId = (): string => `m${++contador}`
+let counter = 0
+const newId = (): string => `m${++counter}`
 
 export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Element {
   const [status, setStatus] = useState<JobsStatus | null>(null)
-  const [mensajes, setMensajes] = useState<Mensaje[]>([])
-  const [entrada, setEntrada] = useState('')
-  const [ocupado, setOcupado] = useState(false)
-  const [verConexiones, setVerConexiones] = useState(false)
+  const [messages, setMessages] = useState<Message[]>([])
+  const [input, setInput] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [showConnections, setShowConnections] = useState(false)
   /** Lo que el usuario está VIENDO. "la primera" se resuelve contra esto. */
-  const [enPantalla, setEnPantalla] = useState<RankedJobRow[]>([])
+  const [onScreen, setOnScreen] = useState<RankedJobRow[]>([])
 
-  const finRef = useRef<HTMLDivElement>(null)
+  const endRef = useRef<HTMLDivElement>(null)
 
-  const refrescarStatus = useCallback((): void => {
+  const refreshStatus = useCallback((): void => {
     void window.api.jobsStatus().then((res) => {
       if (res.ok) setStatus(res.data)
     })
   }, [])
 
-  useEffect(refrescarStatus, [refrescarStatus])
+  useEffect(refreshStatus, [refreshStatus])
 
   // Siempre al pie: en un chat, lo último es lo que importa.
   useEffect(() => {
-    finRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [mensajes])
+    endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }, [messages])
 
-  const decir = (m: Omit<Mensaje, 'id'>): string => {
-    const id = nuevoId()
-    setMensajes((prev) => [...prev, { ...m, id }])
+  const say = (m: Omit<Message, 'id'>): string => {
+    const id = newId()
+    setMessages((prev) => [...prev, { ...m, id }])
     return id
   }
 
-  const actualizar = (id: string, cambios: Partial<Mensaje>): void => {
-    setMensajes((prev) => prev.map((m) => (m.id === id ? { ...m, ...cambios } : m)))
+  const update = (id: string, changes: Partial<Message>): void => {
+    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, ...changes } : m)))
   }
 
   /*
@@ -95,29 +96,29 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
    * nuevos. Si no, un barrido de doce vacantes deja veinte renglones de
    * "puntuando…" y el resultado queda enterrado arriba.
    */
-  const progresoRef = useRef<string | null>(null)
+  const progressRef = useRef<string | null>(null)
 
   useEffect(() => {
     const off = window.api.onHuntProgress((p: HuntProgress) => {
-      if (progresoRef.current !== null) {
-        actualizar(progresoRef.current, { texto: `${p.fase}: ${p.detalle}`, trabajando: true })
+      if (progressRef.current !== null) {
+        update(progressRef.current, { text: `${p.phase}: ${p.detail}`, working: true })
       }
     })
     return off
   }, [])
 
-  const buscar = async (queries: string[], ubicacion: string | null): Promise<void> => {
-    const id = decir({ autor: 'agente', texto: 'buscando…', trabajando: true })
-    progresoRef.current = id
+  const search = async (queries: string[], location: string | null): Promise<void> => {
+    const id = say({ author: 'agente', text: 'buscando…', working: true })
+    progressRef.current = id
 
     try {
       const res = await window.api.jobsHunt({
         // Vacío = lo que digan las reglas. El default de acá es la red de
         // contención para quien todavía no escribió ninguna.
         queries: queries.length > 0 ? queries : ['frontend developer', 'react developer'],
-        location: ubicacion ?? 'Colombia',
+        location: location ?? 'Colombia',
         maxRank: 12,
-        guardarEnNotion: true,
+        saveToNotion: true,
         /*
          * Vacío = que elija el main.
          *
@@ -130,46 +131,46 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
         modelId
       })
 
-      progresoRef.current = null
+      progressRef.current = null
 
       if (!res.ok) {
-        actualizar(id, { texto: res.error.message, trabajando: false })
+        update(id, { text: res.error.message, working: false })
         return
       }
 
       const d = res.data
-      setEnPantalla(d.califican)
+      setOnScreen(d.qualified)
 
       // El resumen dice qué NO pasó, no solo qué pasó: "3 de 12" es la
       // información, "3 vacantes" es la mitad.
-      const partes = [`Encontré ${d.encontradas}`]
-      if (d.repetidas > 0) partes.push(`${d.repetidas} ya las conocías`)
-      partes.push(`califican ${d.califican.length} de ${d.rankeadas}`)
+      const parts = [`Encontré ${d.found}`]
+      if (d.duplicates > 0) parts.push(`${d.duplicates} ya las conocías`)
+      parts.push(`califican ${d.qualified.length} de ${d.ranked}`)
 
-      actualizar(id, {
-        texto: `${partes.join(' · ')}.`,
-        trabajando: false,
-        vacantes: d.califican
+      update(id, {
+        text: `${parts.join(' · ')}.`,
+        working: false,
+        jobs: d.qualified
       })
 
-      if (d.califican.length === 0) {
-        decir({
-          autor: 'agente',
-          texto:
+      if (d.qualified.length === 0) {
+        say({
+          author: 'agente',
+          text:
             'Ninguna llegó al piso de 65. No relleno el lote con fits flojos: es lo que hace que mandes veinte postulaciones y no te contesten ninguna.'
         })
       }
     } catch (error: unknown) {
-      progresoRef.current = null
-      actualizar(id, { texto: String(error), trabajando: false })
+      progressRef.current = null
+      update(id, { text: String(error), working: false })
     }
   }
 
-  const postular = async (job: RankedJobRow): Promise<void> => {
-    const id = decir({
-      autor: 'agente',
-      texto: `armando el CV a medida para ${job.company}…`,
-      trabajando: true
+  const apply = async (job: RankedJobRow): Promise<void> => {
+    const id = say({
+      author: 'agente',
+      text: `armando el CV a medida para ${job.company}…`,
+      working: true
     })
 
     try {
@@ -183,12 +184,12 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
           slug: job.slug
         })
         if (!kit.ok) {
-          actualizar(id, { texto: `no pude armar el CV: ${kit.error.message}`, trabajando: false })
+          update(id, { text: `no pude armar el CV: ${kit.error.message}`, working: false })
           return
         }
       }
 
-      actualizar(id, { texto: `llenando el formulario de ${job.company}…`, trabajando: true })
+      update(id, { text: `llenando el formulario de ${job.company}…`, working: true })
 
       const res = await window.api.jobsApply({
         url: job.url,
@@ -202,7 +203,7 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
       })
 
       if (!res.ok) {
-        actualizar(id, { texto: res.error.message, trabajando: false })
+        update(id, { text: res.error.message, working: false })
         return
       }
 
@@ -214,52 +215,52 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
        * La captura sale del ÚLTIMO paso: es la foto del formulario ya lleno,
        * no la de la pantalla vacía del principio.
        */
-      const adjuntos: Adjunto[] = []
-      const ultimo = [...r.steps].reverse().find((s) => s.screenshot !== null)
-      if (ultimo?.screenshot != null) {
-        adjuntos.push({ etiqueta: 'ver la captura', destino: ultimo.screenshot, tipo: 'captura' })
+      const attachments: Attachment[] = []
+      const last = [...r.steps].reverse().find((s) => s.screenshot !== null)
+      if (last?.screenshot != null) {
+        attachments.push({ label: 'ver la captura', target: last.screenshot, type: 'screenshot' })
       }
       if (r.cvFound !== null) {
-        adjuntos.push({ etiqueta: 'abrir el CV', destino: r.cvFound, tipo: 'archivo' })
+        attachments.push({ label: 'abrir el CV', target: r.cvFound, type: 'file' })
       }
       if (r.notionPageId !== null) {
-        adjuntos.push({
-          etiqueta: 'ver en Notion',
-          destino: `https://www.notion.so/${r.notionPageId.replace(/-/g, '')}`,
-          tipo: 'link'
+        attachments.push({
+          label: 'ver en Notion',
+          target: `https://www.notion.so/${r.notionPageId.replace(/-/g, '')}`,
+          type: 'link'
         })
       }
 
-      const campos = r.steps.reduce((n, s) => n + s.filled, 0)
-      const adjuntado = r.uploadedAs.length > 0 ? ` y adjunté ${r.uploadedAs.join(', ')}` : ''
+      const fields = r.steps.reduce((n, s) => n + s.filled, 0)
+      const attached = r.uploadedAs.length > 0 ? ` y adjunté ${r.uploadedAs.join(', ')}` : ''
 
-      const detalle =
+      const detail =
         r.status === 'filled'
-          ? `Llené ${campos} campos${adjuntado}. Frené antes de enviar — decime "mandala" si va.`
+          ? `Llené ${fields} campos${attached}. Frené antes de enviar — decime "mandala" si va.`
           : r.status === 'submitted'
-            ? `Enviada. ${campos} campos${adjuntado}.`
+            ? `Enviada. ${fields} campos${attached}.`
             : r.status === 'needs-login'
               ? 'Me falta tu sesión en ese sitio. Conectala y volvemos.'
               : `${r.message} (${r.status})`
 
-      actualizar(id, { texto: detalle, trabajando: false, adjuntos })
+      update(id, { text: detail, working: false, attachments })
 
       if (r.unresolved.length > 0) {
-        decir({
-          autor: 'agente',
-          texto: `Dejé vacíos ${r.unresolved.length} campos que no supe contestar sin inventar: ${r.unresolved.join(', ')}.`
+        say({
+          author: 'agente',
+          text: `Dejé vacíos ${r.unresolved.length} campos que no supe contestar sin inventar: ${r.unresolved.join(', ')}.`
         })
       }
     } catch (error: unknown) {
-      actualizar(id, { texto: String(error), trabajando: false })
+      update(id, { text: String(error), working: false })
     }
   }
 
-  const mostrar = (job: RankedJobRow): void => {
-    decir({
-      autor: 'agente',
-      texto: `${job.company} · ${job.title} — puntaje ${job.score}. ${job.reason}`,
-      adjuntos: [{ etiqueta: 'abrir la vacante', destino: job.url, tipo: 'link' }]
+  const show = (job: RankedJobRow): void => {
+    say({
+      author: 'agente',
+      text: `${job.company} · ${job.title} — puntaje ${job.score}. ${job.reason}`,
+      attachments: [{ label: 'abrir la vacante', target: job.url, type: 'link' }]
     })
   }
 
@@ -271,33 +272,33 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
    * solo: `review` frena a propósito, y saltearlo desde acá sería devolverle
    * el gatillo automático al agente por la puerta de atrás.
    */
-  const enviar = async (job: RankedJobRow): Promise<void> => {
-    const id = decir({ autor: 'agente', texto: `registrando ${job.company}…`, trabajando: true })
+  const sendJob = async (job: RankedJobRow): Promise<void> => {
+    const id = say({ author: 'agente', text: `registrando ${job.company}…`, working: true })
     const res = await window.api.jobsConfirm({
       url: job.url,
       company: job.company,
       role: job.title,
       fitRating: String(job.score)
     })
-    actualizar(id, {
-      texto: res.ok ? `Listo, quedó registrada: ${job.company}.` : res.error.message,
-      trabajando: false
+    update(id, {
+      text: res.ok ? `Listo, quedó registrada: ${job.company}.` : res.error.message,
+      working: false
     })
   }
 
-  const mandar = async (): Promise<void> => {
-    const texto = entrada.trim()
-    if (texto === '' || ocupado) return
+  const submit = async (): Promise<void> => {
+    const text = input.trim()
+    if (text === '' || busy) return
 
-    decir({ autor: 'vos', texto })
-    setEntrada('')
-    setOcupado(true)
+    say({ author: 'vos', text })
+    setInput('')
+    setBusy(true)
     onError(null)
 
     try {
       const res = await window.api.jobsChat({
-        texto,
-        vacantes: enPantalla.map((v) => ({
+        text,
+        jobs: onScreen.map((v) => ({
           id: v.id,
           company: v.company,
           title: v.title,
@@ -306,70 +307,70 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
       })
 
       if (!res.ok) {
-        decir({ autor: 'agente', texto: res.error.message })
+        say({ author: 'agente', text: res.error.message })
         return
       }
 
       const intent = res.data
-      const buscarJob = (id: string): RankedJobRow | undefined => enPantalla.find((v) => v.id === id)
+      const findJob = (id: string): RankedJobRow | undefined => onScreen.find((v) => v.id === id)
 
       switch (intent.kind) {
-        case 'buscar':
-          await buscar(intent.queries, intent.ubicacion)
+        case 'search':
+          await search(intent.queries, intent.location)
           break
-        case 'postular': {
-          const j = buscarJob(intent.id)
-          if (j !== undefined) await postular(j)
-          break
-        }
-        case 'mostrar': {
-          const j = buscarJob(intent.id)
-          if (j !== undefined) mostrar(j)
+        case 'apply': {
+          const j = findJob(intent.id)
+          if (j !== undefined) await apply(j)
           break
         }
-        case 'enviar': {
-          const j = buscarJob(intent.id)
-          if (j !== undefined) await enviar(j)
+        case 'show': {
+          const j = findJob(intent.id)
+          if (j !== undefined) show(j)
           break
         }
-        case 'descartar': {
-          const j = buscarJob(intent.id)
-          setEnPantalla((prev) => prev.filter((v) => v.id !== intent.id))
-          decir({ autor: 'agente', texto: `Listo, saqué ${j?.company ?? 'esa'} de la lista.` })
+        case 'send': {
+          const j = findJob(intent.id)
+          if (j !== undefined) await sendJob(j)
           break
         }
-        case 'ambiguo':
+        case 'discard': {
+          const j = findJob(intent.id)
+          setOnScreen((prev) => prev.filter((v) => v.id !== intent.id))
+          say({ author: 'agente', text: `Listo, saqué ${j?.company ?? 'esa'} de la lista.` })
+          break
+        }
+        case 'ambiguous':
           // No adivinar: postularse a la equivocada no se deshace.
-          decir({
-            autor: 'agente',
-            texto: '¿A cuál? Decime el número o la empresa:',
-            vacantes: enPantalla.filter((v) => intent.candidatas.some((c) => c.id === v.id))
+          say({
+            author: 'agente',
+            text: '¿A cuál? Decime el número o la empresa:',
+            jobs: onScreen.filter((v) => intent.candidates.some((c) => c.id === v.id))
           })
           break
-        case 'conversar':
-          decir({
-            autor: 'agente',
-            texto:
+        case 'chat':
+          say({
+            author: 'agente',
+            text:
               'Eso todavía no lo sé contestar — me falta la parte que le pregunta al modelo. Por ahora probá: "buscame trabajo", "postulate a la 1", "mostrame la 2".'
           })
           break
         default:
-          decir({
-            autor: 'agente',
-            texto:
+          say({
+            author: 'agente',
+            text:
               'Puedo: buscar vacantes, postularme a una, mostrarte cómo quedó, enviarla o descartarla. Escribilo como lo dirías.'
           })
       }
     } finally {
-      setOcupado(false)
+      setBusy(false)
     }
   }
 
-  const faltan: string[] = []
+  const missing: string[] = []
   if (status !== null) {
-    if (!status.linkedInSession) faltan.push('LinkedIn')
-    if (!status.notionReady) faltan.push('Notion')
-    if (!status.gmailReady) faltan.push('Google')
+    if (!status.linkedInSession) missing.push('LinkedIn')
+    if (!status.notionReady) missing.push('Notion')
+    if (!status.gmailReady) missing.push('Google')
   }
 
   return (
@@ -377,26 +378,26 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
       <div className="jobchat-barra">
         <button
           type="button"
-          className={`job-conexiones-btn ${faltan.length > 0 ? 'job-conexiones-falta' : ''}`}
-          onClick={() => setVerConexiones(!verConexiones)}
-          title={faltan.length > 0 ? `sin conectar: ${faltan.join(' · ')}` : 'todo conectado'}
+          className={`job-conexiones-btn ${missing.length > 0 ? 'job-conexiones-falta' : ''}`}
+          onClick={() => setShowConnections(!showConnections)}
+          title={missing.length > 0 ? `sin conectar: ${missing.join(' · ')}` : 'todo conectado'}
         >
           conexiones
-          <span className="job-conexiones-estado">{faltan.length > 0 ? faltan.length : '✓'}</span>
+          <span className="job-conexiones-estado">{missing.length > 0 ? missing.length : '✓'}</span>
         </button>
       </div>
 
-      {verConexiones && <ConnectionsPanel onCambio={refrescarStatus} onError={onError} />}
+      {showConnections && <ConnectionsPanel onChange={refreshStatus} onError={onError} />}
 
       <div className="jobchat-hilo">
-        {mensajes.length === 0 && (
+        {messages.length === 0 && (
           <div className="jobchat-vacio">
             <p>Decime qué necesitás. Por ejemplo:</p>
             <ul>
-              <li onClick={() => setEntrada('buscame trabajo, hacé un barrido')}>
+              <li onClick={() => setInput('buscame trabajo, hacé un barrido')}>
                 buscame trabajo, hacé un barrido
               </li>
-              <li onClick={() => setEntrada('buscame frontend developer en Colombia')}>
+              <li onClick={() => setInput('buscame frontend developer en Colombia')}>
                 buscame frontend developer en Colombia
               </li>
             </ul>
@@ -406,16 +407,16 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
           </div>
         )}
 
-        {mensajes.map((m) => (
-          <article key={m.id} className={`msg msg-${m.autor}`}>
+        {messages.map((m) => (
+          <article key={m.id} className={`msg msg-${m.author}`}>
             <div className="msg-texto">
-              {m.trabajando === true && <span className="msg-latido" />}
-              {m.texto}
+              {m.working === true && <span className="msg-latido" />}
+              {m.text}
             </div>
 
-            {m.vacantes !== undefined && m.vacantes.length > 0 && (
+            {m.jobs !== undefined && m.jobs.length > 0 && (
               <div className="msg-vacantes">
-                {m.vacantes.map((v, i) => (
+                {m.jobs.map((v, i) => (
                   <div key={v.id} className="vac">
                     <div className="vac-head">
                       <span className="vac-num">{i + 1}</span>
@@ -425,7 +426,7 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
                     <div className="vac-titulo">{v.title}</div>
                     {v.reason !== '' && <div className="vac-razon">{v.reason}</div>}
                     <div className="vac-acciones">
-                      <button type="button" onClick={() => void postular(v)} disabled={ocupado}>
+                      <button type="button" onClick={() => void apply(v)} disabled={busy}>
                         postular
                       </button>
                       <button type="button" onClick={() => void window.api.openExternal(v.url)}>
@@ -437,16 +438,16 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
               </div>
             )}
 
-            {m.adjuntos !== undefined && m.adjuntos.length > 0 && (
+            {m.attachments !== undefined && m.attachments.length > 0 && (
               <div className="msg-adjuntos">
-                {m.adjuntos.map((a) => (
+                {m.attachments.map((a) => (
                   <button
-                    key={a.destino}
+                    key={a.target}
                     type="button"
                     className="adjunto"
-                    onClick={() => void window.api.openExternal(a.destino)}
+                    onClick={() => void window.api.openExternal(a.target)}
                   >
-                    {a.etiqueta}
+                    {a.label}
                   </button>
                 ))}
               </div>
@@ -454,21 +455,21 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
           </article>
         ))}
 
-        <div ref={finRef} />
+        <div ref={endRef} />
       </div>
 
       <div className="jobchat-entrada">
         <input
-          value={entrada}
+          value={input}
           placeholder="escribile al agente…"
-          disabled={ocupado}
-          onChange={(e) => setEntrada(e.target.value)}
+          disabled={busy}
+          onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') void mandar()
+            if (e.key === 'Enter') void submit()
           }}
         />
-        <button type="button" disabled={ocupado || entrada.trim() === ''} onClick={() => void mandar()}>
-          {ocupado ? '…' : 'enviar'}
+        <button type="button" disabled={busy || input.trim() === ''} onClick={() => void submit()}>
+          {busy ? '…' : 'enviar'}
         </button>
       </div>
     </div>

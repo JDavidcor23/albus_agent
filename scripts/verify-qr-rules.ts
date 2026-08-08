@@ -8,7 +8,7 @@
  */
 import { getSupabaseClient } from '../src/main/supabase/client'
 import { deterministicTasks } from '../src/main/core/tasks/rules'
-import { esCifrado, etiquetaDe, identidadDe } from '../src/main/core/tasks/qr-identity'
+import { isEncrypted, labelOf, identityOf } from '../src/main/core/tasks/qr-identity'
 import type { TaskCandidate } from '../src/main/core/tasks/types'
 
 async function main(): Promise<void> {
@@ -21,7 +21,7 @@ async function main(): Promise<void> {
 
   if (error) throw new Error(error.message)
 
-  const candidatos: TaskCandidate[] = ((data ?? []) as Record<string, unknown>[])
+  const candidates: TaskCandidate[] = ((data ?? []) as Record<string, unknown>[])
     .map((row) => ({
       entryId: String(row.id),
       userId: String(row.user_id),
@@ -33,45 +33,45 @@ async function main(): Promise<void> {
     }))
     .filter((c) => c.attachments.some((a) => a.kind === 'qr'))
 
-  console.log(`Notas con al menos un QR: ${candidatos.length}\n`)
+  console.log(`Notas con al menos un QR: ${candidates.length}\n`)
 
-  let adjuntosQr = 0
-  let codigos = 0
-  let pendientes = 0
+  let qrAttachments = 0
+  let codes = 0
+  let tasksCreated = 0
 
-  for (const c of candidatos) {
+  for (const c of candidates) {
     const qrs = c.attachments.filter((a) => a.kind === 'qr')
-    const todosLosCodigos = qrs.flatMap((a) =>
+    const allCodes = qrs.flatMap((a) =>
       Array.isArray(a.payload.codes)
         ? (a.payload.codes as unknown[]).filter((x): x is string => typeof x === 'string')
         : []
     )
 
-    adjuntosQr += qrs.length
-    codigos += todosLosCodigos.length
+    qrAttachments += qrs.length
+    codes += allCodes.length
 
     const tasks = deterministicTasks(c)
-    pendientes += tasks.length
+    tasksCreated += tasks.length
 
     console.log('='.repeat(74))
     console.log(`nota ${c.entryId.slice(0, 8)} — "${c.body.replace(/\s+/g, ' ').slice(0, 56)}"`)
-    console.log(`  ${qrs.length} adjunto(s) con QR · ${todosLosCodigos.length} código(s) leído(s)`)
+    console.log(`  ${qrs.length} adjunto(s) con QR · ${allCodes.length} código(s) leído(s)`)
 
     console.log('\n  IDENTIDADES:')
-    const agrupadas = new Map<string, number>()
-    for (const code of todosLosCodigos) {
-      const id = identidadDe(code)
-      agrupadas.set(id, (agrupadas.get(id) ?? 0) + 1)
+    const grouped = new Map<string, number>()
+    for (const code of allCodes) {
+      const id = identityOf(code)
+      grouped.set(id, (grouped.get(id) ?? 0) + 1)
     }
-    for (const [id, veces] of agrupadas) {
-      console.log(`    ${id}   (×${veces})`)
+    for (const [id, times] of grouped) {
+      console.log(`    ${id}   (×${times})`)
     }
 
     console.log('\n  ETIQUETAS:')
-    for (const code of [...new Set(todosLosCodigos)]) {
-      const et = etiquetaDe(code)
+    for (const code of [...new Set(allCodes)]) {
+      const label = labelOf(code)
       console.log(
-        `    ${esCifrado(code) ? 'cifrado ' : 'legible '} → ${et ?? '(null → usa la nota)'}`
+        `    ${isEncrypted(code) ? 'cifrado ' : 'legible '} → ${label ?? '(null → usa la nota)'}`
       )
     }
 
@@ -86,7 +86,7 @@ async function main(): Promise<void> {
 
   console.log('='.repeat(74))
   console.log(
-    `TOTAL: ${adjuntosQr} adjuntos · ${codigos} códigos → ${pendientes} pendientes de QR`
+    `TOTAL: ${qrAttachments} adjuntos · ${codes} códigos → ${tasksCreated} pendientes de QR`
   )
   console.log('Antes del arreglo eran 3 (2 de ellos el mismo evento repetido).')
 }

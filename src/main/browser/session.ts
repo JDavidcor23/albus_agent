@@ -41,7 +41,7 @@ export async function hasGoogleBrowserSession(): Promise<boolean> {
  * automatiza el login, se espera a que aparezca la cookie.
  */
 export function openGoogleLoginWindow(timeoutMs = 5 * 60_000): Promise<boolean> {
-  return esperarSesion(
+  return waitForSession(
     'https://accounts.google.com/ServiceLogin?continue=https://www.google.com',
     'Albus — entrá a Google (una sola vez)',
     hasGoogleBrowserSession,
@@ -67,7 +67,7 @@ export async function hasLinkedInSession(): Promise<boolean> {
  * además implicaría que Albus guarde la contraseña. Que la escriba él.
  */
 export function openLoginWindow(timeoutMs = 5 * 60_000): Promise<boolean> {
-  return esperarSesion(
+  return waitForSession(
     'https://www.linkedin.com/login',
     'Albus — iniciá sesión en LinkedIn (una sola vez)',
     hasLinkedInSession,
@@ -83,17 +83,17 @@ export function openLoginWindow(timeoutMs = 5 * 60_000): Promise<boolean> {
  * — y en la mitad de los sitios ni siquiera hay contraseña, hay un código que
  * llega al mail, que para completarlo habría que leerle la casilla.
  */
-function esperarSesion(
+function waitForSession(
   url: string,
-  titulo: string,
-  hayCookie: () => Promise<boolean>,
+  title: string,
+  hasCookie: () => Promise<boolean>,
   timeoutMs: number
 ): Promise<boolean> {
   const win = new BrowserWindow({
     width: 1100,
     height: 820,
     autoHideMenuBar: true,
-    title: titulo,
+    title,
     webPreferences: {
       partition: PARTITION,
       sandbox: true,
@@ -105,27 +105,27 @@ function esperarSesion(
   void win.loadURL(url)
 
   return new Promise((resolve) => {
-    let listo = false
+    let done = false
 
-    const terminar = (ok: boolean): void => {
-      if (listo) return
-      listo = true
-      clearInterval(sondeo)
-      clearTimeout(limite)
+    const finish = (ok: boolean): void => {
+      if (done) return
+      done = true
+      clearInterval(poll)
+      clearTimeout(limit)
       if (!win.isDestroyed()) win.destroy()
       resolve(ok)
     }
 
-    const sondeo = setInterval(() => {
-      void hayCookie().then((hay) => {
-        if (hay) terminar(true)
+    const poll = setInterval(() => {
+      void hasCookie().then((has) => {
+        if (has) finish(true)
       })
     }, 1500)
 
-    const limite = setTimeout(() => terminar(false), timeoutMs)
+    const limit = setTimeout(() => finish(false), timeoutMs)
 
     win.on('closed', () => {
-      void hayCookie().then((hay) => terminar(hay))
+      void hasCookie().then((has) => finish(has))
     })
   })
 }

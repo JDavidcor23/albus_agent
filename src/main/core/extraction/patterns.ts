@@ -169,14 +169,14 @@ export function findEntity(text: string): string | null {
  * internet deberían usar el mismo formato de PSE, pero no hay muestra todavía.
  */
 export function findMerchant(text: string): string | null {
-  const comercio = text.match(/comercio\s*:\s*([^\n]+)/i)
-  if (comercio) {
-    const limpio = comercio[1].replace(/\s*[-–]\s*PSE\s*$/i, '').trim()
-    if (limpio.length > 0) return limpio
+  const merchant = text.match(/comercio\s*:\s*([^\n]+)/i)
+  if (merchant) {
+    const clean = merchant[1].replace(/\s*[-–]\s*PSE\s*$/i, '').trim()
+    if (clean.length > 0) return clean
   }
 
-  const llave = text.match(/^[ \t]*llave[ \t]*$\r?\n[ \t]*(@?[\w.\-]{3,})/im)
-  if (llave) return llave[1].trim()
+  const key = text.match(/^[ \t]*llave[ \t]*$\r?\n[ \t]*(@?[\w.\-]{3,})/im)
+  if (key) return key[1].trim()
 
   return null
 }
@@ -186,9 +186,9 @@ export function findAccountRef(text: string): string | null {
   const match = text.match(/referencia\s*1\s*:\s*([^\n]+)/i)
   if (match === null) return null
 
-  const valor = match[1].trim()
+  const value = match[1].trim()
   // Sin al menos un dígito no es un número de contrato.
-  return valor.length > 0 && /\d/.test(valor) ? valor : null
+  return value.length > 0 && /\d/.test(value) ? value : null
 }
 
 export function findReference(text: string): string | null {
@@ -229,8 +229,8 @@ export function findReceipt(text: string): ReceiptMatch | null {
   // `accountRef` sirven para clasificar, no para decidir si esto es un
   // comprobante — meterlos acá bajaría la confianza de los recibos que ya
   // reconocíamos bien solo porque no traen línea "Comercio:".
-  const nucleo = [fields.entity, fields.amount, fields.date, fields.reference]
-  const matched = nucleo.filter((v) => v !== null).length
+  const core = [fields.entity, fields.amount, fields.date, fields.reference]
+  const matched = core.filter((v) => v !== null).length
   if (matched < 2) return null
 
   return { ...fields, confidence: matched / 4 }

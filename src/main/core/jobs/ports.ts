@@ -24,7 +24,7 @@ export interface BrowserPort {
    * `img-src 'self' data:` y un `file://` queda bloqueado. Achicarla no es
    * cosmético — un PNG de 1280×900 en base64 son cientos de KB por paso.
    */
-  capturaMiniatura(ancho?: number): Promise<string>
+  thumbnail(width?: number): Promise<string>
   /** ¿Hay cookie de sesión para ese dominio? No navega: solo mira el cookie jar. */
   hasSession(domain: string, cookieName: string): Promise<boolean>
   /** Trae la ventana al frente para que el usuario resuelva algo a mano. */
@@ -37,15 +37,15 @@ export interface BrowserPort {
   // queremos que falle ruidoso, no que adivine.
 
   /** Click en el primer elemento cuyo texto matchee. Reintenta; tira al vencer. */
-  clickTexto(textos: string[], exacto?: boolean, timeoutMs?: number): Promise<string>
+  clickText(texts: string[], exact?: boolean, timeoutMs?: number): Promise<string>
   /** Espera a que aparezca alguno de los textos. `false` si se acabó el tiempo. */
-  esperarTexto(textos: string[], timeoutMs: number): Promise<boolean>
+  waitForText(texts: string[], timeoutMs: number): Promise<boolean>
   /** Primer match del patrón en la página o en el valor de un input. */
-  extraerPatron(patron: string, bandera?: string): Promise<string | null>
+  extractPattern(pattern: string, flags?: string): Promise<string | null>
   /** Escribe en el input que matchee alguna pista (placeholder, aria-label…). */
-  escribirEn(pistas: string[], valor: string): Promise<void>
+  typeByLabel(hints: string[], value: string): Promise<void>
   /** El texto visible completo. Para diagnosticar cuando algo no aparece. */
-  textoVisible(): Promise<string>
+  visibleText(): Promise<string>
 
   // ── mirar la página en vez de adivinarla ─────────────────────────────────
   // Las primitivas de arriba van con una lista de textos ESPERADOS: sirven
@@ -54,44 +54,44 @@ export interface BrowserPort {
   // Notion renombra un botón y enterarse de que lo renombró.
 
   /** Todo lo clickeable y escribible de la página, con un id nuestro. */
-  inventario(): Promise<Inventario>
+  inventory(): Promise<Inventory>
   /** Click en el elemento que el inventario marcó con ese id. */
-  clickPorId(cid: string): Promise<string>
+  clickById(cid: string): Promise<string>
   /** Escribe en el elemento que el inventario marcó con ese id. */
-  escribirPorId(cid: string, valor: string): Promise<void>
+  typeById(cid: string, value: string): Promise<void>
   /** Abre DevTools sobre esta página. Para poder inspeccionarla de verdad. */
-  abrirDevTools(): void
+  openDevTools(): void
 }
 
 /** Un elemento de la página tal como se lo mostramos a quien tenga que elegir. */
-export interface ItemInventario {
+export interface InventoryItem {
   cid: string
-  accion: 'click' | 'escribir'
+  action: 'click' | 'type'
   tag: string
-  rol: string
+  role: string
   /** Texto visible + aria-label + title + placeholder + name, todo junto. */
-  texto: string
-  valor: string
+  text: string
+  value: string
   href: string
-  deshabilitado: boolean
+  disabled: boolean
   /** Coordenadas en la ventana: es lo que cruza esta lista con la captura. */
   rect: { x: number; y: number; w: number; h: number }
 }
 
-export interface Inventario {
+export interface Inventory {
   url: string
   title: string
   /** `true` si hay un modal abierto: entonces el inventario es SOLO del modal. */
-  enModal: boolean
-  texto: string
+  inModal: boolean
+  text: string
   /**
    * `true` si había más elementos de los que entraron.
    *
    * Se dice en vez de callarse: un inventario truncado en silencio hace que el
    * agente concluya "eso no está en la página" sobre algo que sí está.
    */
-  recortado: boolean
-  items: ItemInventario[]
+  truncated: boolean
+  items: InventoryItem[]
 }
 
 export interface KitPaths {

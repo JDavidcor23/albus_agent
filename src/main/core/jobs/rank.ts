@@ -44,11 +44,11 @@ export interface RankedJob extends JobCandidate {
 }
 
 /** El piso del workspace: 65 o más, y ningún corte duro. */
-export const PISO_CALIDAD = 65
+export const QUALITY_FLOOR = 65
 
-export interface Criba {
-  califican: RankedJob[]
-  descartadas: RankedJob[]
+export interface Sieve {
+  qualified: RankedJob[]
+  rejected: RankedJob[]
 }
 
 /**
@@ -56,18 +56,18 @@ export interface Criba {
  * llama, y así el assert puede probar que con dos candidatas buenas devuelve
  * dos y no inventa una tercera.
  */
-export function aplicarPiso(rankeadas: RankedJob[]): Criba {
-  const califican: RankedJob[] = []
-  const descartadas: RankedJob[] = []
+export function applyFloor(ranked: RankedJob[]): Sieve {
+  const qualified: RankedJob[] = []
+  const rejected: RankedJob[] = []
 
-  for (const j of rankeadas) {
-    if (j.score >= PISO_CALIDAD && j.gates.length === 0) califican.push(j)
-    else descartadas.push(j)
+  for (const j of ranked) {
+    if (j.score >= QUALITY_FLOOR && j.gates.length === 0) qualified.push(j)
+    else rejected.push(j)
   }
 
-  califican.sort((a, b) => b.score - a.score)
-  descartadas.sort((a, b) => b.score - a.score)
-  return { califican, descartadas }
+  qualified.sort((a, b) => b.score - a.score)
+  rejected.sort((a, b) => b.score - a.score)
+  return { qualified, rejected }
 }
 
 /** Recorte del texto de la vacante que va al prompt. Suficiente para juzgar. */
@@ -85,13 +85,13 @@ const RankSchema = z.object({
   )
 })
 
-export function buildRankPrompt(candidatos: JobCandidate[], p: CandidateProfile): string {
+export function buildRankPrompt(candidates: JobCandidate[], p: CandidateProfile): string {
   const years = Object.entries(p.yearsExperience)
     .filter(([k]) => k !== 'default')
     .map(([k, v]) => `${k} ${v}a`)
     .join(', ')
 
-  const vacantes = candidatos
+  const jobs = candidates
     .map(
       (c, i) =>
         `### ${i + 1} · id=${c.id}\n` +
@@ -128,18 +128,18 @@ Sé severo con el 65: es el corte entre "vale la pena escribir un CV a medida" y
 "angle": en una oración, qué de SU experiencia es lo más fuerte contra ESTA vacante. Sale de lo que el perfil dice, no de lo que la vacante pide.
 
 VACANTES
-${vacantes}
+${jobs}
 
 Devolvé SOLO este JSON, sin markdown:
 {"jobs":[{"id":"...","score":72,"gates":[],"reason":"una oración","angle":"una oración"}]}`
 }
 
-function extraerJson(texto: string): unknown {
-  const limpio = texto.replace(/^```(?:json)?/gm, '').replace(/```$/gm, '')
-  const inicio = limpio.indexOf('{')
-  const fin = limpio.lastIndexOf('}')
-  if (inicio === -1 || fin <= inicio) throw new Error('el modelo no devolvió JSON')
-  return JSON.parse(limpio.slice(inicio, fin + 1))
+function extractJson(text: string): unknown {
+  const clean = text.replace(/^```(?:json)?/gm, '').replace(/```$/gm, '')
+  const start = clean.indexOf('{')
+  const end = clean.lastIndexOf('}')
+  if (start === -1 || end <= start) throw new Error('el modelo no devolvió JSON')
+  return JSON.parse(clean.slice(start, end + 1))
 }
 
 /**
@@ -147,29 +147,29 @@ function extraerJson(texto: string): unknown {
  * el usuario ve "no pude puntuar" en vez de un lote vacío sin explicación.
  */
 export async function rankJobs(
-  candidatos: JobCandidate[],
+  candidates: JobCandidate[],
   p: CandidateProfile,
   tier: LlmTier
 ): Promise<RankedJob[]> {
-  if (candidatos.length === 0) return []
+  if (candidates.length === 0) return []
 
-  const sinPuntuar = (razon: string): RankedJob[] =>
-    candidatos.map((c) => ({ ...c, score: 0, gates: [], reason: razon, angle: '' }))
+  const unscored = (reason: string): RankedJob[] =>
+    candidates.map((c) => ({ ...c, score: 0, gates: [], reason, angle: '' }))
 
-  let lote: z.infer<typeof RankSchema>
+  let batch: z.infer<typeof RankSchema>
   try {
-    const salida = await tier.provider.run(buildRankPrompt(candidatos, p), tier.model)
-    lote = RankSchema.parse(extraerJson(salida))
+    const output = await tier.provider.run(buildRankPrompt(candidates, p), tier.model)
+    batch = RankSchema.parse(extractJson(output))
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error)
     console.warn(`[jobs] el ranking falló: ${message}`)
-    return sinPuntuar(`no se pudo puntuar: ${message}`)
+    return unscored(`no se pudo puntuar: ${message}`)
   }
 
-  const porId = new Map(lote.jobs.map((j) => [j.id, j]))
+  const byId = new Map(batch.jobs.map((j) => [j.id, j]))
 
-  return candidatos.map((c) => {
-    const j = porId.get(c.id)
+  return candidates.map((c) => {
+    const j = byId.get(c.id)
     if (j === undefined) {
       return { ...c, score: 0, gates: [], reason: 'el modelo no la puntuó', angle: '' }
     }

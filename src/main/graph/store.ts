@@ -24,21 +24,21 @@ export function saveGraph(graph: Graph): string {
   const dir = graphDir()
   mkdirSync(dir, { recursive: true })
 
-  const ruta = join(dir, 'graph.json')
-  writeFileSync(ruta, JSON.stringify(graph, null, 2), 'utf8')
-  return ruta
+  const path = join(dir, 'graph.json')
+  writeFileSync(path, JSON.stringify(graph, null, 2), 'utf8')
+  return path
 }
 
 /** null si todavía no se construyó ninguno. */
 export function loadGraph(): Graph | null {
-  const ruta = graphPath()
-  if (!existsSync(ruta)) return null
+  const path = graphPath()
+  if (!existsSync(path)) return null
 
   try {
-    return JSON.parse(readFileSync(ruta, 'utf8')) as Graph
+    return JSON.parse(readFileSync(path, 'utf8')) as Graph
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error)
-    console.error(`[graph] no se pudo leer ${ruta}: ${msg}`)
+    console.error(`[graph] no se pudo leer ${path}: ${msg}`)
     return null
   }
 }

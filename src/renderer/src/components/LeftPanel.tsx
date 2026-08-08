@@ -2,38 +2,36 @@ import type { CliProviderInfo } from '../../../shared/ipc'
 import { CliPicker } from './CliPicker'
 
 interface Props {
-  procesando: boolean
+  processing: boolean
   providers: CliProviderInfo[]
   providerId: string | null
   modelId: string | null
   onCliChange: (providerId: string | null, modelId: string | null) => void
-  refrescandoCli: boolean
-  cargandoCli: boolean
-  onRefrescarCli: () => void
-  progreso: { hechos: number; total: number } | null
+  refreshingCli: boolean
+  loadingCli: boolean
+  onRefreshCli: () => void
+  progress: { done: number; total: number } | null
   total: number
-  onProcesar: () => void
-  onReprocesar: () => void
+  onProcess: () => void
+  onReprocess: () => void
 }
 
 export function LeftPanel({
-  procesando,
+  processing,
   providers,
   providerId,
   modelId,
   onCliChange,
-  refrescandoCli,
-  cargandoCli,
-  onRefrescarCli,
-  progreso,
+  refreshingCli,
+  loadingCli,
+  onRefreshCli,
+  progress,
   total,
-  onProcesar,
-  onReprocesar
+  onProcess,
+  onReprocess
 }: Props): React.JSX.Element {
   const pct =
-    progreso !== null && progreso.total > 0
-      ? Math.round((progreso.hechos / progreso.total) * 100)
-      : 0
+    progress !== null && progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0
 
   return (
     <aside className="panel-left">
@@ -50,33 +48,33 @@ export function LeftPanel({
           providers={providers}
           providerId={providerId}
           modelId={modelId}
-          deshabilitado={procesando}
-          refrescando={refrescandoCli}
-          cargando={cargandoCli}
+          disabled={processing}
+          refreshing={refreshingCli}
+          loading={loadingCli}
           onChange={onCliChange}
-          onRefrescar={onRefrescarCli}
+          onRefresh={onRefreshCli}
         />
 
-        <button type="button" className="btn-brass" onClick={onProcesar} disabled={procesando}>
-          {procesando ? 'procesando…' : 'procesar lote'}
+        <button type="button" className="btn-brass" onClick={onProcess} disabled={processing}>
+          {processing ? 'procesando…' : 'procesar lote'}
         </button>
 
         <button
           type="button"
           className="btn-ghost"
-          onClick={onReprocesar}
-          disabled={procesando}
+          onClick={onReprocess}
+          disabled={processing}
         >
           reprocesar todo
         </button>
 
-        {procesando && progreso !== null && (
+        {processing && progress !== null && (
           <div className="progress-block">
             <div className="progress-track">
               <div className="progress-fill" style={{ width: `${pct}%` }} />
             </div>
             <div className="progress-meta">
-              {progreso.hechos} / {progreso.total}
+              {progress.done} / {progress.total}
             </div>
             <p className="processing-hint">
               El OCR mira cada imagen con calma. Son varios segundos por archivo.

@@ -3,13 +3,13 @@ import { BrowserWindow } from 'electron'
 import { registerHandler } from './register-handler'
 import { IpcChannels, IpcEvents, type ConnectionInfo, type ConnectionStepRow } from '../../shared/ipc'
 import {
-  abrirDondeSacarlo,
-  aplicarConexiones,
-  conectarConNavegador,
-  listarConexiones,
-  servicio
+  applyConnections,
+  connectWithBrowser,
+  listConnections,
+  openCredentialPage,
+  service
 } from '../connections/registry'
-import { olvidarTokenCacheado } from '../drive/client'
+import { forgetCachedToken } from '../drive/client'
 
 const IdSchema = z.object({ id: z.string().min(1).max(40) })
 
@@ -25,10 +25,10 @@ const TokenSchema = z.object({
 
 export function registerConnectionHandlers(): void {
   registerHandler(IpcChannels.CONNECTIONS_LIST, async (): Promise<ConnectionInfo[]> =>
-    listarConexiones()
+    listConnections()
   )
 
-  registerHandler(IpcChannels.CONNECTIONS_BROWSER, async (payload: unknown, evento) => {
+  registerHandler(IpcChannels.CONNECTIONS_BROWSER, async (payload: unknown, event) => {
     const { id } = IdSchema.parse(payload)
 
     /**
@@ -39,52 +39,52 @@ export function registerConnectionHandlers(): void {
      * canal el usuario mira una pantalla congelada. Se manda a la ventana que
      * hizo el pedido, no a todas: el que no preguntó no tiene por qué recibir.
      */
-    const destino = evento?.sender ?? BrowserWindow.getAllWindows()[0]?.webContents ?? null
+    const target = event?.sender ?? BrowserWindow.getAllWindows()[0]?.webContents ?? null
 
-    const onPaso = (p: { paso: string; ok: boolean; detalle: string; captura?: string }): void => {
-      if (destino === null || destino.isDestroyed()) return
+    const onStep = (p: { step: string; ok: boolean; detail: string; screenshot?: string }): void => {
+      if (target === null || target.isDestroyed()) return
       const row: ConnectionStepRow = { id, ...p }
-      destino.send(IpcEvents.CONNECTIONS_STEP, row)
+      target.send(IpcEvents.CONNECTIONS_STEP, row)
     }
 
-    const r = await conectarConNavegador(id, onPaso)
+    const r = await connectWithBrowser(id, onStep)
 
     // Sin esto el cambio no se nota hasta reiniciar, que es medio del pedido.
-    aplicarConexiones()
-    olvidarTokenCacheado()
+    applyConnections()
+    forgetCachedToken()
 
-    return { ok: r.ok, mensaje: r.mensaje, conexiones: await listarConexiones() }
+    return { ok: r.ok, message: r.message, connections: await listConnections() }
   })
 
   registerHandler(IpcChannels.CONNECTIONS_TOKEN, async (payload: unknown) => {
     const { id, token } = TokenSchema.parse(payload)
-    const s = servicio(id)
+    const s = service(id)
     if (s === null) throw new Error(`no conozco el servicio "${id}"`)
-    if (s.guardarToken === undefined) throw new Error(`${s.nombre} no se conecta con token`)
+    if (s.saveToken === undefined) throw new Error(`${s.name} no se conecta con token`)
 
-    s.guardarToken(token)
-    aplicarConexiones()
-    olvidarTokenCacheado()
+    s.saveToken(token)
+    applyConnections()
+    forgetCachedToken()
 
     // Se devuelve la lista recalculada: el estado real, no el que suponemos.
-    return { ok: true, mensaje: `${s.nombre} conectado`, conexiones: await listarConexiones() }
+    return { ok: true, message: `${s.name} conectado`, connections: await listConnections() }
   })
 
   registerHandler(IpcChannels.CONNECTIONS_OPEN, async (payload: unknown) => {
     const { id } = IdSchema.parse(payload)
-    await abrirDondeSacarlo(id)
-    return { abierto: true }
+    await openCredentialPage(id)
+    return { opened: true }
   })
 
   registerHandler(IpcChannels.CONNECTIONS_CLEAR, async (payload: unknown) => {
     const { id } = IdSchema.parse(payload)
-    const s = servicio(id)
+    const s = service(id)
     if (s === null) throw new Error(`no conozco el servicio "${id}"`)
 
-    s.desconectar?.()
-    aplicarConexiones()
-    olvidarTokenCacheado()
+    s.disconnect?.()
+    applyConnections()
+    forgetCachedToken()
 
-    return { ok: true, conexiones: await listarConexiones() }
+    return { ok: true, connections: await listConnections() }
   })
 }

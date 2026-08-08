@@ -1,7 +1,7 @@
 import { config as loadDotenv } from 'dotenv'
 import WebSocket from 'ws'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { crearFetchConReintento } from './retry'
+import { createFetchWithRetry } from './retry'
 
 // electron-vite solo inyecta al main las variables con prefijo MAIN_VITE_, así que
 // un SUPABASE_URL pelado en .env nunca llegaría a process.env. Lo cargamos a mano
@@ -41,7 +41,7 @@ export function getSupabaseClient(): SupabaseClient {
     // El reintento va acá y no en cada repo porque es una preocupación del
     // transporte: enchufado en `global.fetch` cubre REST y Storage juntos, y
     // nadie más tiene que acordarse. Ver retry.ts para qué se investigó.
-    global: { fetch: crearFetchConReintento(fetch) }
+    global: { fetch: createFetchWithRetry(fetch) }
   })
 
   return clientInstance

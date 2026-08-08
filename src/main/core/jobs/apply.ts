@@ -27,7 +27,7 @@ import type {
  */
 
 /** Un formulario de 8 pantallas ya es raro; 12 clicks es un bucle roto. */
-const MAX_PASOS = 12
+const MAX_STEPS = 12
 
 export interface StagedKit {
   cvSource: string | null
@@ -59,19 +59,19 @@ export async function planStep(
   const { answers, pending, humanOnly } = answerByRules(form.fields, profile)
 
   let unresolved = [...pending, ...humanOnly]
-  const todas = [...answers]
+  const all = [...answers]
 
   // El escalón caro solo ve lo que quedó, y nunca los campos de consentimiento.
   if (llm !== null && pending.length > 0) {
-    const delModelo = await answerByLlm(pending, profile, posting, llm)
-    todas.push(...delModelo.answers)
-    unresolved = [...delModelo.unresolved, ...humanOnly]
+    const fromModel = await answerByLlm(pending, profile, posting, llm)
+    all.push(...fromModel.answers)
+    unresolved = [...fromModel.unresolved, ...humanOnly]
   }
 
   return {
     url: form.url,
     mode,
-    answers: todas,
+    answers: all,
     unresolved,
     cvSourcePath: kit.cvSource,
     cvUploadPath: kit.cvUpload,
@@ -85,11 +85,11 @@ export async function planStep(
  * el formulario no avanzó — probablemente hay una validación en rojo que
  * nosotros no vemos — y seguir clickeando no lo va a arreglar.
  */
-function firma(form: FormModel): string {
+function signature(form: FormModel): string {
   return `${form.url}::${form.fields.map((f) => `${f.kind}:${f.label}`).join('|')}`
 }
 
-function elegirBoton(buttons: FormButton[]): FormButton | null {
+function pickButton(buttons: FormButton[]): FormButton | null {
   return (
     buttons.find((b) => b.kind === 'next') ??
     buttons.find((b) => b.kind === 'submit') ??
@@ -98,49 +98,57 @@ function elegirBoton(buttons: FormButton[]): FormButton | null {
   )
 }
 
-async function subirArchivos(
+async function uploadFiles(
   deps: ApplyDeps,
   form: FormModel
-): Promise<{ subidos: string[]; fallidos: string[] }> {
-  const subidos: string[] = []
-  const fallidos: string[] = []
+): Promise<{ uploaded: string[]; failed: string[] }> {
+  const uploaded: string[] = []
+  const failed: string[] = []
 
   for (const field of form.fields) {
     if (field.kind !== 'file') continue
 
-    const cual = classifyFileField(`${field.label} ${field.name} ${field.placeholder}`)
+    const which = classifyFileField(`${field.label} ${field.name} ${field.placeholder}`)
     // `unknown` cae al CV: si el formulario tiene un solo adjunto sin etiquetar,
     // es el CV en el 99% de los casos. La carta nunca va sin etiqueta explícita.
-    const ruta =
-      cual === 'cover' ? deps.kit.coverUpload : cual === 'cv' ? deps.kit.cvUpload : deps.kit.cvUpload
+    const path =
+      which === 'cover'
+        ? deps.kit.coverUpload
+        : which === 'cv'
+          ? deps.kit.cvUpload
+          : deps.kit.cvUpload
 
-    if (ruta === null) continue
+    if (path === null) continue
 
     try {
-      await deps.browser.uploadFile(field.selector, ruta)
-      subidos.push(ruta.replace(/\\/g, '/').split('/').pop() ?? ruta)
+      await deps.browser.uploadFile(field.selector, path)
+      uploaded.push(path.replace(/\\/g, '/').split('/').pop() ?? path)
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error)
       console.warn(`[jobs] no se pudo adjuntar en "${field.label}": ${message}`)
-      fallidos.push(field.label)
+      failed.push(field.label)
     }
   }
 
-  return { subidos, fallidos }
+  return { uploaded, failed }
 }
 
-async function escribir(deps: ApplyDeps, form: FormModel, answers: FieldAnswer[]): Promise<number> {
-  const porId = new Map(form.fields.map((f) => [f.id, f]))
-  let escritos = 0
+async function fillFields(
+  deps: ApplyDeps,
+  form: FormModel,
+  answers: FieldAnswer[]
+): Promise<number> {
+  const byId = new Map(form.fields.map((f) => [f.id, f]))
+  let count = 0
 
   for (const a of answers) {
     if (a.source === 'prefilled') continue
-    const field = porId.get(a.fieldId)
+    const field = byId.get(a.fieldId)
     if (field === undefined) continue
 
     try {
       await deps.browser.fill(field.selector, a.value)
-      escritos++
+      count++
     } catch (error: unknown) {
       // Un campo que no se deja escribir (oculto, deshabilitado, un typeahead
       // que se cerró) no puede tirar abajo los otros catorce.
@@ -149,7 +157,7 @@ async function escribir(deps: ApplyDeps, form: FormModel, answers: FieldAnswer[]
     }
   }
 
-  return escritos
+  return count
 }
 
 export async function runApply(
@@ -161,7 +169,7 @@ export async function runApply(
   const unresolved = new Set<string>()
   const uploadedAs = new Set<string>()
 
-  const salida = (status: ApplyOutcome['status'], message: string): ApplyOutcome => ({
+  const finish = (status: ApplyOutcome['status'], message: string): ApplyOutcome => ({
     status,
     url,
     mode: deps.mode,
@@ -174,31 +182,31 @@ export async function runApply(
   try {
     await deps.browser.open(url)
   } catch (error: unknown) {
-    return salida('failed', error instanceof Error ? error.message : String(error))
+    return finish('failed', error instanceof Error ? error.message : String(error))
   }
 
-  let anterior = ''
+  let previous = ''
 
-  for (let i = 0; i < MAX_PASOS; i++) {
+  for (let i = 0; i < MAX_STEPS; i++) {
     let form: FormModel
     try {
       form = await deps.browser.readForm()
     } catch (error: unknown) {
-      return salida('failed', `no se pudo leer el formulario: ${String(error)}`)
+      return finish('failed', `no se pudo leer el formulario: ${String(error)}`)
     }
 
-    const actual = firma(form)
-    const estancado = actual === anterior
-    anterior = actual
+    const current = signature(form)
+    const stalled = current === previous
+    previous = current
 
     // Sin campos: o todavía no abrimos el modal, o ya terminamos.
     if (form.fields.length === 0) {
-      const abrir = form.buttons.find((b) => b.kind === 'apply')
-      if (abrir !== null && abrir !== undefined && !estancado) {
+      const openButton = form.buttons.find((b) => b.kind === 'apply')
+      if (openButton !== null && openButton !== undefined && !stalled) {
         if (!canClick('apply', deps.mode)) {
-          return salida('planned', explainBlock('apply', deps.mode))
+          return finish('planned', explainBlock('apply', deps.mode))
         }
-        await deps.browser.click(abrir.selector)
+        await deps.browser.click(openButton.selector)
         steps.push({
           index: i,
           url: form.url,
@@ -206,11 +214,11 @@ export async function runApply(
           skipped: 0,
           unresolved: [],
           screenshot: null,
-          action: `abrir: ${abrir.label}`
+          action: `abrir: ${openButton.label}`
         })
         continue
       }
-      return salida(
+      return finish(
         steps.length === 0 ? 'blocked' : 'filled',
         steps.length === 0
           ? 'no encontré formulario ni botón de postulación en esa página'
@@ -231,12 +239,12 @@ export async function runApply(
         screenshot: null,
         action: 'dry-run: no se escribió nada'
       })
-      return salida('planned', `plan listo: ${plan.answers.length} campos resolubles`)
+      return finish('planned', `plan listo: ${plan.answers.length} campos resolubles`)
     }
 
-    const escritos = await escribir(deps, form, plan.answers)
-    const archivos = await subirArchivos(deps, form)
-    for (const nombre of archivos.subidos) uploadedAs.add(nombre)
+    const filledCount = await fillFields(deps, form, plan.answers)
+    const files = await uploadFiles(deps, form)
+    for (const name of files.uploaded) uploadedAs.add(name)
 
     let shot: string | null = null
     try {
@@ -245,43 +253,43 @@ export async function runApply(
       // Un screenshot es evidencia, no un requisito. Si falla, seguimos.
     }
 
-    const boton = elegirBoton(form.buttons)
+    const button = pickButton(form.buttons)
     // La clasificación que vale es la del main sobre el texto, no la que vino
     // de la página: el DOM es input externo como cualquier otro.
-    const kind = boton === null ? 'other' : classifyButton(boton.label)
+    const kind = button === null ? 'other' : classifyButton(button.label)
 
     steps.push({
       index: i,
       url: form.url,
-      filled: escritos,
-      skipped: plan.answers.length - escritos,
+      filled: filledCount,
+      skipped: plan.answers.length - filledCount,
       unresolved: plan.unresolved.map((f) => f.label),
       screenshot: shot,
-      action: boton === null ? 'sin botón de avance' : `${kind}: ${boton.label}`
+      action: button === null ? 'sin botón de avance' : `${kind}: ${button.label}`
     })
     deps.onStep?.(steps[steps.length - 1])
 
-    if (boton === null) {
-      return salida('filled', 'campos llenados; no encontré el botón para avanzar')
+    if (button === null) {
+      return finish('filled', 'campos llenados; no encontré el botón para avanzar')
     }
 
     if (!canClick(kind, deps.mode)) {
-      return salida('filled', explainBlock(kind, deps.mode))
+      return finish('filled', explainBlock(kind, deps.mode))
     }
 
-    if (estancado && i > 0) {
-      return salida(
+    if (stalled && i > 0) {
+      return finish(
         'blocked',
         'el formulario no avanza: probablemente hay un campo obligatorio que no pude responder'
       )
     }
 
-    await deps.browser.click(boton.selector)
+    await deps.browser.click(button.selector)
 
     if (kind === 'submit') {
-      return salida('submitted', 'postulación enviada')
+      return finish('submitted', 'postulación enviada')
     }
   }
 
-  return salida('blocked', `me pasé de ${MAX_PASOS} pasos sin terminar`)
+  return finish('blocked', `me pasé de ${MAX_STEPS} pasos sin terminar`)
 }

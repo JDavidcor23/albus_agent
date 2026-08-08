@@ -12,7 +12,7 @@
  */
 import { getSupabaseClient } from '../src/main/supabase/client'
 
-interface Fila {
+interface TaskRow {
   id: string
   entry_id: string
   title: string
@@ -31,23 +31,23 @@ async function main(): Promise<void> {
     .order('created_at', { ascending: true })
 
   if (error) throw new Error(error.message)
-  const filas = (tasks ?? []) as Fila[]
+  const rows = (tasks ?? []) as TaskRow[]
 
-  console.log(`Pendientes (sin centinelas): ${filas.length}\n`)
+  console.log(`Pendientes (sin centinelas): ${rows.length}\n`)
 
   // --- 1. Títulos repetidos entre entries distintas -------------------------
-  const porTitulo = new Map<string, Fila[]>()
-  for (const f of filas) {
+  const byTitle = new Map<string, TaskRow[]>()
+  for (const f of rows) {
     const k = f.title.toLowerCase().trim()
-    porTitulo.set(k, [...(porTitulo.get(k) ?? []), f])
+    byTitle.set(k, [...(byTitle.get(k) ?? []), f])
   }
 
-  const titulosRepes = [...porTitulo.entries()].filter(([, v]) => v.length > 1)
+  const repeatedTitles = [...byTitle.entries()].filter(([, v]) => v.length > 1)
   console.log('='.repeat(72))
-  console.log(`TÍTULOS IDÉNTICOS EN MÁS DE UNA ENTRY: ${titulosRepes.length}`)
+  console.log(`TÍTULOS IDÉNTICOS EN MÁS DE UNA ENTRY: ${repeatedTitles.length}`)
   console.log('='.repeat(72))
-  for (const [titulo, v] of titulosRepes) {
-    console.log(`\n  "${titulo}"  ×${v.length}`)
+  for (const [title, v] of repeatedTitles) {
+    console.log(`\n  "${title}"  ×${v.length}`)
     for (const f of v) console.log(`     entry ${f.entry_id.slice(0, 8)} · ${f.status} · ${f.source}`)
   }
 
@@ -59,34 +59,34 @@ async function main(): Promise<void> {
 
   if (e2) throw new Error(e2.message)
 
-  const porCodigo = new Map<string, Set<string>>()
-  const adjuntosPorCodigo = new Map<string, number>()
+  const byCode = new Map<string, Set<string>>()
+  const attachmentsPerCode = new Map<string, number>()
 
   for (const row of (ex ?? []) as { entry_id: string; payload: unknown }[]) {
     const p = (row.payload ?? {}) as Record<string, unknown>
     const codes = Array.isArray(p.codes) ? p.codes : []
     for (const c of codes) {
       if (typeof c !== 'string' || c.trim().length === 0) continue
-      porCodigo.set(c, (porCodigo.get(c) ?? new Set()).add(row.entry_id))
-      adjuntosPorCodigo.set(c, (adjuntosPorCodigo.get(c) ?? 0) + 1)
+      byCode.set(c, (byCode.get(c) ?? new Set()).add(row.entry_id))
+      attachmentsPerCode.set(c, (attachmentsPerCode.get(c) ?? 0) + 1)
     }
   }
 
   console.log(`\n${'='.repeat(72)}`)
-  console.log(`CÓDIGOS QR DISTINTOS: ${porCodigo.size}  ·  adjuntos con QR: ${(ex ?? []).length}`)
+  console.log(`CÓDIGOS QR DISTINTOS: ${byCode.size}  ·  adjuntos con QR: ${(ex ?? []).length}`)
   console.log('='.repeat(72))
 
-  for (const [code, entries] of porCodigo) {
-    const veces = adjuntosPorCodigo.get(code) ?? 0
-    const cruza = entries.size > 1
+  for (const [code, entries] of byCode) {
+    const times = attachmentsPerCode.get(code) ?? 0
+    const crosses = entries.size > 1
     console.log(
-      `\n  ${cruza ? '⚠ CRUZA ENTRIES' : '  una sola entry'} · ${veces} adjunto(s) · ${entries.size} entry(s)`
+      `\n  ${crosses ? '⚠ CRUZA ENTRIES' : '  una sola entry'} · ${times} adjunto(s) · ${entries.size} entry(s)`
     )
     console.log(`     code: ${code.slice(0, 100)}${code.length > 100 ? '…' : ''}`)
     for (const id of entries) {
-      const suyas = filas.filter((f) => f.entry_id === id)
-      console.log(`     entry ${id.slice(0, 8)} → ${suyas.length} pendiente(s)`)
-      for (const f of suyas) console.log(`        · [${f.status}] ${f.title.slice(0, 90)}`)
+      const itsTasks = rows.filter((f) => f.entry_id === id)
+      console.log(`     entry ${id.slice(0, 8)} → ${itsTasks.length} pendiente(s)`)
+      for (const f of itsTasks) console.log(`        · [${f.status}] ${f.title.slice(0, 90)}`)
     }
   }
 
@@ -98,15 +98,15 @@ async function main(): Promise<void> {
 
   if (e3) throw new Error(e3.message)
 
-  const largos = ((entries ?? []) as { id: string; body: string }[])
+  const longOnes = ((entries ?? []) as { id: string; body: string }[])
     .map((e) => ({ id: e.id, n: (e.body ?? '').trim().length }))
     .filter((e) => e.n > 200)
     .sort((a, b) => b.n - a.n)
 
   console.log(`\n${'='.repeat(72)}`)
-  console.log(`NOTAS DE MÁS DE 200 CARACTERES (candidatas a resumen): ${largos.length}`)
+  console.log(`NOTAS DE MÁS DE 200 CARACTERES (candidatas a resumen): ${longOnes.length}`)
   console.log('='.repeat(72))
-  for (const l of largos.slice(0, 10)) {
+  for (const l of longOnes.slice(0, 10)) {
     console.log(`  ${l.id.slice(0, 8)} · ${l.n} chars`)
   }
 }

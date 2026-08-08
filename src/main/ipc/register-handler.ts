@@ -6,7 +6,7 @@ import type { IpcResult } from '../../shared/ipc'
  *
  * El evento hace falta para los handlers que tardan y quieren ir contando qué
  * hacen: `invoke` no contesta hasta terminar, así que el progreso sale por
- * `evento.sender.send(...)` hacia la ventana que preguntó. Los handlers que no
+ * `event.sender.send(...)` hacia la ventana que preguntó. Los handlers que no
  * lo necesitan simplemente no lo declaran.
  */
 export function registerHandler<T>(

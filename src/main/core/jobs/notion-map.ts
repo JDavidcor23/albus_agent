@@ -11,7 +11,7 @@ import type { ApplyStatus, CandidateProfile } from './types'
  */
 
 /** Exactamente las opciones que existen hoy en el select de la base. */
-export const ESTADOS_NOTION = [
+export const NOTION_STATUSES = [
   'Applying',
   'In process',
   'Rejected',
@@ -20,13 +20,13 @@ export const ESTADOS_NOTION = [
   'Descartada'
 ] as const
 
-export type EstadoNotion = (typeof ESTADOS_NOTION)[number]
+export type NotionStatus = (typeof NOTION_STATUSES)[number]
 
 /**
  * Estados que Albus puede reportar. Los cuatro primeros salen del bucle de
  * postulación; los otros los setea el usuario cuando pasa algo.
  */
-export type EstadoAlbus =
+export type AlbusStatus =
   | ApplyStatus
   | 'interview'
   | 'rejected'
@@ -34,7 +34,7 @@ export type EstadoAlbus =
   | 'contacted'
   | 'ranked'
 
-const MAPA: Record<EstadoAlbus, EstadoNotion> = {
+const STATUS_MAP: Record<AlbusStatus, NotionStatus> = {
   // Se envió de verdad.
   submitted: 'Applying',
   // Llenado y esperando tu click: todavía no es una postulación.
@@ -58,8 +58,8 @@ const MAPA: Record<EstadoAlbus, EstadoNotion> = {
  * vez de inventar una opción — un select con basura adentro es peor que una
  * fila sin estado.
  */
-export function estadoNotion(estado: string): EstadoNotion | null {
-  return MAPA[estado as EstadoAlbus] ?? null
+export function notionStatus(status: string): NotionStatus | null {
+  return STATUS_MAP[status as AlbusStatus] ?? null
 }
 
 /**
@@ -71,10 +71,10 @@ export function estadoNotion(estado: string): EstadoNotion | null {
  * nota, y perderla porque adentro había un mail es cambiar un problema chico
  * por uno grande.
  */
-export function scrubPii(texto: string, p: CandidateProfile): string {
+export function scrubPii(text: string, p: CandidateProfile): string {
   // De más largo a más corto, y NO es un detalle de estilo: reemplazar
   // "3003073883" antes que "+573003073883" deja el "+57" suelto en la fila.
-  const literales = [
+  const literals = [
     p.email,
     `${p.phoneCountryCode}${p.phone}`,
     `${p.phoneCountryCode} ${p.phone}`,
@@ -83,59 +83,59 @@ export function scrubPii(texto: string, p: CandidateProfile): string {
     .filter((l) => l.trim() !== '')
     .sort((a, b) => b.length - a.length)
 
-  let limpio = texto
-  for (const l of literales) {
-    limpio = limpio.split(l).join('[oculto]')
+  let clean = text
+  for (const l of literals) {
+    clean = clean.split(l).join('[oculto]')
   }
 
   // El teléfono también aparece formateado (300 307 3883) o con guiones.
-  const soloDigitos = p.phone.replace(/\D/g, '')
-  if (soloDigitos.length >= 7) {
-    const flexible = new RegExp(soloDigitos.split('').join('[\\s.-]?'), 'g')
-    limpio = limpio.replace(flexible, '[oculto]')
+  const digitsOnly = p.phone.replace(/\D/g, '')
+  if (digitsOnly.length >= 7) {
+    const flexible = new RegExp(digitsOnly.split('').join('[\\s.-]?'), 'g')
+    clean = clean.replace(flexible, '[oculto]')
   }
 
   // Y cualquier otro mail que se haya colado desde el OCR o la descripción.
-  return limpio.replace(/[\w.+-]+@[\w-]+\.[\w.]{2,}/g, '[oculto]')
+  return clean.replace(/[\w.+-]+@[\w-]+\.[\w.]{2,}/g, '[oculto]')
 }
 
-export interface FilaNotion {
+export interface NotionRow {
   company: string
   role: string
-  estado: EstadoNotion
-  fecha: string
+  status: NotionStatus
+  date: string
   fitScore: number | null
   postLink: string
   /** URL del posting o contacto del reclutador. NUNCA el mail del candidato. */
   contactUrl: string
   jobDescription: string
   coverLetter: string
-  proximaAccion: string
+  nextAction: string
 }
 
 /** Notion corta los rich_text en 2000 caracteres y devuelve 400 si te pasás. */
 export const MAX_RICH_TEXT = 1900
 
-export function recortar(texto: string): string {
-  return texto.length <= MAX_RICH_TEXT ? texto : `${texto.slice(0, MAX_RICH_TEXT - 1)}…`
+export function truncate(text: string): string {
+  return text.length <= MAX_RICH_TEXT ? text : `${text.slice(0, MAX_RICH_TEXT - 1)}…`
 }
 
 /** El cuerpo que espera la API de Notion. Se arma acá para poder testearlo. */
-export function propiedadesNotion(fila: FilaNotion): Record<string, unknown> {
-  const texto = (valor: string): Record<string, unknown> => ({
-    rich_text: valor === '' ? [] : [{ text: { content: recortar(valor) } }]
+export function notionProperties(row: NotionRow): Record<string, unknown> {
+  const text = (value: string): Record<string, unknown> => ({
+    rich_text: value === '' ? [] : [{ text: { content: truncate(value) } }]
   })
 
   return {
-    Company: { title: [{ text: { content: fila.company.slice(0, 200) } }] },
-    'Role/Position': texto(fila.role),
-    Status: { select: { name: fila.estado } },
-    'Date of application': { date: { start: fila.fecha } },
-    'Fit Score': { number: fila.fitScore },
-    'post link': { url: fila.postLink === '' ? null : fila.postLink },
-    'Email/Linkedin URL': texto(fila.contactUrl),
-    'Job description': texto(fila.jobDescription),
-    'cover letter': texto(fila.coverLetter),
-    'Próxima acción': texto(fila.proximaAccion)
+    Company: { title: [{ text: { content: row.company.slice(0, 200) } }] },
+    'Role/Position': text(row.role),
+    Status: { select: { name: row.status } },
+    'Date of application': { date: { start: row.date } },
+    'Fit Score': { number: row.fitScore },
+    'post link': { url: row.postLink === '' ? null : row.postLink },
+    'Email/Linkedin URL': text(row.contactUrl),
+    'Job description': text(row.jobDescription),
+    'cover letter': text(row.coverLetter),
+    'Próxima acción': text(row.nextAction)
   }
 }

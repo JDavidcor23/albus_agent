@@ -13,7 +13,7 @@ import { registerGraphHandlers } from './ipc/graph.ipc'
 import { registerTaskHandlers } from './ipc/tasks.ipc'
 import { registerJobHandlers } from './ipc/jobs.ipc'
 import { registerConnectionHandlers } from './ipc/connections.ipc'
-import { aplicarConexiones } from './connections/registry'
+import { applyConnections } from './connections/registry'
 import { terminateOcr } from './core/extraction/ocr'
 import { maybeRunJobsCommand } from './jobs/headless'
 
@@ -79,12 +79,13 @@ function createWindow(): void {
  * necesita la partición REAL para diagnosticarla, así que ese sí requiere que
  * la app esté cerrada, y el candado se encarga de decirlo.
  */
-const MODO_PRUEBA =
+const TEST_MODE =
   process.env.ALBUS_JOBS_SELFTEST === '1' ||
   process.env.ALBUS_UI_SELFTEST === '1' ||
   process.env.ALBUS_NAV_CHECK === '1'
 
-if (MODO_PRUEBA) {
+if (TEST_MODE) {
+  // `'pruebas'` es un valor congelado: cambiarlo huerfaniza el perfil de prueba.
   app.setPath('userData', join(app.getPath('userData'), 'pruebas'))
 }
 
@@ -109,7 +110,7 @@ if (!app.requestSingleInstanceLock()) {
    * sigue un rato, la carga de la página falla con `ERR_FAILED (-2)` y parece
    * un problema de red. Es el mismo choque de candado, pero disfrazado.
    */
-  const comando = [
+  const command = [
     ['ALBUS_NAV_INSPECT', 'nav:inspect'],
     ['ALBUS_NAV_CHECK', 'nav:check'],
     ['ALBUS_JOBS_APPLY', 'jobs:apply'],
@@ -117,9 +118,9 @@ if (!app.requestSingleInstanceLock()) {
     ['ALBUS_NOTION_PROBE', 'jobs:notion-probe']
   ].find(([variable]) => (process.env[variable] ?? '').trim() !== '')
 
-  if (comando !== undefined) {
+  if (command !== undefined) {
     console.error(
-      `\n[albus] NO PUEDO CORRER "${comando[1]}": la app ya está abierta.\n` +
+      `\n[albus] NO PUEDO CORRER "${command[1]}": la app ya está abierta.\n` +
         `        Comparten el perfil del navegador (persist:albus-jobs), y Chromium\n` +
         `        le da el candado del almacenamiento a UN solo proceso.\n\n` +
         `        Cerrá la ventana de Albus y volvé a correrlo.\n`
@@ -133,10 +134,10 @@ if (!app.requestSingleInstanceLock()) {
 
 app.on('second-instance', () => {
   // En vez de abrir otra ventana, se trae al frente la que ya está.
-  const [ventana] = BrowserWindow.getAllWindows()
-  if (ventana === undefined) return
-  if (ventana.isMinimized()) ventana.restore()
-  ventana.focus()
+  const [win] = BrowserWindow.getAllWindows()
+  if (win === undefined) return
+  if (win.isMinimized()) win.restore()
+  win.focus()
 })
 
 app.whenReady().then(() => {
@@ -144,7 +145,7 @@ app.whenReady().then(() => {
 
   // Antes que cualquier handler: los clientes de Notion y Google tienen que
   // ver el token guardado desde la primera llamada, no desde la segunda.
-  aplicarConexiones()
+  applyConnections()
 
   registerExtractionHandlers()
   registerGraphHandlers()

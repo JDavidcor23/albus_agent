@@ -22,17 +22,17 @@ interface Props {
 }
 
 export function GraphCanvas({ graph, onSelect }: Props): React.JSX.Element {
-  const contenedor = useRef<HTMLDivElement | null>(null)
+  const container = useRef<HTMLDivElement | null>(null)
   const cyRef = useRef<Core | null>(null)
 
   useEffect(() => {
-    if (contenedor.current === null) return
+    if (container.current === null) return
 
     const cy = cytoscape({
-      container: contenedor.current,
+      container: container.current,
       elements: [
         ...graph.nodes.map((n) => ({
-          data: { id: n.id, label: n.label, tipo: n.type, prov: n.provenance }
+          data: { id: n.id, label: n.label, type: n.type, prov: n.provenance }
         })),
         ...graph.edges.map((e) => ({
           data: { id: e.id, source: e.from, target: e.to, label: e.label, prov: e.provenance }
@@ -42,7 +42,7 @@ export function GraphCanvas({ graph, onSelect }: Props): React.JSX.Element {
         {
           selector: 'node',
           style: {
-            'background-color': (el) => COLOR[el.data('tipo') as GraphNodeType] ?? '#8A8478',
+            'background-color': (el) => COLOR[el.data('type') as GraphNodeType] ?? '#8A8478',
             label: 'data(label)',
             color: '#E8E2D4',
             'font-family': 'Geist Mono Variable, monospace',
@@ -103,5 +103,5 @@ export function GraphCanvas({ graph, onSelect }: Props): React.JSX.Element {
     }
   }, [graph, onSelect])
 
-  return <div className="graph-canvas" ref={contenedor} />
+  return <div className="graph-canvas" ref={container} />
 }

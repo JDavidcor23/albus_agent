@@ -44,15 +44,15 @@ export function registerGraphHandlers(): void {
     }
 
     // El análisis lo hace el CLI. Acá solo se orquesta y se guarda.
-    const { graph, lotesFallidos } = await buildGraph(
+    const { graph, failedBatches } = await buildGraph(
       rows,
       provider,
       modelId,
       new Date().toISOString(),
-      { onBatch: (hechos, total) => broadcast(IpcEvents.GRAPH_PROGRESS, { hechos, total }) }
+      { onBatch: (done, total) => broadcast(IpcEvents.GRAPH_PROGRESS, { done, total }) }
     )
 
-    const ruta = saveGraph(graph)
-    return { graph, path: ruta, lotesFallidos }
+    const path = saveGraph(graph)
+    return { graph, path, failedBatches }
   })
 }

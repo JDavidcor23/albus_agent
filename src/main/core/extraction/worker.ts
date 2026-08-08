@@ -86,7 +86,7 @@ export async function processBatch(
       //
       // Si el propio save falla (la base caída, por ejemplo) no insistimos: ahí
       // reintentar en la próxima corrida SÍ es lo correcto.
-      const falla: ExtractionResult = {
+      const failure: ExtractionResult = {
         kind: 'failed',
         payload: { error: message },
         confidence: 0,
@@ -94,14 +94,14 @@ export async function processBatch(
       }
 
       try {
-        await sink.save(item, falla)
+        await sink.save(item, failure)
       } catch (saveError: unknown) {
         const saveMessage =
           saveError instanceof Error ? saveError.message : String(saveError)
         console.error(`[worker] tampoco se pudo registrar el fallo: ${saveMessage}`)
       }
 
-      hooks.onItemDone?.(item, falla, i, total)
+      hooks.onItemDone?.(item, failure, i, total)
     }
   }
 

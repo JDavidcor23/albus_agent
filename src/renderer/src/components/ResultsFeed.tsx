@@ -3,12 +3,12 @@ import type { PendingRow } from '../App'
 
 interface Props {
   rows: ResultRow[]
-  enCurso: PendingRow | null
-  procesando: boolean
+  inProgress: PendingRow | null
+  processing: boolean
 }
 
 /** Sin previews: un glifo por tipo alcanza para saber qué es cada fila. */
-const ICONO: Record<ExtractionKind, string> = {
+const ICON: Record<ExtractionKind, string> = {
   qr: '⬚',
   receipt: '₡',
   profile: '☰',
@@ -18,7 +18,7 @@ const ICONO: Record<ExtractionKind, string> = {
   failed: '✕'
 }
 
-const NOMBRE: Record<ExtractionKind, string> = {
+const NAME: Record<ExtractionKind, string> = {
   qr: 'código qr',
   receipt: 'comprobante',
   profile: 'perfil',
@@ -28,16 +28,16 @@ const NOMBRE: Record<ExtractionKind, string> = {
   failed: 'falló'
 }
 
-function Fila({ row }: { row: ResultRow }): React.JSX.Element {
+function Row({ row }: { row: ResultRow }): React.JSX.Element {
   return (
     <li className={`feed-row kind-${row.kind}`}>
       <span className="feed-icon" aria-hidden="true">
-        {ICONO[row.kind]}
+        {ICON[row.kind]}
       </span>
       <div className="feed-body">
         <div className="feed-head">
           <span className="feed-label">{row.label}</span>
-          <span className="feed-kind">{NOMBRE[row.kind]}</span>
+          <span className="feed-kind">{NAME[row.kind]}</span>
         </div>
         {row.summary.length > 0 && <p className="feed-summary">{row.summary}</p>}
       </div>
@@ -45,10 +45,10 @@ function Fila({ row }: { row: ResultRow }): React.JSX.Element {
   )
 }
 
-export function ResultsFeed({ rows, enCurso, procesando }: Props): React.JSX.Element {
-  const vacio = rows.length === 0 && enCurso === null
+export function ResultsFeed({ rows, inProgress, processing }: Props): React.JSX.Element {
+  const empty = rows.length === 0 && inProgress === null
 
-  if (vacio && !procesando) {
+  if (empty && !processing) {
     return (
       <div className="idle-state">
         <div className="idle-icon">🕮</div>
@@ -62,12 +62,12 @@ export function ResultsFeed({ rows, enCurso, procesando }: Props): React.JSX.Ele
 
   return (
     <ul className="feed">
-      {enCurso !== null && (
+      {inProgress !== null && (
         <li className="feed-row feed-row-active">
           <span className="feed-spinner" aria-hidden="true" />
           <div className="feed-body">
             <div className="feed-head">
-              <span className="feed-label">{enCurso.label}</span>
+              <span className="feed-label">{inProgress.label}</span>
               <span className="feed-kind">leyendo…</span>
             </div>
           </div>
@@ -75,7 +75,7 @@ export function ResultsFeed({ rows, enCurso, procesando }: Props): React.JSX.Ele
       )}
 
       {rows.map((row) => (
-        <Fila key={row.id} row={row} />
+        <Row key={row.id} row={row} />
       ))}
     </ul>
   )

@@ -12,45 +12,45 @@ import { join } from 'node:path'
 
 import { parseProfile } from '../src/main/core/jobs/profile'
 import {
-  ESTADOS_NOTION,
-  estadoNotion,
-  propiedadesNotion,
-  recortar,
+  NOTION_STATUSES,
+  notionStatus,
+  notionProperties,
+  truncate,
   scrubPii,
-  type FilaNotion
+  type NotionRow
 } from '../src/main/core/jobs/notion-map'
 import {
   buildMime,
   encodeHeader,
-  esEmailValido,
-  extraerEmailDeVacante,
+  isValidEmail,
+  extractEmailFromJob,
   toGmailRaw,
   type EmailDraft
 } from '../src/main/core/jobs/email'
-import { aplicarPiso, PISO_CALIDAD, type RankedJob } from '../src/main/core/jobs/rank'
-import { claveDedupe } from '../src/main/jobs/search'
+import { applyFloor, QUALITY_FLOOR, type RankedJob } from '../src/main/core/jobs/rank'
+import { dedupeKey } from '../src/main/jobs/search'
 
-let pasados = 0
-let fallados = 0
-const fallas: string[] = []
+let passed = 0
+let failed = 0
+const failures: string[] = []
 
-function check(nombre: string, real: unknown, esperado: unknown): void {
-  if (JSON.stringify(real) === JSON.stringify(esperado)) {
-    pasados++
-    console.log(`  ok    ${nombre}`)
+function check(name: string, actual: unknown, expected: unknown): void {
+  if (JSON.stringify(actual) === JSON.stringify(expected)) {
+    passed++
+    console.log(`  ok    ${name}`)
   } else {
-    fallados++
-    const l = `${nombre}\n          esperado ${JSON.stringify(esperado)}\n          real     ${JSON.stringify(real)}`
-    fallas.push(l)
+    failed++
+    const l = `${name}\n          esperado ${JSON.stringify(expected)}\n          real     ${JSON.stringify(actual)}`
+    failures.push(l)
     console.log(`  FALLA ${l}`)
   }
 }
 
-function seccion(t: string): void {
+function section(t: string): void {
   console.log(`\n── ${t}`)
 }
 
-const PERFIL_PATH = join(
+const PROFILE_PATH = join(
   process.env.JOB_WORKSPACE_DIR ?? 'C:/Users/jdiaz483/Documents/work/dream/ai-job-search',
   'albus-profile.json'
 )
@@ -72,34 +72,34 @@ function job(p: Partial<RankedJob>): RankedJob {
 }
 
 async function main(): Promise<void> {
-  const profile = parseProfile(JSON.parse(await readFile(PERFIL_PATH, 'utf8')))
+  const profile = parseProfile(JSON.parse(await readFile(PROFILE_PATH, 'utf8')))
 
   // ── ASSERT 1 · el select de Notion no se contamina ───────────────────────
-  seccion('assert 1 · estado interno → opción que existe en el select')
+  section('assert 1 · estado interno → opción que existe en el select')
 
-  check('submitted → Applying', estadoNotion('submitted'), 'Applying')
-  check('filled → Backlog (todavía no es postulación)', estadoNotion('filled'), 'Backlog')
-  check('ranked → Backlog', estadoNotion('ranked'), 'Backlog')
-  check('blocked → Backlog', estadoNotion('blocked'), 'Backlog')
-  check('interview → In process', estadoNotion('interview'), 'In process')
-  check('rejected → Rejected', estadoNotion('rejected'), 'Rejected')
-  check('discarded → Descartada', estadoNotion('discarded'), 'Descartada')
-  check('contacted → First contact', estadoNotion('contacted'), 'First contact')
-  check('un estado inventado → null, NO una opción nueva', estadoNotion('en-llamas'), null)
-  check('vacío → null', estadoNotion(''), null)
+  check('submitted → Applying', notionStatus('submitted'), 'Applying')
+  check('filled → Backlog (todavía no es postulación)', notionStatus('filled'), 'Backlog')
+  check('ranked → Backlog', notionStatus('ranked'), 'Backlog')
+  check('blocked → Backlog', notionStatus('blocked'), 'Backlog')
+  check('interview → In process', notionStatus('interview'), 'In process')
+  check('rejected → Rejected', notionStatus('rejected'), 'Rejected')
+  check('discarded → Descartada', notionStatus('discarded'), 'Descartada')
+  check('contacted → First contact', notionStatus('contacted'), 'First contact')
+  check('un estado inventado → null, NO una opción nueva', notionStatus('en-llamas'), null)
+  check('vacío → null', notionStatus(''), null)
 
   // Todo lo que el mapa devuelve tiene que existir en el select de la base.
-  const estadosPosibles = [
+  const possibleStatuses = [
     'submitted', 'filled', 'planned', 'ranked', 'blocked', 'failed',
     'needs-login', 'interview', 'rejected', 'discarded', 'contacted'
   ]
-  const fuera = estadosPosibles
-    .map(estadoNotion)
-    .filter((e) => e !== null && !(ESTADOS_NOTION as readonly string[]).includes(e))
-  check('ningún estado mapea fuera del select real', fuera, [])
+  const outside = possibleStatuses
+    .map(notionStatus)
+    .filter((e) => e !== null && !(NOTION_STATUSES as readonly string[]).includes(e))
+  check('ningún estado mapea fuera del select real', outside, [])
 
   // ── ASSERT 3 · nada de PII en Notion ─────────────────────────────────────
-  seccion('assert 3 · el teléfono y el correo del candidato no viajan')
+  section('assert 3 · el teléfono y el correo del candidato no viajan')
 
   check('tacha el email', scrubPii(`escribime a ${profile.email} dale`, profile), 'escribime a [oculto] dale')
   check('tacha el teléfono pelado', scrubPii(`tel ${profile.phone}`, profile), 'tel [oculto]')
@@ -125,30 +125,30 @@ async function main(): Promise<void> {
   )
   check('el texto sin PII no se toca', scrubPii('React, TypeScript, remoto', profile), 'React, TypeScript, remoto')
 
-  const fila: FilaNotion = {
+  const row: NotionRow = {
     company: 'Example Corp',
     role: 'Frontend Developer',
-    estado: 'Applying',
-    fecha: '2026-08-06',
+    status: 'Applying',
+    date: '2026-08-06',
     fitScore: 72,
     postLink: 'https://co.linkedin.com/jobs/view/x-1',
     contactUrl: 'https://co.linkedin.com/jobs/view/x-1',
     jobDescription: 'React y TypeScript',
     coverLetter: '',
-    proximaAccion: 'Esperando respuesta'
+    nextAction: 'Esperando respuesta'
   }
-  const props = propiedadesNotion(fila)
-  const serializado = JSON.stringify(props)
+  const props = notionProperties(row)
+  const serialized = JSON.stringify(props)
 
-  check('el payload no contiene el email del candidato', serializado.includes(profile.email), false)
-  check('el payload no contiene el teléfono', serializado.includes(profile.phone), false)
+  check('el payload no contiene el email del candidato', serialized.includes(profile.email), false)
+  check('el payload no contiene el teléfono', serialized.includes(profile.phone), false)
   check('Company va como title', Object.keys(props.Company as object), ['title'])
   check('Status va como select con nombre válido', (props.Status as { select: { name: string } }).select.name, 'Applying')
   check('un rich_text vacío va como array vacío', (props['cover letter'] as { rich_text: unknown[] }).rich_text, [])
-  check('recorta a menos de 2000 (límite de Notion)', recortar('x'.repeat(3000)).length <= 1900, true)
+  check('recorta a menos de 2000 (límite de Notion)', truncate('x'.repeat(3000)).length <= 1900, true)
 
   // ── ASSERT 6 · el MIME del correo ────────────────────────────────────────
-  seccion('assert 6 · el adjunto llega con el nombre del candidato')
+  section('assert 6 · el adjunto llega con el nombre del candidato')
 
   const pdf = Buffer.from('%PDF-1.4\nfake cv bytes\n%%EOF\n', 'utf8')
   const draft: EmailDraft = {
@@ -186,14 +186,14 @@ async function main(): Promise<void> {
   check('usa CRLF, no LF pelado', mime.includes('\r\n') && !/[^\r]\n/.test(mime), true)
 
   // Round-trip real: sacar el adjunto del MIME y comparar bytes.
-  const partes = mime.split(`--${BOUNDARY}`)
-  const parteAdjunto = partes.find((p) => p.includes('CV Jorge David Diaz.pdf')) ?? ''
-  const cuerpoB64 = parteAdjunto.split('\r\n\r\n').slice(1).join('\r\n\r\n').replace(/\r\n/g, '').trim()
-  const recuperado = Buffer.from(cuerpoB64, 'base64')
+  const parts = mime.split(`--${BOUNDARY}`)
+  const attachmentPart = parts.find((p) => p.includes('CV Jorge David Diaz.pdf')) ?? ''
+  const bodyB64 = attachmentPart.split('\r\n\r\n').slice(1).join('\r\n\r\n').replace(/\r\n/g, '').trim()
+  const recovered = Buffer.from(bodyB64, 'base64')
 
-  check('los bytes del PDF sobreviven el round-trip', recuperado.equals(pdf), true)
+  check('los bytes del PDF sobreviven el round-trip', recovered.equals(pdf), true)
   check('las líneas base64 respetan el corte de 76',
-    parteAdjunto.split('\r\n').filter((l) => /^[A-Za-z0-9+/=]+$/.test(l)).every((l) => l.length <= 76),
+    attachmentPart.split('\r\n').filter((l) => /^[A-Za-z0-9+/=]+$/.test(l)).every((l) => l.length <= 76),
     true
   )
 
@@ -201,115 +201,115 @@ async function main(): Promise<void> {
   check('base64url sin caracteres inválidos para la URL', /^[A-Za-z0-9_-]+$/.test(raw), true)
   check('el raw se decodifica al MIME original', Buffer.from(raw, 'base64url').toString('utf8'), mime)
 
-  check('valida direcciones', esEmailValido('jobs@empresa.com'), true)
-  check('rechaza basura', esEmailValido('no-es-un-mail'), false)
+  check('valida direcciones', isValidEmail('jobs@empresa.com'), true)
+  check('rechaza basura', isValidEmail('no-es-un-mail'), false)
   check(
     'saca el correo de la vacante y NO el propio',
-    extraerEmailDeVacante(`Enviar a ${profile.email} o a rrhh@empresa.com`, profile.email),
+    extractEmailFromJob(`Enviar a ${profile.email} o a rrhh@empresa.com`, profile.email),
     'rrhh@empresa.com'
   )
   check(
     'ignora nombres de imagen que parecen mail',
-    extraerEmailDeVacante('logo@2x.png y hr@corp.io', profile.email),
+    extractEmailFromJob('logo@2x.png y hr@corp.io', profile.email),
     'hr@corp.io'
   )
 
   // ── reintento del transitorio de Supabase ────────────────────────────────
-  seccion('supabase · "JWT issued at future" es transitorio y se reintenta')
+  section('supabase · "JWT issued at future" es transitorio y se reintenta')
 
-  const { crearFetchConReintento, ES_TRANSITORIO } = await import('../src/main/supabase/retry')
+  const { createFetchWithRetry, IS_TRANSIENT } = await import('../src/main/supabase/retry')
 
-  const respuesta = (status: number, cuerpo: string): Response =>
-    new Response(cuerpo, { status, headers: { 'Content-Type': 'application/json' } })
+  const response = (status: number, body: string): Response =>
+    new Response(body, { status, headers: { 'Content-Type': 'application/json' } })
 
-  const JWT_FUTURO = '{"code":"PGRST301","message":"JWT issued at future"}'
-  const KEY_MALA = '{"message":"Invalid API key"}'
+  const JWT_FUTURE = '{"code":"PGRST301","message":"JWT issued at future"}'
+  const BAD_KEY = '{"message":"Invalid API key"}'
 
   /** fetch falso que devuelve la cola de respuestas y cuenta las llamadas. */
-  function fetchFalso(cola: Response[]): { fn: typeof fetch; llamadas: () => number } {
+  function fakeFetch(queue: Response[]): { fn: typeof fetch; calls: () => number } {
     let n = 0
     return {
       fn: (async () => {
-        const r = cola[Math.min(n, cola.length - 1)]
+        const r = queue[Math.min(n, queue.length - 1)]
         n++
         return r.clone()
       }) as unknown as typeof fetch,
-      llamadas: () => n
+      calls: () => n
     }
   }
 
-  check('reconoce el transitorio', ES_TRANSITORIO.test('JWT issued at future'), true)
-  check('NO confunde una key inválida con transitorio', ES_TRANSITORIO.test('Invalid API key'), false)
-  check('NO confunde un token expirado', ES_TRANSITORIO.test('JWT expired'), false)
+  check('reconoce el transitorio', IS_TRANSIENT.test('JWT issued at future'), true)
+  check('NO confunde una key inválida con transitorio', IS_TRANSIENT.test('Invalid API key'), false)
+  check('NO confunde un token expirado', IS_TRANSIENT.test('JWT expired'), false)
 
   // 1 · camino feliz: una sola llamada.
-  const feliz = fetchFalso([respuesta(200, '[{"id":1}]')])
-  const r1 = await crearFetchConReintento(feliz.fn, 0)('https://x/y')
-  check('200 a la primera → una sola llamada', feliz.llamadas(), 1)
+  const happy = fakeFetch([response(200, '[{"id":1}]')])
+  const r1 = await createFetchWithRetry(happy.fn, 0)('https://x/y')
+  check('200 a la primera → una sola llamada', happy.calls(), 1)
   check('200 → devuelve 200', r1.status, 200)
   check('el cuerpo sigue legible para quien llamó', await r1.text(), '[{"id":1}]')
 
   // 2 · el caso real: falla una vez, anda a la segunda.
-  const transitorio = fetchFalso([respuesta(401, JWT_FUTURO), respuesta(200, '[{"id":2}]')])
-  const r2 = await crearFetchConReintento(transitorio.fn, 0)('https://x/y')
-  check('transitorio → reintenta', transitorio.llamadas(), 2)
+  const transient = fakeFetch([response(401, JWT_FUTURE), response(200, '[{"id":2}]')])
+  const r2 = await createFetchWithRetry(transient.fn, 0)('https://x/y')
+  check('transitorio → reintenta', transient.calls(), 2)
   check('transitorio → termina en 200', r2.status, 200)
   check('y el cuerpo bueno llega entero', await r2.text(), '[{"id":2}]')
 
   // 3 · si no se recupera, corta: no reintenta para siempre.
-  const siempre = fetchFalso([respuesta(401, JWT_FUTURO)])
-  const r3 = await crearFetchConReintento(siempre.fn, 0)('https://x/y')
-  check('transitorio persistente → 1 + 2 reintentos y basta', siempre.llamadas(), 3)
+  const persistent = fakeFetch([response(401, JWT_FUTURE)])
+  const r3 = await createFetchWithRetry(persistent.fn, 0)('https://x/y')
+  check('transitorio persistente → 1 + 2 reintentos y basta', persistent.calls(), 3)
   check('y devuelve el error, no cuelga', r3.status, 401)
 
   // 4 · un error de credenciales de verdad NO se reintenta: hay que verlo ya.
-  const credencial = fetchFalso([respuesta(401, KEY_MALA)])
-  const r4 = await crearFetchConReintento(credencial.fn, 0)('https://x/y')
-  check('key inválida → una sola llamada', credencial.llamadas(), 1)
+  const credential = fakeFetch([response(401, BAD_KEY)])
+  const r4 = await createFetchWithRetry(credential.fn, 0)('https://x/y')
+  check('key inválida → una sola llamada', credential.calls(), 1)
   check('key inválida → sale el 401 tal cual', r4.status, 401)
 
   // 5 · un 500 tampoco: no es esta clase de falla.
-  const server = fetchFalso([respuesta(500, '{"message":"boom"}')])
-  await crearFetchConReintento(server.fn, 0)('https://x/y')
-  check('500 → no se reintenta', server.llamadas(), 1)
+  const server = fakeFetch([response(500, '{"message":"boom"}')])
+  await createFetchWithRetry(server.fn, 0)('https://x/y')
+  check('500 → no se reintenta', server.calls(), 1)
 
   // ── ASSERTS 1-3 · el bug de "host no permitido" ──────────────────────────
-  seccion('asserts 1-3 · abrir la vacante que el scraper devuelve de verdad')
+  section('asserts 1-3 · abrir la vacante que el scraper devuelve de verdad')
 
-  const { esUrlAbrible, esUrlPostulable, HOSTS_POSTULABLES } = await import('../src/shared/ipc')
+  const { isOpenableUrl, isApplicableUrl, APPLICABLE_HOSTS } = await import('../src/shared/ipc')
 
   // La URL exacta que falló en su corrida.
   const REAL = 'https://co.linkedin.com/jobs/view/frontend-developer-at-fox-analytics-4448573564'
-  check('la URL real del scraper AHORA abre', esUrlAbrible(REAL), true)
-  check('y sigue siendo postulable', esUrlPostulable(REAL), true)
+  check('la URL real del scraper AHORA abre', isOpenableUrl(REAL), true)
+  check('y sigue siendo postulable', isApplicableUrl(REAL), true)
 
   for (const h of ['co', 'es', 'uk', 'www', 'mx', 'br']) {
-    check(`${h}.linkedin.com abre`, esUrlAbrible(`https://${h}.linkedin.com/jobs/view/1`), true)
+    check(`${h}.linkedin.com abre`, isOpenableUrl(`https://${h}.linkedin.com/jobs/view/1`), true)
   }
-  check('linkedin.com pelado abre', esUrlAbrible('https://linkedin.com/jobs/view/1'), true)
+  check('linkedin.com pelado abre', isOpenableUrl('https://linkedin.com/jobs/view/1'), true)
 
   // El ataque que un `endsWith` ingenuo dejaría pasar.
   check(
     'linkedin.com.malicioso.com NO abre',
-    esUrlAbrible('https://linkedin.com.malicioso.com/jobs/view/1'),
+    isOpenableUrl('https://linkedin.com.malicioso.com/jobs/view/1'),
     false
   )
-  check('evil-linkedin.com NO abre', esUrlAbrible('https://evil-linkedin.com/x'), false)
-  check('xlinkedin.com NO abre', esUrlAbrible('https://xlinkedin.com/x'), false)
-  check('http:// NO abre aunque el host valga', esUrlAbrible('http://www.linkedin.com/x'), false)
-  check('un host cualquiera NO abre', esUrlAbrible('https://malicioso.com/x'), false)
+  check('evil-linkedin.com NO abre', isOpenableUrl('https://evil-linkedin.com/x'), false)
+  check('xlinkedin.com NO abre', isOpenableUrl('https://xlinkedin.com/x'), false)
+  check('http:// NO abre aunque el host valga', isOpenableUrl('http://www.linkedin.com/x'), false)
+  check('un host cualquiera NO abre', isOpenableUrl('https://malicioso.com/x'), false)
 
   // El invariante: si Albus puede navegar ahí con tu sesión, abrirlo en tu
   // navegador es estrictamente menos riesgoso. Que no se desincronicen nunca.
-  const noAbribles = HOSTS_POSTULABLES.filter((h) => !esUrlAbrible(`https://${h}/x`))
-  check('todo host postulable es abrible', noAbribles, [])
+  const notOpenable = APPLICABLE_HOSTS.filter((h) => !isOpenableUrl(`https://${h}/x`))
+  check('todo host postulable es abrible', notOpenable, [])
 
   // ── el camino a cero dedos ───────────────────────────────────────────────
-  seccion('conexiones · una sesión de Google desbloquea el resto')
+  section('conexiones · una sesión de Google desbloquea el resto')
 
   const registryTs = await readFile('src/main/connections/registry.ts', 'utf8')
-  const agenteTs = await readFile('src/main/connections/agente-conexion.ts', 'utf8')
-  const serviciosTs = await readFile('src/main/connections/servicios.ts', 'utf8')
+  const agentTs = await readFile('src/main/connections/connection-agent.ts', 'utf8')
+  const servicesTs = await readFile('src/main/connections/services.ts', 'utf8')
   const sessionTs = await readFile('src/main/browser/session.ts', 'utf8')
 
   check(
@@ -329,7 +329,7 @@ async function main(): Promise<void> {
   )
   check(
     'el agente intenta entrar por SSO antes de pedirte nada',
-    /sin escribir credenciales|SIN escribir credenciales/i.test(agenteTs),
+    /sin escribir credenciales|SIN escribir credenciales/i.test(agentTs),
     true
   )
   check(
@@ -344,12 +344,12 @@ async function main(): Promise<void> {
   )
   check(
     'y el agente tampoco: si hay que escribir una clave, se rinde',
-    /es IMPOSIBLE/.test(agenteTs),
+    /es IMPOSIBLE/.test(agentTs),
     true
   )
 
   // ── un motor, no un archivo por servicio ─────────────────────────────────
-  seccion('conexiones · sumar un servicio es una fila de datos, no código')
+  section('conexiones · sumar un servicio es una fila de datos, no código')
 
   check(
     'no quedó ningún adaptador por servicio',
@@ -358,17 +358,17 @@ async function main(): Promise<void> {
   )
   check(
     'el motor es uno solo y no nombra a Notion en su lógica',
-    /notion/i.test(agenteTs.replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, '')),
+    /notion/i.test(agentTs.replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, '')),
     false
   )
   check(
     'Notion y Supabase salen de la MISMA tabla',
-    serviciosTs.includes("id: 'notion'") && serviciosTs.includes("id: 'supabase'"),
+    servicesTs.includes("id: 'notion'") && servicesTs.includes("id: 'supabase'"),
     true
   )
   check(
     'un servicio se declara con url + objetivos + patrón del secreto',
-    /url:/.test(serviciosTs) && /objetivos:/.test(serviciosTs) && /patronSecreto:/.test(serviciosTs),
+    /url:/.test(servicesTs) && /goals:/.test(servicesTs) && /secretPattern:/.test(servicesTs),
     true
   )
   check(
@@ -380,33 +380,33 @@ async function main(): Promise<void> {
   )
 
   // ── la credencial que no se puede VER, solo copiar ───────────────────────
-  seccion('conexiones · hay paneles que solo dejan copiar el token')
+  section('conexiones · hay paneles que solo dejan copiar el token')
 
   check(
     'se busca también en el portapapeles, no solo en la pantalla',
-    agenteTs.includes('clipboard.readText'),
+    agentTs.includes('clipboard.readText'),
     true
   )
   check(
     'el portapapeles se VACÍA antes de empezar',
-    agenteTs.includes("clipboard.writeText('')"),
+    agentTs.includes("clipboard.writeText('')"),
     true
   )
   check(
     'y lo que el usuario tenía copiado se le devuelve',
-    agenteTs.includes('restaurarPortapapeles'),
+    agentTs.includes('restoreClipboard'),
     true
   )
   check(
     'si los objetivos terminan sin credencial, se intenta un rescate',
-    /solo ofrece un botón de COPIAR/i.test(agenteTs),
+    /solo ofrece un botón de COPIAR/i.test(agentTs),
     true
   )
 
   // ── reglas por agente ────────────────────────────────────────────────────
-  seccion('reglas · un .md que el usuario edita, no una pantalla de config')
+  section('reglas · un .md que el usuario edita, no una pantalla de config')
 
-  const { parsearReglas } = await import('../src/main/connections/../agents/rules')
+  const { parseRules } = await import('../src/main/agents/rules')
 
   const md = `# Búsqueda de trabajo
 
@@ -425,7 +425,7 @@ async function main(): Promise<void> {
 - nada con Java
 `
 
-  const r = parsearReglas('job-search', md, 'x.md', true)
+  const r = parseRules('job-search', md, 'x.md', true)
 
   check('lee los links de Notion', r.notion.length, 3)
   check('el id viene sin guiones, listo para la API', r.notion[0].id, '81e09fb24cbb4a76bb7015cec17003e2')
@@ -442,8 +442,8 @@ async function main(): Promise<void> {
 
   // El primero manda: es el que se usa para escribir. Un orden que dependa de
   // en qué sección del archivo quedó el link sería impredecible.
-  check('el primero de la lista es el que gana', r.notion[0].etiqueta, 'Registro de aplicaciones')
-  check('guarda la etiqueta que escribió el usuario', r.notion[0].etiqueta, 'Registro de aplicaciones')
+  check('el primero de la lista es el que gana', r.notion[0].label, 'Registro de aplicaciones')
+  check('guarda la etiqueta que escribió el usuario', r.notion[0].label, 'Registro de aplicaciones')
   check('lee las carpetas de Drive', r.drive.length, 1)
   check('y su id', r.drive[0].id, '1AbCdEfGhIjKlMnOp')
 
@@ -457,13 +457,13 @@ async function main(): Promise<void> {
 
   // El texto ENTERO se conserva: es lo que se le pasa al agente. Si esto se
   // recortara, "nada con Java" —una regla que nadie programó— se perdería.
-  check('el texto completo queda para el agente', r.texto.includes('nada con Java'), true)
+  check('el texto completo queda para el agente', r.text.includes('nada con Java'), true)
 
   // ── el resumen: lo que el usuario VE ─────────────────────────────────────
   // Mostraba "Notion · Registro de aplicaciones" y el reclamo fue "eso no me
   // dice nada". Ahora muestra las reglas escritas, y estos asserts cuidan que
   // no se cuele el andamiaje de la plantilla.
-  const conReglas = parsearReglas(
+  const withRules = parseRules(
     'x',
     [
       '# Título que no es una regla',
@@ -480,40 +480,40 @@ async function main(): Promise<void> {
     true
   )
 
-  check('el resumen NO trae los títulos', conReglas.resumen.some((l) => l.includes('Título')), false)
+  check('el resumen NO trae los títulos', withRules.summary.some((l) => l.includes('Título')), false)
   check(
     'ni la prosa del instructivo, que además se corta en varias líneas',
-    conReglas.resumen.some((l) => l.includes('instructivo')),
+    withRules.summary.some((l) => l.includes('instructivo')),
     false
   )
-  check('una viñeta vacía como "Roles:" no cuenta', conReglas.resumen.includes('Roles:'), false)
+  check('una viñeta vacía como "Roles:" no cuenta', withRules.summary.includes('Roles:'), false)
   check(
     'una línea que era SOLO un link desaparece del resumen',
-    conReglas.resumen.some((l) => l.includes('notion.so')),
+    withRules.summary.some((l) => l.includes('notion.so')),
     false
   )
-  check('pero el link sigue contando para saber a dónde escribe', conReglas.notion.length, 1)
-  check('quedan las reglas de verdad', conReglas.resumen, [
+  check('pero el link sigue contando para saber a dónde escribe', withRules.notion.length, 1)
+  check('quedan las reglas de verdad', withRules.summary, [
     'nada con Java ni turnos de noche',
     'Ubicación: Colombia'
   ])
 
 
-  const { AGENTES: registrados } = await import('../src/main/agents/registry')
-  const jobSearch = registrados.find((a) => a.id === 'job-search')
+  const { AGENTS: registered } = await import('../src/main/agents/registry')
+  const jobSearch = registered.find((a) => a.id === 'job-search')
 
   // Sin archivo, el resumen va VACÍO aunque haya plantilla: si no, un agente
   // recién creado muestra los ejemplos del instructivo como reglas propias y
   // el botón dice "escribir las primeras" arriba de una lista llena.
-  const { leerReglas } = await import('../src/main/agents/rules')
-  const inexistente = leerReglas('no-existe-este-agente', jobSearch?.plantillaReglas ?? '')
-  check('sin archivo, el resumen está vacío', inexistente.resumen.length, 0)
-  check('y tampoco hereda los links de la plantilla', inexistente.notion.length, 0)
-  check('pero el texto de la plantilla sí viaja, para poder crearla', inexistente.texto.length > 100, true)
-  check('el agente de trabajo declara su plantilla', jobSearch?.plantillaReglas !== undefined, true)
+  const { readRules } = await import('../src/main/agents/rules')
+  const missing = readRules('no-existe-este-agente', jobSearch?.rulesTemplate ?? '')
+  check('sin archivo, el resumen está vacío', missing.summary.length, 0)
+  check('y tampoco hereda los links de la plantilla', missing.notion.length, 0)
+  check('pero el texto de la plantilla sí viaja, para poder crearla', missing.text.length > 100, true)
+  check('el agente de trabajo declara su plantilla', jobSearch?.rulesTemplate !== undefined, true)
   check(
     'y la plantilla trae sus links de ejemplo COMENTADOS',
-    /<!--[\s\S]*notion\.so[\s\S]*-->/.test(jobSearch?.plantillaReglas ?? ''),
+    /<!--[\s\S]*notion\.so[\s\S]*-->/.test(jobSearch?.rulesTemplate ?? ''),
     true
   )
 
@@ -525,61 +525,61 @@ async function main(): Promise<void> {
   )
   check(
     'y el resolver sale de las reglas del agente',
-    /setNotionDatabaseIdResolver[\s\S]{0,400}leerReglas/.test(registryTs),
+    /setNotionDatabaseIdResolver[\s\S]{0,400}readRules/.test(registryTs),
     true
   )
 
   // ── el chat del agente de trabajo ────────────────────────────────────────
-  seccion('chat · un comando se resuelve con reglas; una pregunta, con el modelo')
+  section('chat · un comando se resuelve con reglas; una pregunta, con el modelo')
 
-  const { interpretar, resolverVacante } = await import('../src/main/core/jobs/chat')
+  const { interpret, resolveJob } = await import('../src/main/core/jobs/chat')
 
-  const enPantalla = [
+  const onScreen = [
     { id: 'a', company: 'Luxury Presence', title: 'Design Engineer', score: 82 },
     { id: 'b', company: 'Jobgether', title: 'Software Craftsperson', score: 74 },
     { id: 'c', company: 'Truelogic Software', title: 'Semi-Senior Frontend', score: 68 }
   ]
 
-  check('buscar', interpretar('buscame trabajo, hacé un barrido', []).kind, 'buscar')
+  check('buscar', interpret('buscame trabajo, hacé un barrido', []).kind, 'search')
   check(
     'con roles: lo que pidió, no lo que suponemos',
-    (interpretar('buscame trabajo de react developer', []) as { queries: string[] }).queries,
+    (interpret('buscame trabajo de react developer', []) as { queries: string[] }).queries,
     ['react developer']
   )
   check(
     'sin roles queda VACÍO: mandan las reglas, no un default inventado',
-    (interpretar('buscame trabajo', []) as { queries: string[] }).queries,
+    (interpret('buscame trabajo', []) as { queries: string[] }).queries,
     []
   )
   check(
     'la ubicación necesita preposición: si no, "React" sería un país',
-    (interpretar('buscame frontend en Colombia', []) as { ubicacion: string | null }).ubicacion,
+    (interpret('buscame frontend en Colombia', []) as { location: string | null }).location,
     'Colombia'
   )
 
-  check('postular por posición', interpretar('postulate a la primera', enPantalla), {
-    kind: 'postular',
+  check('postular por posición', interpret('postulate a la primera', onScreen), {
+    kind: 'apply',
     id: 'a'
   })
-  check('postular por número', interpretar('aplicá a la 2', enPantalla), {
-    kind: 'postular',
+  check('postular por número', interpret('aplicá a la 2', onScreen), {
+    kind: 'apply',
     id: 'b'
   })
-  check('postular por empresa', interpretar('postulate a Truelogic', enPantalla), {
-    kind: 'postular',
+  check('postular por empresa', interpret('postulate a Truelogic', onScreen), {
+    kind: 'apply',
     id: 'c'
   })
-  check('mostrar la evidencia', interpretar('mostrame cómo quedó la 1', enPantalla), {
-    kind: 'mostrar',
+  check('mostrar la evidencia', interpret('mostrame cómo quedó la 1', onScreen), {
+    kind: 'show',
     id: 'a'
   })
-  check('pasame el archivo también es mostrar', interpretar('pasame el CV de la 1', enPantalla).kind, 'mostrar')
-  check('enviar lo que quedó frenado', interpretar('dale, mandala', [enPantalla[0]]), {
-    kind: 'enviar',
+  check('pasame el archivo también es mostrar', interpret('pasame el CV de la 1', onScreen).kind, 'show')
+  check('enviar lo que quedó frenado', interpret('dale, mandala', [onScreen[0]]), {
+    kind: 'send',
     id: 'a'
   })
-  check('descartar', interpretar('esa no me interesa', [enPantalla[1]]), {
-    kind: 'descartar',
+  check('descartar', interpret('esa no me interesa', [onScreen[1]]), {
+    kind: 'discard',
     id: 'b'
   })
 
@@ -589,35 +589,35 @@ async function main(): Promise<void> {
    */
   check(
     'con tres en pantalla y sin decir cuál, PREGUNTA',
-    interpretar('postulate', enPantalla).kind,
-    'ambiguo'
+    interpret('postulate', onScreen).kind,
+    'ambiguous'
   )
   check(
     'con una sola en pantalla, "postulate" no es ambiguo',
-    interpretar('postulate', [enPantalla[0]]),
-    { kind: 'postular', id: 'a' }
+    interpret('postulate', [onScreen[0]]),
+    { kind: 'apply', id: 'a' }
   )
   check(
     'un número fuera de rango no elige la última por las dudas',
-    interpretar('postulate a la 9', enPantalla).kind,
-    'ambiguo'
+    interpret('postulate a la 9', onScreen).kind,
+    'ambiguous'
   )
 
   // Lo que una regla no puede contestar va al modelo, y NO se responde
   // "no entendí": eso es la forma más rápida de que el usuario deje de escribir.
   check(
     'una pregunta de verdad va al modelo',
-    interpretar('¿por qué descartaste las otras nueve?', enPantalla).kind,
-    'conversar'
+    interpret('¿por qué descartaste las otras nueve?', onScreen).kind,
+    'chat'
   )
   check(
     'y llega con el texto entero, sin recortar',
-    (interpretar('¿cuál me conviene más?', enPantalla) as { texto: string }).texto,
+    (interpret('¿cuál me conviene más?', onScreen) as { text: string }).text,
     '¿cuál me conviene más?'
   )
 
-  check('sin nada escrito, ayuda', interpretar('   ', enPantalla).kind, 'ayuda')
-  check('sin vacantes en pantalla no se puede elegir', resolverVacante('la 1', []), null)
+  check('sin nada escrito, ayuda', interpret('   ', onScreen).kind, 'help')
+  check('sin vacantes en pantalla no se puede elegir', resolveJob('la 1', []), null)
 
   /*
    * La carrera con la detección de CLIs.
@@ -630,7 +630,7 @@ async function main(): Promise<void> {
   const jobsIpcTs = await readFile('src/main/ipc/jobs.ipc.ts', 'utf8')
   check(
     'sin provider elegido, el MAIN resuelve el primero disponible',
-    /primerProviderDisponible/.test(jobsIpcTs),
+    /firstAvailableProvider/.test(jobsIpcTs),
     true
   )
   check(
@@ -645,9 +645,9 @@ async function main(): Promise<void> {
   )
 
   // ── un conector no es un agente ──────────────────────────────────────────
-  seccion('conexiones · el conector describe lo que DA, no lo que un agente hace')
+  section('conexiones · el conector describe lo que DA, no lo que un agente hace')
 
-  const { SERVICIOS } = await import('../src/main/connections/registry')
+  const { SERVICES } = await import('../src/main/connections/registry')
 
   /*
    * "Espeja tus postulaciones", "Manda las postulaciones por correo", "Deja
@@ -655,39 +655,39 @@ async function main(): Promise<void> {
    * Un conector es una capacidad de la app; qué se hace con ella lo deciden las
    * reglas del agente, y mañana hay tres agentes usando el mismo Notion.
    */
-  const HABLA_DE_AGENTES = /postulaci|postular|vacante|CV|formulario de postulaci|trabajo/i
-  const contaminados = SERVICIOS.filter((s) => HABLA_DE_AGENTES.test(s.paraQue)).map((s) => s.id)
-  check('ningún conector menciona lo que hace un agente con él', contaminados, [])
+  const TALKS_ABOUT_AGENTS = /postulaci|postular|vacante|CV|formulario de postulaci|trabajo/i
+  const contaminated = SERVICES.filter((s) => TALKS_ABOUT_AGENTS.test(s.purpose)).map((s) => s.id)
+  check('ningún conector menciona lo que hace un agente con él', contaminated, [])
 
   check(
     'todos dicen algo, y en una línea',
-    SERVICIOS.every((s) => s.paraQue.length > 20 && s.paraQue.length < 120),
+    SERVICES.every((s) => s.purpose.length > 20 && s.purpose.length < 120),
     true
   )
 
   // Google era DOS tarjetas idénticas —token de API y sesión de navegador— y
   // nadie entendía por qué. Siguen siendo entradas distintas (son mecanismos
   // distintos), pero comparten grupo y se pintan juntas.
-  const google = SERVICIOS.filter((s) => s.grupo === 'google')
+  const google = SERVICES.filter((s) => s.group === 'google')
   check('las dos entradas de Google comparten grupo', google.length, 2)
   check(
     'y cada una dice qué permiso aporta',
-    google.every((s) => (s.capacidad ?? '').length > 3),
+    google.every((s) => (s.capability ?? '').length > 3),
     true
   )
   check(
     'ninguna se llama "Google (navegador)": el paréntesis era el síntoma',
-    SERVICIOS.some((s) => s.nombre.includes('(')),
+    SERVICES.some((s) => s.name.includes('(')),
     false
   )
 
   // ── preguntas del agente ─────────────────────────────────────────────────
-  seccion('preguntas · una respuesta se vuelve una regla, no un formulario')
+  section('preguntas · una respuesta se vuelve una regla, no un formulario')
 
   const q = await import('../src/main/agents/questions')
 
   // El bloque que se anexa al .md se verifica sin tocar disco.
-  const bloque = q.bloqueDeRespuesta(
+  const block = q.answerBlock(
     '¿Con qué nombre guardo el CV?',
     'con el nombre del candidato, no el de la vacante',
     '2026-08-08T10:00:00.000Z'
@@ -695,54 +695,54 @@ async function main(): Promise<void> {
 
   check(
     'la respuesta se anexa como VIÑETA: así el resumen la lee como regla',
-    /^\s*-\s/m.test(bloque),
+    /^\s*-\s/m.test(block),
     true
   )
   check(
     'la pregunta original queda en un comentario, para acordarse en marzo',
-    /<!--.*¿Con qué nombre guardo el CV\?.*-->/.test(bloque),
+    /<!--.*¿Con qué nombre guardo el CV\?.*-->/.test(block),
     true
   )
-  check('con la fecha en que se respondió', bloque.includes('2026-08-08'), true)
+  check('con la fecha en que se respondió', block.includes('2026-08-08'), true)
 
   // El comentario NO puede contar como regla: si contara, cada respuesta
   // aparecería dos veces en el panel —la regla y la pregunta—.
-  const conRespuesta = parsearReglas('x', `# Reglas${bloque}`, 'x.md', true)
-  check('la regla nueva entra al resumen', conRespuesta.resumen.length, 1)
+  const withAnswer = parseRules('x', `# Reglas${block}`, 'x.md', true)
+  check('la regla nueva entra al resumen', withAnswer.summary.length, 1)
   check(
     'y el comentario con la pregunta NO se cuela como otra regla',
-    conRespuesta.resumen[0],
+    withAnswer.summary[0],
     'con el nombre del candidato, no el de la vacante'
   )
 
   // La misma duda veinte veces es UNA pregunta. Sin esto, veinte postulaciones
   // con el mismo campo sin resolver llenan el panel y el usuario lo abandona.
   const AG = 'chequeo-preguntas'
-  const rutaQ = join(
-    (await import('../src/main/paths')).carpetaAgentes(),
+  const questionsPath = join(
+    (await import('../src/main/paths')).agentsDir(),
     `${AG}.preguntas.json`
   )
-  if (existsSync(rutaQ)) rmSync(rutaQ)
+  if (existsSync(questionsPath)) rmSync(questionsPath)
 
-  const p1 = q.encolarPregunta(AG, '¿Qué formato uso?', { ahora: '2026-08-08T10:00:00.000Z' })
-  const p2 = q.encolarPregunta(AG, '¿Qué formato uso?', { ahora: '2026-08-08T11:00:00.000Z' })
+  const p1 = q.enqueueQuestion(AG, '¿Qué formato uso?', { now: '2026-08-08T10:00:00.000Z' })
+  const p2 = q.enqueueQuestion(AG, '¿Qué formato uso?', { now: '2026-08-08T11:00:00.000Z' })
   check('la misma pregunta no se duplica', p1.id, p2.id)
-  check('y queda una sola pendiente', q.pendientes(AG).length, 1)
+  check('y queda una sola pendiente', q.pending(AG).length, 1)
 
-  q.responderPregunta(AG, p1.id, 'PDF siempre', '2026-08-08T12:00:00.000Z')
-  check('respondida deja de estar pendiente', q.pendientes(AG).length, 0)
-  check('y pasa a las respondidas', q.respondidas(AG)[0]?.respuesta, 'PDF siempre')
+  q.answerQuestion(AG, p1.id, 'PDF siempre', '2026-08-08T12:00:00.000Z')
+  check('respondida deja de estar pendiente', q.pending(AG).length, 0)
+  check('y pasa a las respondidas', q.answered(AG)[0]?.answer, 'PDF siempre')
 
   // Respondida, la MISMA pregunta puede volver a encolarse si el agente
   // insiste — pero eso es una señal de que la respuesta no le alcanzó, no un
   // duplicado. Lo que no puede es reaparecer sola.
-  check('no reaparece sola después de responderla', q.pendientes(AG).length, 0)
+  check('no reaparece sola después de responderla', q.pending(AG).length, 0)
 
-  rmSync(rutaQ, { force: true })
-  rmSync(join((await import('../src/main/paths')).carpetaAgentes(), `${AG}.md`), { force: true })
+  rmSync(questionsPath, { force: true })
+  rmSync(join((await import('../src/main/paths')).agentsDir(), `${AG}.md`), { force: true })
 
   // ── albus.yml ────────────────────────────────────────────────────────────
-  seccion('albus.yml · un solo archivo de llaves, legible y editable')
+  section('albus.yml · un solo archivo de llaves, legible y editable')
 
   const ymlTs = await readFile('src/main/connections/albus-yml.ts', 'utf8')
   const storeTs = await readFile('src/main/connections/store.ts', 'utf8')
@@ -759,15 +759,15 @@ async function main(): Promise<void> {
     /from 'js-yaml'|require\('js-yaml'\)/.test(ymlTs),
     false
   )
-  check('guardar escribe en albus.yml', /escribirEnAlbusYml\(claveYml/.test(storeTs), true)
+  check('guardar escribe en albus.yml', /writeToAlbusYml\(ymlKey/.test(storeTs), true)
   check(
     'y leer lo consulta ANTES que lo cifrado y que el .env',
-    storeTs.indexOf('deAlbusYml(claveYml(clave))') < storeTs.indexOf('safeStorage.decryptString'),
+    storeTs.indexOf('fromAlbusYml(ymlKey(key))') < storeTs.indexOf('safeStorage.decryptString'),
     true
   )
   check(
     'desconectar borra de los DOS lados, si no el token reaparece al reiniciar',
-    /borrarDeAlbusYml[\s\S]{0,400}escribirCrudo/.test(storeTs),
+    /deleteFromAlbusYml[\s\S]{0,400}writeRaw/.test(storeTs),
     true
   )
   check(
@@ -777,19 +777,19 @@ async function main(): Promise<void> {
   )
 
   // El parser es propio: se prueba de verdad, no por su forma.
-  const { parsearYml } = await import('../src/main/connections/albus-yml')
-  const muestra = parsearYml(
+  const { parseYml } = await import('../src/main/connections/albus-yml')
+  const sample = parseYml(
     ['# un comentario', 'NOTION_TOKEN: "ntn_abc#123"', 'VACIA:', 'OTRA: sin-comillas # cola', ''].join(
       '\n'
     )
   )
-  check('un # dentro de comillas es parte del token', muestra.NOTION_TOKEN, 'ntn_abc#123')
-  check('sin comillas, el # sí corta', muestra.OTRA, 'sin-comillas')
-  check('una clave sin valor queda vacía, no rompe', muestra.VACIA, '')
-  check('los comentarios no entran', Object.keys(muestra).length, 3)
+  check('un # dentro de comillas es parte del token', sample.NOTION_TOKEN, 'ntn_abc#123')
+  check('sin comillas, el # sí corta', sample.OTRA, 'sin-comillas')
+  check('una clave sin valor queda vacía, no rompe', sample.VACIA, '')
+  check('los comentarios no entran', Object.keys(sample).length, 3)
 
   // ── una sola instancia ───────────────────────────────────────────────────
-  seccion('instancia única · dos Albus rompen el almacenamiento de Chromium')
+  section('instancia única · dos Albus rompen el almacenamiento de Chromium')
 
   const indexTs = await readFile('src/main/index.ts', 'utf8')
   check('pide el candado de instancia única', indexTs.includes('requestSingleInstanceLock'), true)
@@ -814,66 +814,66 @@ async function main(): Promise<void> {
   )
 
   // ── ASSERT 9 · el freno del correo ───────────────────────────────────────
-  seccion('assert 9 · solo `auto` manda; `review` deja un borrador')
+  section('assert 9 · solo `auto` manda; `review` deja un borrador')
 
-  const { modoGmail } = await import('../src/main/core/jobs/email')
-  check('review → borrador', modoGmail('review'), 'draft')
-  check('auto → manda', modoGmail('auto'), 'send')
-  check('dry-run → ni borrador', modoGmail('dry-run'), 'nada')
+  const { gmailMode } = await import('../src/main/core/jobs/email')
+  check('review → borrador', gmailMode('review'), 'draft')
+  check('auto → manda', gmailMode('auto'), 'send')
+  check('dry-run → ni borrador', gmailMode('dry-run'), 'none')
 
   // ── ASSERT 5 · sin credencial se falla ruidoso ───────────────────────────
-  seccion('assert 5 · sin NOTION_TOKEN falla con la instrucción, no en silencio')
+  section('assert 5 · sin NOTION_TOKEN falla con la instrucción, no en silencio')
 
-  const guardado = process.env.NOTION_TOKEN
+  const saved = process.env.NOTION_TOKEN
   delete process.env.NOTION_TOKEN
 
   const { isNotionConfigured, notionFetch } = await import('../src/main/notion/client')
   check('se detecta que no está configurado', isNotionConfigured(), false)
 
-  let mensaje = ''
+  let message = ''
   try {
     await notionFetch('/users/me')
   } catch (error: unknown) {
-    mensaje = error instanceof Error ? error.message : String(error)
+    message = error instanceof Error ? error.message : String(error)
   }
-  check('tira, no devuelve undefined', mensaje.length > 0, true)
-  check('el error nombra la variable que falta', mensaje.includes('NOTION_TOKEN'), true)
-  check('y dice dónde crearla', mensaje.includes('my-integrations'), true)
+  check('tira, no devuelve undefined', message.length > 0, true)
+  check('el error nombra la variable que falta', message.includes('NOTION_TOKEN'), true)
+  check('y dice dónde crearla', message.includes('my-integrations'), true)
 
-  if (guardado !== undefined) process.env.NOTION_TOKEN = guardado
+  if (saved !== undefined) process.env.NOTION_TOKEN = saved
 
   // ── ASSERT 16 · el piso de calidad no se rellena ─────────────────────────
-  seccion('assert 16 · con dos buenas devuelve dos, no inventa una tercera')
+  section('assert 16 · con dos buenas devuelve dos, no inventa una tercera')
 
-  const lote = [
+  const batch = [
     job({ id: 'a', score: 88 }),
     job({ id: 'b', score: 71 }),
     job({ id: 'c', score: 64 }),
     job({ id: 'd', score: 92, gates: ['requires-relocation'] }),
     job({ id: 'e', score: 40 })
   ]
-  const { califican, descartadas } = aplicarPiso(lote)
+  const { qualified, rejected } = applyFloor(batch)
 
-  check('pasan exactamente dos', califican.map((j) => j.id), ['a', 'b'])
-  check('64 no pasa (el piso es 65)', descartadas.some((j) => j.id === 'c'), true)
-  check('un corte duro descalifica aunque el puntaje sea 92', descartadas.some((j) => j.id === 'd'), true)
-  check('vienen ordenadas por puntaje', califican[0].score >= califican[1].score, true)
-  check('el piso es 65', PISO_CALIDAD, 65)
-  check('sin candidatas devuelve vacío, no un placeholder', aplicarPiso([]).califican, [])
+  check('pasan exactamente dos', qualified.map((j) => j.id), ['a', 'b'])
+  check('64 no pasa (el piso es 65)', rejected.some((j) => j.id === 'c'), true)
+  check('un corte duro descalifica aunque el puntaje sea 92', rejected.some((j) => j.id === 'd'), true)
+  check('vienen ordenadas por puntaje', qualified[0].score >= qualified[1].score, true)
+  check('el piso es 65', QUALITY_FLOOR, 65)
+  check('sin candidatas devuelve vacío, no un placeholder', applyFloor([]).qualified, [])
   check(
     'justo en 65 pasa',
-    aplicarPiso([job({ id: 'x', score: 65 })]).califican.map((j) => j.id),
+    applyFloor([job({ id: 'x', score: 65 })]).qualified.map((j) => j.id),
     ['x']
   )
 
   // ── el parseo del CLI contra su forma REAL ───────────────────────────────
-  seccion('search · un `null` no puede tragarse la descripción entera')
+  section('search · un `null` no puede tragarse la descripción entera')
 
-  const { SCHEMAS_INTERNOS } = await import('../src/main/jobs/search')
+  const { INTERNAL_SCHEMAS } = await import('../src/main/jobs/search')
 
   // Copiado tal cual de una corrida del CLI. Los `null` son de LinkedIn, no
   // inventados: son los campos que no publica.
-  const DETALLE_REAL = {
+  const REAL_DETAIL = {
     id: '4449642850',
     title: 'React Developer - Remote Work',
     company: 'INDI Staffing Services',
@@ -889,16 +889,16 @@ async function main(): Promise<void> {
     applyUrl: null
   }
 
-  const det = SCHEMAS_INTERNOS.DetailSchema.safeParse(DETALLE_REAL)
+  const det = INTERNAL_SCHEMAS.DetailSchema.safeParse(REAL_DETAIL)
   check('el detalle real parsea', det.success, true)
   check(
     'y la descripción llega entera',
     det.success ? det.data.description : '',
-    DETALLE_REAL.description
+    REAL_DETAIL.description
   )
   check('un applyUrl null no rompe nada', det.success ? det.data.applyUrl : 'x', '')
 
-  const RESULTADO_REAL = {
+  const REAL_RESULT = {
     id: '4448573564',
     title: 'Frontend Developer',
     company: 'FOX Analytics',
@@ -907,62 +907,62 @@ async function main(): Promise<void> {
     date: '2026-08-04',
     url: 'https://co.linkedin.com/jobs/view/frontend-developer-at-fox-analytics-4448573564'
   }
-  check('el resultado real parsea', SCHEMAS_INTERNOS.ResultSchema.safeParse(RESULTADO_REAL).success, true)
+  check('el resultado real parsea', INTERNAL_SCHEMAS.ResultSchema.safeParse(REAL_RESULT).success, true)
   check(
     'y una vacante sin fecha no se descarta',
-    SCHEMAS_INTERNOS.ResultSchema.safeParse({ ...RESULTADO_REAL, date: null }).success,
+    INTERNAL_SCHEMAS.ResultSchema.safeParse({ ...REAL_RESULT, date: null }).success,
     true
   )
 
   // ── ASSERT 15 · dedupe por id, no por string ─────────────────────────────
-  seccion('assert 15 · la misma vacante en dos hosts es una sola')
+  section('assert 15 · la misma vacante en dos hosts es una sola')
 
   check(
     'co. y www. de la misma vacante son la misma clave',
-    claveDedupe('https://co.linkedin.com/jobs/view/frontend-at-x-4448573564') ===
-      claveDedupe('https://www.linkedin.com/jobs/view/4448573564'),
+    dedupeKey('https://co.linkedin.com/jobs/view/frontend-at-x-4448573564') ===
+      dedupeKey('https://www.linkedin.com/jobs/view/4448573564'),
     true
   )
   check(
     'vacantes distintas no colisionan',
-    claveDedupe('https://co.linkedin.com/jobs/view/a-4448573564') ===
-      claveDedupe('https://co.linkedin.com/jobs/view/b-4447349957'),
+    dedupeKey('https://co.linkedin.com/jobs/view/a-4448573564') ===
+      dedupeKey('https://co.linkedin.com/jobs/view/b-4447349957'),
     false
   )
   check(
     'una URL sin id numérico cae al string normalizado',
-    claveDedupe('https://JOBS.lever.co/Empresa/abc/'),
+    dedupeKey('https://JOBS.lever.co/Empresa/abc/'),
     'jobs.lever.co/empresa/abc'
   )
 
   // ── ASSERT 11 · sumar un agente es una entrada ───────────────────────────
-  seccion('assert 11 · el registro de agentes es una lista, no un if')
+  section('assert 11 · el registro de agentes es una lista, no un if')
 
-  const { AGENTES } = await import('../src/main/agents/registry')
-  check('hoy hay un agente registrado', AGENTES.length, 1)
-  check('es el de búsqueda de trabajo', AGENTES[0].id, 'job-search')
-  check('cada agente declara cómo chequearse', typeof AGENTES[0].chequear, 'function')
+  const { AGENTS } = await import('../src/main/agents/registry')
+  check('hoy hay un agente registrado', AGENTS.length, 1)
+  check('es el de búsqueda de trabajo', AGENTS[0].id, 'job-search')
+  check('cada agente declara cómo chequearse', typeof AGENTS[0].check, 'function')
   // Se verifican los campos OBLIGATORIOS, no la lista exacta: un agente puede
   // declarar cosas opcionales —su plantilla de reglas, por ejemplo— y eso no
   // puede romper el chequeo del registro.
   check(
-    'toda entrada trae id + nombre + descripción + chequear',
-    ['id', 'nombre', 'descripcion', 'chequear'].every((k) =>
-      AGENTES.every((a) => k in a && (a as unknown as Record<string, unknown>)[k] !== undefined)
+    'toda entrada trae id + nombre + descripción + chequeo',
+    ['id', 'name', 'description', 'check'].every((k) =>
+      AGENTS.every((a) => k in a && (a as unknown as Record<string, unknown>)[k] !== undefined)
     ),
     true
   )
 
-  const total = pasados + fallados
+  const total = passed + failed
   console.log(`\n${'='.repeat(60)}`)
-  console.log(`AGENTES · NOTION · CORREO · TRIAGE   ${pasados}/${total} ${fallados === 0 ? '✓' : '✗'}`)
-  if (fallados > 0) {
+  console.log(`AGENTES · NOTION · CORREO · TRIAGE   ${passed}/${total} ${failed === 0 ? '✓' : '✗'}`)
+  if (failed > 0) {
     console.log('')
-    for (const f of fallas) console.log(`  ✗ ${f}`)
+    for (const f of failures) console.log(`  ✗ ${f}`)
   }
   console.log('='.repeat(60))
 
-  process.exit(fallados === 0 ? 0 : 1)
+  process.exit(failed === 0 ? 0 : 1)
 }
 
 void main().catch((error: unknown) => {

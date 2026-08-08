@@ -10,12 +10,12 @@ const cache: { value: string | null | undefined } = { value: undefined }
  * Se completa con lo que el propio `--help` mencione, así un alias nuevo entra
  * solo cuando Anthropic lo documenta ahí.
  */
-const CANDIDATOS_BASE = ['haiku', 'sonnet', 'opus', 'fable']
+const BASE_CANDIDATES = ['haiku', 'sonnet', 'opus', 'fable']
 
 /** El CLI responde esto cuando el modelo no existe — y sale con exit 0. */
-const MARCA_INVALIDO = 'issue with the selected model'
+const INVALID_MODEL_MARKER = 'issue with the selected model'
 
-const ETIQUETAS: Record<string, string> = {
+const LABELS: Record<string, string> = {
   haiku: 'Haiku — el más rápido y barato',
   sonnet: 'Sonnet — equilibrado',
   opus: 'Opus — el más capaz',
@@ -32,13 +32,13 @@ async function version(bin: string): Promise<string> {
 }
 
 /** Alias que el propio help menciona, p. ej. "'fable', 'opus', or 'sonnet'". */
-async function candidatosDesdeHelp(bin: string): Promise<string[]> {
+async function candidatesFromHelp(bin: string): Promise<string[]> {
   try {
     const child = spawn(`"${bin}"`, ['--help'], { shell: true, windowsHide: true })
     const help = await collect(child, 'claude --help', null)
 
-    const bloque = help.slice(help.indexOf('--model'), help.indexOf('--model') + 400)
-    return [...bloque.matchAll(/'([a-z][a-z0-9-]{2,})'/g)]
+    const block = help.slice(help.indexOf('--model'), help.indexOf('--model') + 400)
+    return [...block.matchAll(/'([a-z][a-z0-9-]{2,})'/g)]
       .map((m) => m[1])
       .filter((a) => !a.startsWith('claude-'))
   } catch {
@@ -50,20 +50,20 @@ async function candidatosDesdeHelp(bin: string): Promise<string[]> {
  * Pregunta lo mínimo posible con cada alias y mira si el CLI se queja.
  * Cuesta unos pocos tokens por alias, una sola vez por versión del CLI.
  */
-async function probar(bin: string, alias: string): Promise<boolean> {
+async function probe(bin: string, alias: string): Promise<boolean> {
   try {
     const child = spawn(`"${bin}"`, ['-p', '--output-format', 'text', '--model', alias], {
       shell: true,
       windowsHide: true
     })
-    const salida = await collect(child, `claude --model ${alias}`, 'di solo: ok')
-    return !salida.toLowerCase().includes(MARCA_INVALIDO)
+    const output = await collect(child, `claude --model ${alias}`, 'di solo: ok')
+    return !output.toLowerCase().includes(INVALID_MODEL_MARKER)
   } catch {
     return false
   }
 }
 
-export async function discoverClaudeModels(forzar = false): Promise<Discovery> {
+export async function discoverClaudeModels(force = false): Promise<Discovery> {
   const bin = await resolveBinary('claude', cache)
   if (bin === null) {
     return { models: [], method: 'probed', checkedAt: new Date().toISOString(), cliVersion: 'n/a' }
@@ -71,32 +71,32 @@ export async function discoverClaudeModels(forzar = false): Promise<Discovery> {
 
   const v = await version(bin)
 
-  const guardado = getCached('claude-code', v)
-  if (!forzar && guardado !== null) return { ...guardado, method: 'cached' }
+  const cached = getCached('claude-code', v)
+  if (!force && cached !== null) return { ...cached, method: 'cached' }
 
-  const candidatos = [...new Set([...CANDIDATOS_BASE, ...(await candidatosDesdeHelp(bin))])]
+  const candidates = [...new Set([...BASE_CANDIDATES, ...(await candidatesFromHelp(bin))])]
 
   // Sin caché y sin pedido explícito devolvemos los candidatos SIN probar: el
   // probe son N llamadas al CLI en serie y bloquearía el arranque de la app
   // gastando cuota que nadie pidió gastar.
-  if (!forzar) {
+  if (!force) {
     return {
-      models: candidatos.map((id) => ({ id, label: ETIQUETAS[id] ?? id })),
+      models: candidates.map((id) => ({ id, label: LABELS[id] ?? id })),
       method: 'seed',
       checkedAt: new Date().toISOString(),
       cliVersion: v
     }
   }
 
-  const vivos: LlmModel[] = []
-  for (const alias of candidatos) {
-    if (await probar(bin, alias)) {
-      vivos.push({ id: alias, label: ETIQUETAS[alias] ?? alias })
+  const alive: LlmModel[] = []
+  for (const alias of candidates) {
+    if (await probe(bin, alias)) {
+      alive.push({ id: alias, label: LABELS[alias] ?? alias })
     }
   }
 
   const d: Discovery = {
-    models: vivos,
+    models: alive,
     method: 'probed',
     checkedAt: new Date().toISOString(),
     cliVersion: v
@@ -128,13 +128,13 @@ export function createClaudeCodeProvider(): LlmProvider {
       // El prompt va por stdin: nada del contenido del usuario toca argv.
       // shell:true con la ruta entrecomillada porque el binario puede ser .cmd.
       const child = spawn(`"${bin}"`, args, { shell: true, windowsHide: true })
-      const salida = await collect(child, 'claude', prompt, { timeoutMs })
+      const output = await collect(child, 'claude', prompt, { timeoutMs })
 
       // El CLI devuelve exit 0 aunque el modelo no exista: hay que mirar el texto.
-      if (salida.toLowerCase().includes(MARCA_INVALIDO)) {
+      if (output.toLowerCase().includes(INVALID_MODEL_MARKER)) {
         throw new Error(`claude no acepta el modelo "${model}"`)
       }
-      return salida
+      return output
     }
   }
 }

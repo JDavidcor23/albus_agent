@@ -21,42 +21,42 @@ async function version(bin: string): Promise<string> {
  * agy SÍ enumera sus modelos: `agy models` es la verdad de la fuente, no hay
  * que adivinar ni probar nada.
  */
-export async function discoverAgyModels(forzar = false): Promise<Discovery> {
+export async function discoverAgyModels(force = false): Promise<Discovery> {
   const bin = await resolveBinary('agy', cache)
   if (bin === null) {
     return { models: [], method: 'listed', checkedAt: new Date().toISOString(), cliVersion: 'n/a' }
   }
 
   const v = await version(bin)
-  if (!forzar) {
-    const guardado = getCached('agy', v)
-    if (guardado !== null) return { ...guardado, method: 'cached' }
+  if (!force) {
+    const cached = getCached('agy', v)
+    if (cached !== null) return { ...cached, method: 'cached' }
   }
 
-  let modelos: LlmModel[] = []
+  let models: LlmModel[] = []
   try {
     // agy se cuelga si stdin es un pipe abierto; con stdin ignorado responde.
     const child = spawn(bin, ['models'], {
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true
     })
-    const salida = await collect(child, 'agy models', null)
-    modelos = salida
+    const output = await collect(child, 'agy models', null)
+    models = output
       .split('\n')
       .map((l) => l.trim())
       .filter((l) => l.length > 0 && !l.includes(' '))
       .map((id) => ({ id, label: id }))
   } catch {
-    modelos = []
+    models = []
   }
 
   const d: Discovery = {
-    models: modelos,
+    models,
     method: 'listed',
     checkedAt: new Date().toISOString(),
     cliVersion: v
   }
-  if (modelos.length > 0) putCached('agy', d)
+  if (models.length > 0) putCached('agy', d)
   return d
 }
 
@@ -84,18 +84,18 @@ export function createAgyProvider(): LlmProvider {
       if (bin === null) throw new Error('agy no está en el PATH')
 
       if (model !== null) {
-        const modelos = await this.listModels()
-        if (!modelos.some((m) => m.id === model)) {
+        const models = await this.listModels()
+        if (!models.some((m) => m.id === model)) {
           throw new Error(`modelo inválido para agy: ${model}`)
         }
       }
 
-      const recortado =
+      const trimmed =
         prompt.length > MAX_PROMPT ? `${prompt.slice(0, MAX_PROMPT)}\n[recortado]` : prompt
 
       const args: string[] = []
       if (model !== null) args.push('--model', model)
-      args.push('--print', recortado)
+      args.push('--print', trimmed)
 
       // shell:false: el prompt no pasa por el shell aunque tenga comillas.
       const child = spawn(bin, args, {

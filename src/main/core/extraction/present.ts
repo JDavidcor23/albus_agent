@@ -9,7 +9,7 @@ export interface ResultRow {
   confidence: number
 }
 
-const MONEDA = new Intl.NumberFormat('es-CO', {
+const CURRENCY = new Intl.NumberFormat('es-CO', {
   style: 'currency',
   currency: 'COP',
   maximumFractionDigits: 0
@@ -23,15 +23,15 @@ export function labelFor(attachmentPath: string): string {
   if (attachmentPath === '') return 'nota de texto'
 
   const base = attachmentPath.split('/').pop() ?? attachmentPath
-  const sinUuid = base.replace(
+  const withoutUuid = base.replace(
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-/i,
     ''
   )
-  return sinUuid.length > 0 ? sinUuid : base
+  return withoutUuid.length > 0 ? withoutUuid : base
 }
 
-function texto(payload: Record<string, unknown>, clave: string): string {
-  const v = payload[clave]
+function textField(payload: Record<string, unknown>, key: string): string {
+  const v = payload[key]
   return typeof v === 'string' ? v : ''
 }
 
@@ -42,36 +42,36 @@ export function summaryFor(result: ExtractionResult): string {
   switch (result.kind) {
     case 'qr': {
       const codes = Array.isArray(p.codes) ? p.codes.map(String) : []
-      const primero = codes[0] ?? ''
+      const first = codes[0] ?? ''
       // Los QR de check-in de eventos traen un blob cifrado de CryptoJS, no una
       // URL. Mostrar 200 caracteres de base64 no le sirve a nadie.
-      if (primero.startsWith('U2FsdGVkX1')) return 'código cifrado (check-in de evento)'
-      return primero
+      if (first.startsWith('U2FsdGVkX1')) return 'código cifrado (check-in de evento)'
+      return first
     }
 
     case 'receipt': {
-      const partes: string[] = []
-      if (typeof p.entity === 'string') partes.push(p.entity)
-      if (typeof p.amount === 'number') partes.push(MONEDA.format(p.amount))
-      if (typeof p.date === 'string') partes.push(p.date)
-      if (typeof p.reference === 'string') partes.push(`ref ${p.reference}`)
-      return partes.join(' · ')
+      const parts: string[] = []
+      if (typeof p.entity === 'string') parts.push(p.entity)
+      if (typeof p.amount === 'number') parts.push(CURRENCY.format(p.amount))
+      if (typeof p.date === 'string') parts.push(p.date)
+      if (typeof p.reference === 'string') parts.push(`ref ${p.reference}`)
+      return parts.join(' · ')
     }
 
     case 'profile': {
-      const perfiles = Array.isArray(p.profiles) ? p.profiles.map(String) : []
-      return perfiles.join(', ')
+      const profiles = Array.isArray(p.profiles) ? p.profiles.map(String) : []
+      return profiles.join(', ')
     }
 
     case 'text': {
       const urls = Array.isArray(p.urls) ? p.urls.map(String) : []
       if (urls.length > 0) return urls.join(', ')
-      const t = texto(p, 'text').replace(/\s+/g, ' ').trim()
+      const t = textField(p, 'text').replace(/\s+/g, ' ').trim()
       return t.length > 120 ? `${t.slice(0, 120)}…` : t
     }
 
     case 'failed':
-      return texto(p, 'error')
+      return textField(p, 'error')
 
     case 'none':
       return 'sin contenido reconocible'

@@ -10,7 +10,7 @@
  */
 import { detectProviders, getProvider } from '../src/main/providers/registry'
 import { detectTasks } from '../src/main/core/tasks/detect'
-import { deterministicTasks, titulosDeterministas } from '../src/main/core/tasks/rules'
+import { deterministicTasks, deterministicTitles } from '../src/main/core/tasks/rules'
 import {
   listTaskCandidates,
   saveTasks,
@@ -22,8 +22,8 @@ import { saveNoteSummary } from '../src/main/supabase/note-summary-repo'
 const args = process.argv.slice(2)
 const APPLY = args.includes('--apply')
 
-function flag(nombre: string): string | null {
-  const i = args.indexOf(`--${nombre}`)
+function flag(name: string): string | null {
+  const i = args.indexOf(`--${name}`)
   return i !== -1 && args[i + 1] && !args[i + 1].startsWith('--') ? args[i + 1] : null
 }
 
@@ -32,9 +32,9 @@ async function main(): Promise<void> {
   const model = flag('model')
 
   if (providerId === null) {
-    const disponibles = await detectProviders(false)
+    const available = await detectProviders(false)
     console.log('Falta --provider. Disponibles:\n')
-    for (const p of disponibles) console.log(`  ${p.id}  ${p.name}`)
+    for (const p of available) console.log(`  ${p.id}  ${p.name}`)
     console.log('\nEjemplo: npx tsx scripts/detect-tasks.ts --provider agy --dry-run')
     return
   }
@@ -42,77 +42,77 @@ async function main(): Promise<void> {
   const provider = getProvider(providerId)
   if (provider === null) throw new Error(`proveedor desconocido: ${providerId}`)
 
-  const candidatos = await listTaskCandidates(500)
+  const candidates = await listTaskCandidates(500)
   console.log(
     `${APPLY ? 'MODO APPLY' : 'MODO DRY-RUN — no se escribe nada'}\n` +
-      `Notas sin analizar: ${candidatos.length}` +
-      `${candidatos.length ? `  (${candidatos.length} llamadas al CLI)` : ''}\n`
+      `Notas sin analizar: ${candidates.length}` +
+      `${candidates.length ? `  (${candidates.length} llamadas al CLI)` : ''}\n`
   )
-  if (candidatos.length === 0) {
+  if (candidates.length === 0) {
     console.log('Nada para analizar. Para re-analizar hay que borrar filas de `tasks`.')
     return
   }
 
   // La fecha entra por parámetro: hace falta para descartar eventos ya pasados.
-  const hoy = new Date().toISOString().slice(0, 10)
+  const today = new Date().toISOString().slice(0, 10)
   const source = `cli:${provider.id}${model !== null ? `/${model}` : ''}`
 
-  let conPendientes = 0
+  let withTasks = 0
   let totalTasks = 0
-  let resumenes = 0
+  let summaries = 0
 
   // Secuencial a propósito: son CLIs locales, en paralelo se pisan.
-  for (const [i, c] of candidatos.entries()) {
+  for (const [i, c] of candidates.entries()) {
     // Primero las reglas: son gratis y no dependen de que el CLI esté vivo.
-    const porRegla = deterministicTasks(c)
-    const yaCubiertos = titulosDeterministas(porRegla)
+    const byRule = deterministicTasks(c)
+    const alreadyCovered = deterministicTitles(byRule)
 
-    const { tasks, summary } = await detectTasks(provider, model, c, hoy)
-    const porModelo = tasks.filter((t) => !yaCubiertos.has(t.title.toLowerCase()))
+    const { tasks, summary } = await detectTasks(provider, model, c, today)
+    const byModel = tasks.filter((t) => !alreadyCovered.has(t.title.toLowerCase()))
 
-    const detectados = [...porRegla, ...porModelo]
-    const etiqueta = c.body.replace(/\s+/g, ' ').slice(0, 46).padEnd(46)
+    const detected = [...byRule, ...byModel]
+    const label = c.body.replace(/\s+/g, ' ').slice(0, 46).padEnd(46)
 
     // El resumen se guarda incluso cuando no hay ningún pendiente: la nota se
     // sigue leyendo en el detalle de OTROS pendientes de la misma nota, y la
     // llamada al CLI ya se pagó.
     if (summary !== null) {
-      resumenes++
+      summaries++
       if (APPLY) await saveNoteSummary(c.entryId, summary)
     }
 
-    if (detectados.length === 0) {
-      console.log(`  ${String(i + 1).padStart(2)}. ${etiqueta}  —`)
+    if (detected.length === 0) {
+      console.log(`  ${String(i + 1).padStart(2)}. ${label}  —`)
       if (summary !== null) console.log(`      ~ ${summary}`)
       if (APPLY) await markAnalyzedWithNoTasks(c)
       continue
     }
 
-    conPendientes++
-    totalTasks += detectados.length
-    console.log(`  ${String(i + 1).padStart(2)}. ${etiqueta}`)
+    withTasks++
+    totalTasks += detected.length
+    console.log(`  ${String(i + 1).padStart(2)}. ${label}`)
     if (summary !== null) console.log(`      ~ ${summary}`)
-    for (const t of porRegla) {
+    for (const t of byRule) {
       console.log(`      -> [regla] ${t.title}`)
     }
-    for (const t of porModelo) {
+    for (const t of byModel) {
       console.log(`      -> [ia ${t.confidence.toFixed(2)}] ${t.title}`)
     }
 
     if (APPLY) {
-      if (porRegla.length > 0) await saveTasks(c, porRegla, 'regla:qr')
-      if (porModelo.length > 0) await saveTasks(c, porModelo, source)
+      if (byRule.length > 0) await saveTasks(c, byRule, 'regla:qr')
+      if (byModel.length > 0) await saveTasks(c, byModel, source)
     }
   }
 
   console.log(
-    `\nNotas con pendientes: ${conPendientes}/${candidatos.length} · ` +
-      `pendientes detectados: ${totalTasks} · resúmenes: ${resumenes}`
+    `\nNotas con pendientes: ${withTasks}/${candidates.length} · ` +
+      `pendientes detectados: ${totalTasks} · resúmenes: ${summaries}`
   )
 
   if (APPLY) {
-    const abiertos = await listTasks('open')
-    console.log(`\nEn la tabla hay ahora ${abiertos.length} pendientes abiertos.`)
+    const openTasks = await listTasks('open')
+    console.log(`\nEn la tabla hay ahora ${openTasks.length} pendientes abiertos.`)
   } else {
     console.log('\nPara guardar: agregá --apply')
   }

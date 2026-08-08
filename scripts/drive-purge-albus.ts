@@ -18,38 +18,38 @@
 import { listAll, trashFile, FOLDER_MIME, type DriveFile } from './lib/drive'
 
 const APPLY = process.argv.includes('--apply')
-const DESTINOS = ['pagos', 'qr-eventos', 'contactos', 'info', 'sin-clasificar']
+const TARGETS = ['pagos', 'qr-eventos', 'contactos', 'info', 'sin-clasificar']
 
 async function main(): Promise<void> {
   console.log(APPLY ? 'MODO APPLY\n' : 'MODO DRY-RUN — no se toca nada\n')
 
-  const carpetas = (
+  const folders = (
     await listAll(`mimeType = '${FOLDER_MIME}' and trashed = false and 'root' in parents`)
-  ).filter((c) => DESTINOS.includes(c.name))
+  ).filter((c) => TARGETS.includes(c.name))
 
-  const mios: DriveFile[] = []
-  for (const c of carpetas) {
-    const hijos = await listAll(`'${c.id}' in parents and trashed = false`)
-    for (const h of hijos) {
-      if (h.appProperties?.albusKey) mios.push(h)
+  const mine: DriveFile[] = []
+  for (const c of folders) {
+    const children = await listAll(`'${c.id}' in parents and trashed = false`)
+    for (const h of children) {
+      if (h.appProperties?.albusKey) mine.push(h)
       else console.log(`  (intacto, no es de Albus)  ${c.name}/${h.name}`)
     }
   }
 
-  if (mios.length === 0) {
+  if (mine.length === 0) {
     console.log('No hay archivos de Albus en Drive.')
     return
   }
 
-  console.log(`Archivos subidos por Albus: ${mios.length}\n`)
-  for (const f of mios.sort((a, b) => a.name.localeCompare(b.name))) {
+  console.log(`Archivos subidos por Albus: ${mine.length}\n`)
+  for (const f of mine.sort((a, b) => a.name.localeCompare(b.name))) {
     console.log(`  ${APPLY ? 'papelera' : 'iria a papelera'}  ${f.name}`)
     if (APPLY) await trashFile(f.id)
   }
 
   console.log(
     APPLY
-      ? `\n${mios.length} archivos a la papelera (recuperables 30 dias).`
+      ? `\n${mine.length} archivos a la papelera (recuperables 30 dias).`
       : '\nPara aplicar: npx tsx scripts/drive-purge-albus.ts --apply'
   )
 }

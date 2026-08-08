@@ -28,39 +28,39 @@ async function main(): Promise<void> {
 
   if (error) throw new Error(error.message)
 
-  let conAdjuntos = 0
-  let conAdjuntosYBody = 0
+  let withAttachments = 0
+  let withAttachmentsAndBody = 0
 
   for (const raw of Array.isArray(data) ? data : []) {
     const parsed = Row.safeParse(raw)
     if (!parsed.success) continue
     const row = parsed.data
 
-    const adjuntos = (row.attachments ?? []).length
-    if (adjuntos === 0) continue
-    conAdjuntos++
+    const attachments = (row.attachments ?? []).length
+    if (attachments === 0) continue
+    withAttachments++
 
     const body = (row.body ?? '').trim()
-    if (body.length > 0) conAdjuntosYBody++
+    if (body.length > 0) withAttachmentsAndBody++
 
-    const deImagen = (row.extractions ?? []).filter((e) => e.attachment_path !== '')
-    if (deImagen.length === 0) continue
+    const fromImage = (row.extractions ?? []).filter((e) => e.attachment_path !== '')
+    if (fromImage.length === 0) continue
 
     console.log(`\nbody: "${body.slice(0, 70)}"`)
-    for (const e of deImagen) {
+    for (const e of fromImage) {
       const p = e.payload as Record<string, unknown> | null
-      let resumen = ''
+      let summary = ''
       if (e.kind === 'receipt') {
-        resumen = `metodo=${String(p?.method ?? '?')} monto=${String(p?.amount ?? '?')} fecha=${String(p?.date ?? '?')} concepto=${String(p?.concept ?? 'NO TIENE')}`
+        summary = `metodo=${String(p?.method ?? '?')} monto=${String(p?.amount ?? '?')} fecha=${String(p?.date ?? '?')} concepto=${String(p?.concept ?? 'NO TIENE')}`
       } else {
-        resumen = JSON.stringify(p).slice(0, 90)
+        summary = JSON.stringify(p).slice(0, 90)
       }
-      console.log(`   [${e.kind}] ${resumen}`)
+      console.log(`   [${e.kind}] ${summary}`)
     }
   }
 
   console.log(
-    `\n---\nentries con adjuntos: ${conAdjuntos} · de esas, con body escrito: ${conAdjuntosYBody}`
+    `\n---\nentries con adjuntos: ${withAttachments} · de esas, con body escrito: ${withAttachmentsAndBody}`
   )
 }
 

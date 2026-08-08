@@ -26,9 +26,9 @@ import { getSupabaseClient } from '../src/main/supabase/client'
 
 const args = process.argv.slice(2)
 const APPLY = args.includes('--apply')
-const SOLO_QR = args.includes('--solo-qr')
+const ONLY_QR = args.includes('--solo-qr')
 
-interface Fila {
+interface TaskRow {
   id: string
   entry_id: string
   title: string
@@ -44,74 +44,74 @@ async function main(): Promise<void> {
     .select('id, entry_id, title, status, source')
 
   if (error) throw new Error(error.message)
-  const todas = (data ?? []) as Fila[]
+  const all = (data ?? []) as TaskRow[]
 
   // Qué entries tienen QR, si hay que filtrar por eso.
-  let entriesConQr: Set<string> | null = null
-  if (SOLO_QR) {
+  let entriesWithQr: Set<string> | null = null
+  if (ONLY_QR) {
     const { data: qr, error: e2 } = await supabase
       .from('extractions')
       .select('entry_id')
       .eq('kind', 'qr')
     if (e2) throw new Error(e2.message)
-    entriesConQr = new Set(((qr ?? []) as { entry_id: string }[]).map((r) => r.entry_id))
+    entriesWithQr = new Set(((qr ?? []) as { entry_id: string }[]).map((r) => r.entry_id))
   }
 
-  const porEntry = new Map<string, Fila[]>()
-  for (const t of todas) porEntry.set(t.entry_id, [...(porEntry.get(t.entry_id) ?? []), t])
+  const byEntry = new Map<string, TaskRow[]>()
+  for (const t of all) byEntry.set(t.entry_id, [...(byEntry.get(t.entry_id) ?? []), t])
 
-  const aBorrar: Fila[] = []
-  const intocables: { entry: string; cerrados: Fila[]; abiertos: Fila[] }[] = []
-  const fueraDeAlcance: string[] = []
+  const toDelete: TaskRow[] = []
+  const untouchable: { entry: string; closed: TaskRow[]; open: TaskRow[] }[] = []
+  const outOfScope: string[] = []
 
-  for (const [entry, filas] of porEntry) {
-    if (entriesConQr !== null && !entriesConQr.has(entry)) {
-      if (filas.some((f) => f.status === 'open' && f.source !== 'centinela')) {
-        fueraDeAlcance.push(entry)
+  for (const [entry, rows] of byEntry) {
+    if (entriesWithQr !== null && !entriesWithQr.has(entry)) {
+      if (rows.some((f) => f.status === 'open' && f.source !== 'centinela')) {
+        outOfScope.push(entry)
       }
       continue
     }
 
-    const cerrados = filas.filter((f) => f.status !== 'open' && f.source !== 'centinela')
-    const abiertos = filas.filter((f) => f.status === 'open')
+    const closed = rows.filter((f) => f.status !== 'open' && f.source !== 'centinela')
+    const open = rows.filter((f) => f.status === 'open')
 
-    if (cerrados.length > 0) {
-      if (abiertos.length > 0) intocables.push({ entry, cerrados, abiertos })
+    if (closed.length > 0) {
+      if (open.length > 0) untouchable.push({ entry, closed, open })
       continue
     }
 
     // Sin cerrados: se puede limpiar la entry entera, centinelas incluidos, para
     // que `listTaskCandidates` la vuelva a ver.
-    aBorrar.push(...filas)
+    toDelete.push(...rows)
   }
 
   console.log(APPLY ? 'MODO APPLY — se borra' : 'MODO DRY-RUN — no se borra nada')
-  console.log(SOLO_QR ? 'Alcance: solo notas con al menos un QR\n' : 'Alcance: todas las notas\n')
+  console.log(ONLY_QR ? 'Alcance: solo notas con al menos un QR\n' : 'Alcance: todas las notas\n')
 
   console.log('='.repeat(74))
-  console.log(`SE BORRAN ${aBorrar.length} fila(s), de ${new Set(aBorrar.map((f) => f.entry_id)).size} nota(s)`)
+  console.log(`SE BORRAN ${toDelete.length} fila(s), de ${new Set(toDelete.map((f) => f.entry_id)).size} nota(s)`)
   console.log('='.repeat(74))
-  for (const f of aBorrar) {
-    const etiqueta = f.source === 'centinela' ? '[centinela]' : `[${f.status}]`
-    console.log(`  ${f.entry_id.slice(0, 8)} ${etiqueta} ${f.title.slice(0, 70)}`)
+  for (const f of toDelete) {
+    const label = f.source === 'centinela' ? '[centinela]' : `[${f.status}]`
+    console.log(`  ${f.entry_id.slice(0, 8)} ${label} ${f.title.slice(0, 70)}`)
   }
 
-  if (intocables.length > 0) {
+  if (untouchable.length > 0) {
     console.log(`\n${'='.repeat(74)}`)
-    console.log(`NO SE TOCAN — ${intocables.length} nota(s) con pendientes ya cerrados`)
+    console.log(`NO SE TOCAN — ${untouchable.length} nota(s) con pendientes ya cerrados`)
     console.log('='.repeat(74))
     console.log('Borrarles los abiertos los perderia sin poder re-derivarlos,')
     console.log('porque la nota ya no vuelve a entrar al analisis.\n')
-    for (const g of intocables) {
+    for (const g of untouchable) {
       console.log(`  nota ${g.entry.slice(0, 8)}`)
-      for (const c of g.cerrados) console.log(`    cerrado: [${c.status}] ${c.title.slice(0, 62)}`)
-      for (const a of g.abiertos) console.log(`    QUEDA COMO ESTA: ${a.title.slice(0, 62)}`)
+      for (const c of g.closed) console.log(`    cerrado: [${c.status}] ${c.title.slice(0, 62)}`)
+      for (const a of g.open) console.log(`    QUEDA COMO ESTA: ${a.title.slice(0, 62)}`)
     }
   }
 
-  if (fueraDeAlcance.length > 0) {
+  if (outOfScope.length > 0) {
     console.log(
-      `\n${fueraDeAlcance.length} nota(s) con pendientes abiertos quedan fuera por --solo-qr.`
+      `\n${outOfScope.length} nota(s) con pendientes abiertos quedan fuera por --solo-qr.`
     )
   }
 
@@ -120,23 +120,23 @@ async function main(): Promise<void> {
     return
   }
 
-  if (aBorrar.length === 0) {
+  if (toDelete.length === 0) {
     console.log('\nNada para borrar.')
     return
   }
 
   // De a uno y no un `in` gigante: si una falla, se sabe cuál y las demás siguen.
-  let borradas = 0
-  for (const f of aBorrar) {
+  let deleted = 0
+  for (const f of toDelete) {
     const { error: errorDelete } = await supabase.from('tasks').delete().eq('id', f.id)
     if (errorDelete) {
       console.warn(`  no se pudo borrar ${f.id}: ${errorDelete.message}`)
       continue
     }
-    borradas++
+    deleted++
   }
 
-  console.log(`\nBorradas ${borradas}/${aBorrar.length}.`)
+  console.log(`\nBorradas ${deleted}/${toDelete.length}.`)
   console.log('Ahora: npx tsx scripts/detect-tasks.ts --provider <agy|claude> --apply')
 }
 

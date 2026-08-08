@@ -3,14 +3,14 @@ import { z } from 'zod'
 import { registerHandler } from './register-handler'
 import {
   IpcChannels,
-  esUrlAbrible,
+  isOpenableUrl,
   type AskAnswer,
   type ExtractionKind,
   type TaskDetail,
   type TaskRow
 } from '../../shared/ipc'
 import { closeTask, getTaskDetail, listTasks } from '../supabase/tasks-repo'
-import { interpretar, redactar } from '../core/tasks/ask'
+import { interpret, compose } from '../core/tasks/ask'
 import type { Task } from '../core/tasks/types'
 
 // El main NUNCA confía en el renderer: todo payload se valida.
@@ -30,7 +30,7 @@ const DetailSchema = z.object({ id: z.string().uuid() })
  * corre acá. Lo de allá es cortesía visual.
  */
 const OpenExternalSchema = z.object({
-  url: z.string().url().refine(esUrlAbrible, 'host no permitido')
+  url: z.string().url().refine(isOpenableUrl, 'host no permitido')
 })
 
 /**
@@ -43,7 +43,7 @@ const OpenExternalSchema = z.object({
  */
 const ClipboardSchema = z.object({ text: z.string().min(1).max(4096) })
 
-function aRow(t: Task): TaskRow {
+function toRow(t: Task): TaskRow {
   return {
     id: t.id,
     title: t.title,
@@ -58,20 +58,20 @@ function aRow(t: Task): TaskRow {
 }
 
 export function registerTaskHandlers(): void {
-  registerHandler(IpcChannels.TASKS_LIST, async () => (await listTasks('open')).map(aRow))
+  registerHandler(IpcChannels.TASKS_LIST, async () => (await listTasks('open')).map(toRow))
 
   registerHandler(IpcChannels.TASKS_DETAIL, async (payload: unknown): Promise<TaskDetail> => {
     const { id } = DetailSchema.parse(payload)
 
-    const detalle = await getTaskDetail(id)
-    if (detalle === null) throw new Error('ese pendiente ya no existe')
+    const detail = await getTaskDetail(id)
+    if (detail === null) throw new Error('ese pendiente ya no existe')
 
     return {
-      task: aRow(detalle.task),
-      noteBody: detalle.noteBody,
-      noteSummary: detalle.noteSummary,
-      contacts: detalle.contacts,
-      sources: detalle.sources.map((s) => ({
+      task: toRow(detail.task),
+      noteBody: detail.noteBody,
+      noteSummary: detail.noteSummary,
+      contacts: detail.contacts,
+      sources: detail.sources.map((s) => ({
         kind: s.kind as ExtractionKind,
         captures: s.captures,
         photos: s.photos,
@@ -97,39 +97,39 @@ export function registerTaskHandlers(): void {
   registerHandler(IpcChannels.TASKS_CLOSE, async (payload: unknown) => {
     const { id, status } = CloseSchema.parse(payload)
     await closeTask(id, status)
-    return (await listTasks('open')).map(aRow)
+    return (await listTasks('open')).map(toRow)
   })
 
   registerHandler(IpcChannels.TASKS_ASK, async (payload: unknown): Promise<AskAnswer> => {
     const { message } = AskSchema.parse(payload)
 
-    const abiertos = await listTasks('open')
-    const intent = interpretar(message, abiertos)
+    const openTasks = await listTasks('open')
+    const intent = interpret(message, openTasks)
 
     // Cerrar es la única rama que escribe. Se hace ANTES de redactar para que el
     // texto y la lista que vuelven ya reflejen el estado nuevo.
-    if (intent.kind === 'cerrar') {
-      const texto = redactar(intent, abiertos)
-      await closeTask(intent.taskId, intent.comoDismissed ? 'dismissed' : 'done')
+    if (intent.kind === 'close') {
+      const text = compose(intent, openTasks)
+      await closeTask(intent.taskId, intent.asDismissed ? 'dismissed' : 'done')
       return {
-        text: texto,
-        tasks: (await listTasks('open')).map(aRow),
-        intent: 'cerrar'
+        text,
+        tasks: (await listTasks('open')).map(toRow),
+        intent: 'close'
       }
     }
 
-    if (intent.kind === 'ambiguo') {
+    if (intent.kind === 'ambiguous') {
       return {
-        text: redactar(intent, abiertos),
-        tasks: intent.candidatos.map(aRow),
-        intent: 'ambiguo'
+        text: compose(intent, openTasks),
+        tasks: intent.candidates.map(toRow),
+        intent: 'ambiguous'
       }
     }
 
-    if (intent.kind === 'pendientes') {
-      return { text: redactar(intent, abiertos), tasks: abiertos.map(aRow), intent: 'pendientes' }
+    if (intent.kind === 'tasks') {
+      return { text: compose(intent, openTasks), tasks: openTasks.map(toRow), intent: 'tasks' }
     }
 
-    return { text: redactar(intent, abiertos), tasks: [], intent: 'ayuda' }
+    return { text: compose(intent, openTasks), tasks: [], intent: 'help' }
   })
 }

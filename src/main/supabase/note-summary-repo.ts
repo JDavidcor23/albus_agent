@@ -64,14 +64,14 @@ export async function saveNoteSummary(entryId: string, summary: string): Promise
       return false
     }
 
-    const anterior = (data.payload ?? {}) as Record<string, unknown>
+    const previous = (data.payload ?? {}) as Record<string, unknown>
 
-    const { error: errorUpdate } = await supabase
+    const { error: updateError } = await supabase
       .from('extractions')
-      .update({ payload: { ...anterior, summary } })
+      .update({ payload: { ...previous, summary } })
       .eq('id', data.id)
 
-    if (errorUpdate) throw new Error(errorUpdate.message)
+    if (updateError) throw new Error(updateError.message)
     return true
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
@@ -81,7 +81,7 @@ export async function saveNoteSummary(entryId: string, summary: string): Promise
 }
 
 /** Lee el resumen de un payload de la fila del body. `null` si no hay. */
-export function leerResumen(payload: unknown): string | null {
+export function readSummary(payload: unknown): string | null {
   const p = (payload ?? {}) as Record<string, unknown>
   const s = p.summary
   return typeof s === 'string' && s.trim().length > 0 ? s.trim() : null

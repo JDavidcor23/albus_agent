@@ -98,11 +98,11 @@ async function main(): Promise<void> {
 
   // (e) Caso real que falló en producción: "Enviaste" se colaba como referencia
   // porque el flag `i` vuelve [A-Z0-9] insensible a mayúsculas.
-  const falsoRef = findReceipt('Bre-B Enviaste $400.000 a Juan')
+  const falsePositiveRef = findReceipt('Bre-B Enviaste $400.000 a Juan')
   check(
     'e) una palabra sin digitos no pasa como referencia',
-    falsoRef !== null && falsoRef.reference === null && falsoRef.amount === 400000,
-    JSON.stringify(falsoRef)
+    falsePositiveRef !== null && falsePositiveRef.reference === null && falsePositiveRef.amount === 400000,
+    JSON.stringify(falsePositiveRef)
   )
 
   await terminateOcr()

@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { rutaAlbusYml as rutaEnDatos } from '../paths'
+import { albusYmlPath as pathInDataDir } from '../paths'
 
 /**
  * `albus.yml` — las llaves de la app, en un solo archivo legible.
@@ -30,7 +30,7 @@ import { rutaAlbusYml as rutaEnDatos } from '../paths'
  * anidar, se cambia; hoy no hace falta.
  */
 
-const NOMBRE = 'albus.yml'
+const FILENAME = 'albus.yml'
 
 /**
  * `userData/albus.yml`, SIEMPRE — igual que las reglas de los agentes y todo
@@ -45,9 +45,9 @@ const NOMBRE = 'albus.yml'
  * —un script de diagnóstico, por ejemplo— tiene que encontrar el archivo ya
  * mudado. Si no, `notion:check` reporta "no hay token" sobre uno que existe.
  */
-export function rutaAlbusYml(): string {
-  migrarSiHaceFalta()
-  return rutaEnDatos()
+export function albusYmlPath(): string {
+  migrateIfNeeded()
+  return pathInDataDir()
 }
 
 /**
@@ -57,28 +57,28 @@ export function rutaAlbusYml(): string {
  * token adentro sin migrarlo es hacerle perder la conexión al usuario sin
  * decirle por qué.
  */
-function rutaVieja(): string {
-  return join(process.cwd(), NOMBRE)
+function legacyPath(): string {
+  return join(process.cwd(), FILENAME)
 }
 
-let migrado = false
+let migrated = false
 
-function migrarSiHaceFalta(): void {
-  if (migrado) return
-  migrado = true
+function migrateIfNeeded(): void {
+  if (migrated) return
+  migrated = true
 
-  const nueva = rutaEnDatos()
-  const vieja = rutaVieja()
+  const next = pathInDataDir()
+  const previous = legacyPath()
 
-  if (nueva === vieja || existsSync(nueva) || !existsSync(vieja)) return
+  if (next === previous || existsSync(next) || !existsSync(previous)) return
 
   try {
-    mkdirSync(dirname(nueva), { recursive: true })
-    writeFileSync(nueva, readFileSync(vieja, 'utf8'), 'utf8')
+    mkdirSync(dirname(next), { recursive: true })
+    writeFileSync(next, readFileSync(previous, 'utf8'), 'utf8')
     // El viejo se borra: dejar dos archivos con el mismo token es garantizar
     // que en un mes nadie sepa cuál manda.
-    unlinkSync(vieja)
-    console.log(`[albus.yml] mudado del repo a ${nueva}`)
+    unlinkSync(previous)
+    console.log(`[albus.yml] mudado del repo a ${next}`)
   } catch (error: unknown) {
     console.warn(`[albus.yml] no pude mudarlo: ${String(error)}`)
   }
@@ -91,60 +91,60 @@ function migrarSiHaceFalta(): void {
  * `true` a booleano o recortar un `0123` a número es exactamente el tipo de
  * ayuda que corrompe una credencial en silencio.
  */
-export function parsearYml(texto: string): Record<string, string> {
-  const salida: Record<string, string> = {}
+export function parseYml(text: string): Record<string, string> {
+  const output: Record<string, string> = {}
 
-  for (const linea of texto.split(/\r?\n/)) {
-    const limpia = linea.trim()
-    if (limpia === '' || limpia.startsWith('#')) continue
+  for (const line of text.split(/\r?\n/)) {
+    const clean = line.trim()
+    if (clean === '' || clean.startsWith('#')) continue
 
-    const corte = limpia.indexOf(':')
-    if (corte <= 0) continue
+    const cut = clean.indexOf(':')
+    if (cut <= 0) continue
 
-    const clave = limpia.slice(0, corte).trim()
-    let valor = limpia.slice(corte + 1).trim()
+    const key = clean.slice(0, cut).trim()
+    let value = clean.slice(cut + 1).trim()
 
     // Un `#` dentro de un valor entrecomillado es parte del valor, no un
     // comentario. Sin comillas, sí corta.
-    const comillado = /^(['"])(.*)\1$/.exec(valor)
-    if (comillado !== null) valor = comillado[2]
+    const quoted = /^(['"])(.*)\1$/.exec(value)
+    if (quoted !== null) value = quoted[2]
     else {
-      const almohadilla = valor.indexOf(' #')
-      if (almohadilla !== -1) valor = valor.slice(0, almohadilla).trim()
+      const hash = value.indexOf(' #')
+      if (hash !== -1) value = value.slice(0, hash).trim()
     }
 
-    if (clave !== '') salida[clave] = valor
+    if (key !== '') output[key] = value
   }
 
-  return salida
+  return output
 }
 
 /** Se serializa a mano por la misma razón que se parsea a mano. */
-function serializar(datos: Record<string, string>): string {
-  const cabecera = [
+function serialize(data: Record<string, string>): string {
+  const header = [
     '# Las llaves de Albus. Este archivo NO se commitea: está en .gitignore.',
     '# Lo escribe la app cuando conectás un servicio, y lo podés editar a mano.',
     ''
   ].join('\n')
 
-  const cuerpo = Object.entries(datos)
+  const body = Object.entries(data)
     .sort(([a], [b]) => a.localeCompare(b))
     // Se entrecomilla siempre: un token puede traer `#`, `:` o espacios, y
     // adivinar cuándo hace falta es cómo se corrompe un valor.
     .map(([k, v]) => `${k}: "${v.replace(/"/g, '\\"')}"`)
     .join('\n')
 
-  return `${cabecera}${cuerpo}\n`
+  return `${header}${body}\n`
 }
 
-export function leerAlbusYml(): Record<string, string> {
-  migrarSiHaceFalta()
+export function readAlbusYml(): Record<string, string> {
+  migrateIfNeeded()
 
-  const ruta = rutaAlbusYml()
-  if (!existsSync(ruta)) return {}
+  const path = albusYmlPath()
+  if (!existsSync(path)) return {}
 
   try {
-    return parsearYml(readFileSync(ruta, 'utf8'))
+    return parseYml(readFileSync(path, 'utf8'))
   } catch (error: unknown) {
     // Un archivo ilegible se trata como vacío. Perder una llave es molesto;
     // que la app no arranque por una comilla suelta es peor.
@@ -153,27 +153,27 @@ export function leerAlbusYml(): Record<string, string> {
   }
 }
 
-export function escribirEnAlbusYml(clave: string, valor: string): void {
-  const datos = leerAlbusYml()
-  datos[clave] = valor
+export function writeToAlbusYml(key: string, value: string): void {
+  const data = readAlbusYml()
+  data[key] = value
 
-  const ruta = rutaAlbusYml()
-  mkdirSync(dirname(ruta), { recursive: true })
-  writeFileSync(ruta, serializar(datos), 'utf8')
-  console.log(`[albus.yml] ${clave} guardado en ${ruta}`)
+  const path = albusYmlPath()
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, serialize(data), 'utf8')
+  console.log(`[albus.yml] ${key} guardado en ${path}`)
 }
 
-export function borrarDeAlbusYml(clave: string): void {
-  const datos = leerAlbusYml()
-  if (!(clave in datos)) return
+export function deleteFromAlbusYml(key: string): void {
+  const data = readAlbusYml()
+  if (!(key in data)) return
 
-  delete datos[clave]
-  const ruta = rutaAlbusYml()
-  writeFileSync(ruta, serializar(datos), 'utf8')
+  delete data[key]
+  const path = albusYmlPath()
+  writeFileSync(path, serialize(data), 'utf8')
 }
 
 /** `null` si no está o está vacío. Una clave vacía es como no tenerla. */
-export function deAlbusYml(clave: string): string | null {
-  const v = leerAlbusYml()[clave]
+export function fromAlbusYml(key: string): string | null {
+  const v = readAlbusYml()[key]
   return v !== undefined && v.trim() !== '' ? v : null
 }

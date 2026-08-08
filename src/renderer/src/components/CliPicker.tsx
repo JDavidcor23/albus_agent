@@ -4,50 +4,50 @@ interface Props {
   providers: CliProviderInfo[]
   providerId: string | null
   modelId: string | null
-  deshabilitado: boolean
-  refrescando: boolean
-  cargando: boolean
+  disabled: boolean
+  refreshing: boolean
+  loading: boolean
   onChange: (providerId: string | null, modelId: string | null) => void
-  onRefrescar: () => void
+  onRefresh: () => void
 }
 
-const COMO: Record<string, string> = {
+const HOW: Record<string, string> = {
   seed: 'candidatos sin verificar',
   listed: 'el cli los enumera',
   probed: 'probados uno por uno',
   cached: 'de cache'
 }
 
-interface Opcion {
-  valor: string | null
-  texto: string
+interface Option {
+  value: string | null
+  text: string
 }
 
-function Fila({
-  opciones,
-  activo,
-  deshabilitado,
+function Row({
+  options,
+  active,
+  disabled,
   onPick
 }: {
-  opciones: Opcion[]
-  activo: string | null
-  deshabilitado: boolean
-  onPick: (valor: string | null) => void
+  options: Option[]
+  active: string | null
+  disabled: boolean
+  onPick: (value: string | null) => void
 }): React.JSX.Element {
   return (
     <div className="pick-row" role="radiogroup">
-      {opciones.map((o, i) => (
-        <span key={o.valor ?? 'none'} className="pick-item">
+      {options.map((o, i) => (
+        <span key={o.value ?? 'none'} className="pick-item">
           {i > 0 && <span className="pick-sep">·</span>}
           <button
             type="button"
             role="radio"
-            aria-checked={activo === o.valor}
-            className={`pick ${activo === o.valor ? 'pick-on' : ''}`}
-            disabled={deshabilitado}
-            onClick={() => onPick(o.valor)}
+            aria-checked={active === o.value}
+            className={`pick ${active === o.value ? 'pick-on' : ''}`}
+            disabled={disabled}
+            onClick={() => onPick(o.value)}
           >
-            {o.texto}
+            {o.text}
           </button>
         </span>
       ))}
@@ -64,48 +64,48 @@ export function CliPicker({
   providers,
   providerId,
   modelId,
-  deshabilitado,
-  refrescando,
-  cargando,
+  disabled,
+  refreshing,
+  loading,
   onChange,
-  onRefrescar
+  onRefresh
 }: Props): React.JSX.Element {
-  const actual = providers.find((p) => p.id === providerId) ?? null
+  const current = providers.find((p) => p.id === providerId) ?? null
 
-  const opcionesProveedor: Opcion[] = providers.map((p) => ({ valor: p.id, texto: p.id }))
+  const providerOptions: Option[] = providers.map((p) => ({ value: p.id, text: p.id }))
 
   return (
     <div className="cli-picker">
       <div className="cli-label">cli detectado</div>
 
-      <Fila
-        opciones={opcionesProveedor}
-        activo={providerId}
-        deshabilitado={deshabilitado}
+      <Row
+        options={providerOptions}
+        active={providerId}
+        disabled={disabled}
         onPick={(v) => {
           const p = providers.find((x) => x.id === v) ?? null
           onChange(v, p?.models[0]?.id ?? null)
         }}
       />
 
-      {actual !== null && actual.models.length > 0 && (
-        <Fila
-          opciones={actual.models.map((m) => ({ valor: m.id, texto: m.id }))}
-          activo={modelId ?? actual.models[0].id}
-          deshabilitado={deshabilitado}
-          onPick={(v) => onChange(actual.id, v)}
+      {current !== null && current.models.length > 0 && (
+        <Row
+          options={current.models.map((m) => ({ value: m.id, text: m.id }))}
+          active={modelId ?? current.models[0].id}
+          disabled={disabled}
+          onPick={(v) => onChange(current.id, v)}
         />
       )}
 
-      {actual !== null && (
+      {current !== null && (
         <p className="cli-hint">
-          {actual.models.length} modelos · {COMO[actual.method] ?? actual.method} ·{' '}
-          {actual.cliVersion}
+          {current.models.length} modelos · {HOW[current.method] ?? current.method} ·{' '}
+          {current.cliVersion}
         </p>
       )}
 
       <p className="cli-hint">
-        {cargando
+        {loading
           ? 'buscando cli…'
           : providers.length === 0
             ? 'ningún CLI en el PATH'
@@ -115,10 +115,10 @@ export function CliPicker({
       <button
         type="button"
         className="pick cli-refresh"
-        disabled={deshabilitado || refrescando}
-        onClick={onRefrescar}
+        disabled={disabled || refreshing}
+        onClick={onRefresh}
       >
-        {refrescando ? 'probando cada modelo…' : 'verificar modelos'}
+        {refreshing ? 'probando cada modelo…' : 'verificar modelos'}
       </button>
     </div>
   )

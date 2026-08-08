@@ -11,9 +11,9 @@
 import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 
-const [comando, ...resto] = process.argv.slice(2)
+const [command, ...rest] = process.argv.slice(2)
 
-const AYUDA = `
+const HELP = `
 Comandos:
   login                   abre LinkedIn para que entres a mano. Una sola vez.
   apply <json|archivo>    completa el formulario de una vacante
@@ -41,45 +41,45 @@ Los modos:
   auto      envía. Va contra el ToS de LinkedIn: la cuenta que se arriesga es la tuya.
 `
 
-const entorno = { ...process.env }
+const env = { ...process.env }
 
-if (comando === 'selftest') {
-  entorno.ALBUS_JOBS_SELFTEST = '1'
-} else if (comando === 'nav') {
-  entorno.ALBUS_NAV_CHECK = '1'
-} else if (comando === 'inspect') {
-  const url = resto.join(' ').trim()
+if (command === 'selftest') {
+  env.ALBUS_JOBS_SELFTEST = '1'
+} else if (command === 'nav') {
+  env.ALBUS_NAV_CHECK = '1'
+} else if (command === 'inspect') {
+  const url = rest.join(' ').trim()
   if (url === '') {
-    console.error('Falta la URL a inspeccionar.\n' + AYUDA)
+    console.error('Falta la URL a inspeccionar.\n' + HELP)
     process.exit(1)
   }
-  entorno.ALBUS_NAV_INSPECT = url
-} else if (comando === 'supa') {
-  entorno.ALBUS_SUPA_REPRO = '1'
-} else if (comando === 'notion-probe') {
-  entorno.ALBUS_NOTION_PROBE = '1'
-} else if (comando === 'demo') {
-  entorno.ALBUS_UI_DEMO = '1'
-} else if (comando === 'ui') {
-  entorno.ALBUS_UI_SELFTEST = '1'
-} else if (comando === 'login') {
-  entorno.ALBUS_JOBS_LOGIN = '1'
-} else if (comando === 'apply') {
-  const arg = resto.join(' ').trim()
+  env.ALBUS_NAV_INSPECT = url
+} else if (command === 'supa') {
+  env.ALBUS_SUPA_REPRO = '1'
+} else if (command === 'notion-probe') {
+  env.ALBUS_NOTION_PROBE = '1'
+} else if (command === 'demo') {
+  env.ALBUS_UI_DEMO = '1'
+} else if (command === 'ui') {
+  env.ALBUS_UI_SELFTEST = '1'
+} else if (command === 'login') {
+  env.ALBUS_JOBS_LOGIN = '1'
+} else if (command === 'apply') {
+  const arg = rest.join(' ').trim()
   if (arg === '') {
-    console.error('Falta el JSON de la postulación.\n' + AYUDA)
+    console.error('Falta el JSON de la postulación.\n' + HELP)
     process.exit(1)
   }
-  entorno.ALBUS_JOBS_APPLY = arg.startsWith('{') ? arg : readFileSync(arg, 'utf8')
+  env.ALBUS_JOBS_APPLY = arg.startsWith('{') ? arg : readFileSync(arg, 'utf8')
 } else {
-  console.log(AYUDA)
-  process.exit(comando === undefined ? 0 : 1)
+  console.log(HELP)
+  process.exit(command === undefined ? 0 : 1)
 }
 
-const hijo = spawn('npx', ['electron-vite', 'dev'], {
+const child = spawn('npx', ['electron-vite', 'dev'], {
   stdio: 'inherit',
   shell: true,
-  env: entorno
+  env: env
 })
 
 /**
@@ -95,25 +95,25 @@ const hijo = spawn('npx', ['electron-vite', 'dev'], {
  * La app ahora se defiende con `requestSingleInstanceLock`, pero eso solo evita
  * el daño; el que ensuciaba era este script.
  */
-function matarArbol() {
-  if (hijo.pid === undefined) return
+function killTree() {
+  if (child.pid === undefined) return
   try {
     if (process.platform === 'win32') {
-      spawn('taskkill', ['/pid', String(hijo.pid), '/T', '/F'], { stdio: 'ignore' })
+      spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
     } else {
-      process.kill(-hijo.pid, 'SIGKILL')
+      process.kill(-child.pid, 'SIGKILL')
     }
   } catch {
     // Ya no estaba. Es el resultado que queríamos igual.
   }
 }
 
-for (const senal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-  process.on(senal, () => {
-    matarArbol()
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(signal, () => {
+    killTree()
     process.exit(1)
   })
 }
-process.on('exit', matarArbol)
+process.on('exit', killTree)
 
-hijo.on('close', (code) => process.exit(code ?? 0))
+child.on('close', (code) => process.exit(code ?? 0))

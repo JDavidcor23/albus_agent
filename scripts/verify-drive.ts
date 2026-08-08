@@ -52,7 +52,7 @@ const RECEIPT: ExtractionResult = {
 
 // Se deriva del MISMO resultado que se sube. Calcularlo con un payload distinto
 // hacia que el test buscara un nombre que nunca se creo.
-const NOMBRE_ESPERADO = archiveFileName(ITEM, RECEIPT)
+const EXPECTED_NAME = archiveFileName(ITEM, RECEIPT)
 
 async function main(): Promise<void> {
   // --- 1. Politica de retencion: funciones puras, sin red -------------------
@@ -89,7 +89,7 @@ async function main(): Promise<void> {
   // La regla de oro: con bytes en la mano, NUNCA se descarta el original.
   // El OCR de las laminas produce basura ("Y1los — OS y tomamos decisiones"),
   // asi que borrar apoyandose en el texto es perder el contenido.
-  const TODOS: ExtractionResult['kind'][] = [
+  const ALL_KINDS: ExtractionResult['kind'][] = [
     'qr',
     'receipt',
     'profile',
@@ -98,30 +98,30 @@ async function main(): Promise<void> {
     'none',
     'failed'
   ]
-  const sinCarpeta = TODOS.filter(
+  const withoutFolder = ALL_KINDS.filter(
     (kind) => decideArchive({ kind, payload: {}, confidence: 0, source: 'x' }) === null
   )
   check(
     'ningun kind descarta el original',
-    sinCarpeta.length === 0,
-    `se descartarian: ${sinCarpeta.join(', ')}`
+    withoutFolder.length === 0,
+    `se descartarian: ${withoutFolder.join(', ')}`
   )
 
   // El nombre tiene que ser encontrable desde el celular, no arrastrar el UUID
   // de Storage. Etiqueta = lo que escribio el usuario; fecha = la del PAGO.
-  const nombre = archiveFileName(ITEM, RECEIPT)
-  check('nombre usa la etiqueta del usuario, no el UUID', nombre.includes('pago-de-gym'), nombre)
-  check('nombre usa la fecha del PAGO, no la de captura', nombre.startsWith('2026-05-30_'), nombre)
-  check('nombre conserva la extension', nombre.endsWith('.png'), nombre)
-  check('nombre no arrastra el UUID de Storage', !nombre.includes('e5928075'), nombre)
+  const name = archiveFileName(ITEM, RECEIPT)
+  check('nombre usa la etiqueta del usuario, no el UUID', name.includes('pago-de-gym'), name)
+  check('nombre usa la fecha del PAGO, no la de captura', name.startsWith('2026-05-30_'), name)
+  check('nombre conserva la extension', name.endsWith('.png'), name)
+  check('nombre no arrastra el UUID de Storage', !name.includes('e5928075'), name)
 
   // Regresion del 403 que rompio produccion: Drive limita CADA appProperty a
   // 124 bytes UTF-8 contando clave + valor.
-  const pesoProp = Buffer.byteLength(`albusKey${archiveKey(ITEM)}`, 'utf8')
+  const propBytes = Buffer.byteLength(`albusKey${archiveKey(ITEM)}`, 'utf8')
   check(
-    `clave de idempotencia entra en los 124 bytes de Drive (${pesoProp})`,
-    pesoProp <= 124,
-    `${pesoProp} bytes`
+    `clave de idempotencia entra en los 124 bytes de Drive (${propBytes})`,
+    propBytes <= 124,
+    `${propBytes} bytes`
   )
 
   // --- 2. Round-trip real contra Drive -------------------------------------
@@ -156,7 +156,7 @@ async function main(): Promise<void> {
     check('idempotencia: marca reused=true', second.reused === true)
 
     // Y que efectivamente haya UNA sola copia en Drive.
-    const copies = await listAll(`name = '${NOMBRE_ESPERADO}' and trashed = false`)
+    const copies = await listAll(`name = '${EXPECTED_NAME}' and trashed = false`)
     check('hay exactamente 1 copia en Drive', copies.length === 1, `encontradas: ${copies.length}`)
 
     // Y que este en la carpeta correcta.

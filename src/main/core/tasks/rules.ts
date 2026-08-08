@@ -1,5 +1,5 @@
 import type { DetectedTask, TaskCandidate } from './types'
-import { esCifrado, etiquetaDe, identidadDe } from './qr-identity'
+import { isEncrypted, labelOf, identityOf } from './qr-identity'
 
 /**
  * Pendientes que se deciden por REGLA, sin preguntarle a ningún modelo.
@@ -21,21 +21,21 @@ import { esCifrado, etiquetaDe, identidadDe } from './qr-identity'
  */
 
 /** Un QR de LinkedIn no es una acción: es un contacto. Ese lo maneja el modelo. */
-function esContacto(payload: Record<string, unknown>): boolean {
+function isContact(payload: Record<string, unknown>): boolean {
   const profiles = payload.profiles
   return Array.isArray(profiles) && profiles.length > 0
 }
 
 /** Los codes del payload de un QR, como texto plano y estable. */
-function codigosDe(payload: Record<string, unknown>): string[] {
+function codesOf(payload: Record<string, unknown>): string[] {
   const codes = payload.codes
   if (!Array.isArray(codes)) return []
   return codes.filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
 }
 
-function recortar(texto: string, max: number): string {
-  const limpio = texto.replace(/\s+/g, ' ').trim()
-  return limpio.length > max ? `${limpio.slice(0, max)}…` : limpio
+function truncate(text: string, max: number): string {
+  const clean = text.replace(/\s+/g, ' ').trim()
+  return clean.length > max ? `${clean.slice(0, max)}…` : clean
 }
 
 /**
@@ -48,9 +48,9 @@ function recortar(texto: string, max: number): string {
  * Sin nota tampoco hay hash. Si la identidad ya colapsó todos los cifrados de la
  * nota en uno, no hay con qué colisionar.
  */
-function tituloDeCifrado(body: string): string {
-  const nota = recortar(body, 70)
-  return nota.length > 0 ? `Usar el QR de: ${nota}` : 'Usar el código QR de esta nota'
+function encryptedTitle(body: string): string {
+  const note = truncate(body, 70)
+  return note.length > 0 ? `Usar el QR de: ${note}` : 'Usar el código QR de esta nota'
 }
 
 /**
@@ -67,33 +67,33 @@ function tituloDeCifrado(body: string): string {
  * repetidos. Con esto quedan 2 pendientes: el grupo de Meetup y la entrada.
  */
 export function deterministicTasks(candidate: TaskCandidate): DetectedTask[] {
-  const vistos = new Set<string>()
+  const seen = new Set<string>()
   const out: DetectedTask[] = []
 
   for (const a of candidate.attachments) {
     if (a.kind !== 'qr') continue
-    if (esContacto(a.payload)) continue
+    if (isContact(a.payload)) continue
 
-    for (const code of codigosDe(a.payload)) {
-      const identidad = identidadDe(code)
-      if (vistos.has(identidad)) continue
-      vistos.add(identidad)
+    for (const code of codesOf(a.payload)) {
+      const identity = identityOf(code)
+      if (seen.has(identity)) continue
+      seen.add(identity)
 
-      const etiqueta = etiquetaDe(code)
-      const cifrado = esCifrado(code)
+      const label = labelOf(code)
+      const encrypted = isEncrypted(code)
 
       out.push({
-        title: etiqueta !== null ? `Usar el QR de ${etiqueta}` : tituloDeCifrado(candidate.body),
+        title: label !== null ? `Usar el QR de ${label}` : encryptedTitle(candidate.body),
 
         // Sin volcado de datos: el título ya dice qué es, y el ciphertext no le
         // dice nada a nadie. Para un QR cifrado se explica POR QUÉ no hay más —
         // si no, parece que falta información cuando en realidad no existe.
-        detail: cifrado ? 'QR cifrado: solo lo puede leer la app del organizador.' : null,
+        detail: encrypted ? 'QR cifrado: solo lo puede leer la app del organizador.' : null,
 
         // Solo los legibles deduplican entre notas distintas. La identidad de un
         // cifrado es una constante: hacerla única por usuario dejaría al usuario
         // con un solo pendiente de entrada de evento para siempre.
-        dedupeKey: cifrado ? null : identidad,
+        dedupeKey: encrypted ? null : identity,
 
         // 1.0 y no menos: no es una inferencia sobre la que se pueda dudar,
         // es la regla que pidió el usuario.
@@ -106,6 +106,6 @@ export function deterministicTasks(candidate: TaskCandidate): DetectedTask[] {
 }
 
 /** Títulos ya cubiertos por una regla, para que el modelo no los repita. */
-export function titulosDeterministas(tasks: DetectedTask[]): Set<string> {
+export function deterministicTitles(tasks: DetectedTask[]): Set<string> {
   return new Set(tasks.map((t) => t.title.toLowerCase()))
 }

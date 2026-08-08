@@ -17,25 +17,25 @@ import type { CandidateProfile } from './types'
  * control. El espacio NO entra a propósito: "CV Jorge David Diaz.pdf" tiene
  * que conservar los suyos, que es justamente el pedido.
  */
-const ILEGALES = /[<>:"/\\|?*\u0000-\u001f]/g
+const ILLEGAL = /[<>:"/\\|?*\u0000-\u001f]/g
 
 export function sanitizeFileName(base: string): string {
-  const limpio = base
-    .replace(ILEGALES, '')
+  const clean = base
+    .replace(ILLEGAL, '')
     .replace(/\s+/g, ' ')
     .trim()
     // Windows tampoco tolera un nombre terminado en punto o espacio.
     .replace(/[. ]+$/, '')
 
-  if (limpio === '') throw new Error('el nombre de archivo quedó vacío después de limpiarlo')
-  return limpio
+  if (clean === '') throw new Error('el nombre de archivo quedó vacío después de limpiarlo')
+  return clean
 }
 
 /** Extensión del origen, en minúsculas, con el punto. Vacío si no tiene. */
 export function extensionOf(sourcePath: string): string {
   const base = sourcePath.replace(/\\/g, '/').split('/').pop() ?? ''
-  const punto = base.lastIndexOf('.')
-  return punto <= 0 ? '' : base.slice(punto).toLowerCase()
+  const dot = base.lastIndexOf('.')
+  return dot <= 0 ? '' : base.slice(dot).toLowerCase()
 }
 
 export function uploadFileName(base: string, sourcePath: string): string {
@@ -54,8 +54,8 @@ export function coverUploadName(p: CandidateProfile, sourcePath: string): string
  * ¿Este `input[type=file]` es el del CV o el de la carta? Un formulario puede
  * tener los dos y subir la carta donde va el CV es peor que no subir nada.
  */
-export function classifyFileField(labelYNombre: string): 'cv' | 'cover' | 'unknown' {
-  const hay = normalize(labelYNombre)
+export function classifyFileField(labelAndName: string): 'cv' | 'cover' | 'unknown' {
+  const hay = normalize(labelAndName)
   if (/cover[\s_-]*letter|carta[\s_-]*(de[\s_-]*)?presentacion|motivation/.test(hay)) return 'cover'
   if (/resume|\bcv\b|curriculum|hoja de vida/.test(hay)) return 'cv'
   return 'unknown'

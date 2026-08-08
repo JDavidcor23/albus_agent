@@ -1,7 +1,7 @@
 import { shell } from 'electron'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { carpetaAgentes } from '../paths'
+import { agentsDir } from '../paths'
 
 /**
  * Las reglas de cada agente, en un `.md` que el usuario edita.
@@ -33,38 +33,38 @@ import { carpetaAgentes } from '../paths'
  * lo que el usuario escribe es suyo, no del código fuente. Ver `paths.ts`.
  */
 
-export interface ReferenciaNotion {
+export interface NotionRef {
   /** El id sin guiones, listo para la API. */
   id: string
   url: string
   /** Lo que el usuario escribió al lado del link, si escribió algo. */
-  etiqueta: string
+  label: string
 }
 
-export interface ReglasAgente {
-  agenteId: string
-  ruta: string
+export interface AgentRules {
+  agentId: string
+  path: string
   /** `false` si el archivo todavía no existe (se devuelve la plantilla). */
-  existe: boolean
+  exists: boolean
   /** El markdown completo. Es lo que se le pasa al agente como contexto. */
-  texto: string
+  text: string
   /** Lo que el usuario escribió, sin títulos ni instructivo. Para mostrarlo. */
-  resumen: string[]
+  summary: string[]
   /** Las páginas o bases de Notion que el usuario enlazó. */
-  notion: ReferenciaNotion[]
+  notion: NotionRef[]
   /** Las carpetas de Drive que enlazó. */
-  drive: ReferenciaNotion[]
+  drive: NotionRef[]
 }
 
-export function carpetaReglas(): string {
-  return carpetaAgentes()
+export function rulesDir(): string {
+  return agentsDir()
 }
 
-export function rutaReglas(agenteId: string): string {
+export function rulesPath(agentId: string): string {
   // El id sale del registro, no del usuario, pero igual no se concatena algo
   // que pueda tener `..` o barras: un id raro no va a escribir fuera de acá.
-  const limpio = agenteId.replace(/[^a-z0-9-]/gi, '')
-  return join(carpetaReglas(), `${limpio}.md`)
+  const clean = agentId.replace(/[^a-z0-9-]/gi, '')
+  return join(rulesDir(), `${clean}.md`)
 }
 
 /**
@@ -92,8 +92,8 @@ const RE_DRIVE = /https?:\/\/(?:drive|docs)\.google\.com\/\S*?(?:folders|\/d)\/(
  * Sirve para que la UI muestre "Registro de aplicaciones" en vez de un hash de
  * 32 caracteres — y para que el usuario reconozca cuál eligió.
  */
-function etiquetaDeLinea(linea: string): string {
-  return linea
+function labelFromLine(line: string): string {
+  return line
     .replace(/https?:\/\/\S+/g, '')
     .replace(/^[\s>*+-]*\[?/, '')
     .replace(/\]?\(?\)?/g, '')
@@ -101,26 +101,26 @@ function etiquetaDeLinea(linea: string): string {
     .trim()
 }
 
-function extraer(texto: string, re: RegExp): ReferenciaNotion[] {
-  const salida: ReferenciaNotion[] = []
-  const vistos = new Set<string>()
+function extract(text: string, re: RegExp): NotionRef[] {
+  const output: NotionRef[] = []
+  const seen = new Set<string>()
 
-  for (const linea of texto.split(/\r?\n/)) {
+  for (const line of text.split(/\r?\n/)) {
     // Una línea comentada con `<!--` es del ejemplo de la plantilla, no una
     // regla del usuario. Sin esto, la plantilla se autoconfigura sola.
-    if (linea.trim().startsWith('<!--')) continue
+    if (line.trim().startsWith('<!--')) continue
 
     re.lastIndex = 0
     let m: RegExpExecArray | null
-    while ((m = re.exec(linea)) !== null) {
+    while ((m = re.exec(line)) !== null) {
       const id = m[1].replace(/-/g, '')
-      if (vistos.has(id)) continue
-      vistos.add(id)
-      salida.push({ id, url: m[0], etiqueta: etiquetaDeLinea(linea) })
+      if (seen.has(id)) continue
+      seen.add(id)
+      output.push({ id, url: m[0], label: labelFromLine(line) })
     }
   }
 
-  return salida
+  return output
 }
 
 /**
@@ -135,11 +135,11 @@ function extraer(texto: string, re: RegExp): ReferenciaNotion[] {
  * de la plantilla: si eso contara, un archivo recién creado se vería "lleno"
  * sin que el usuario haya escrito una sola regla.
  */
-function resumirReglas(texto: string): string[] {
-  const salida: string[] = []
-  let enComentario = false
+function summarizeRules(text: string): string[] {
+  const output: string[] = []
+  let inComment = false
 
-  for (const cruda of texto.split(/\r?\n/)) {
+  for (const raw of text.split(/\r?\n/)) {
     /*
      * Un comentario que ABRE Y CIERRA en la misma línea se recorta; solo se
      * entra en modo "saltear" si queda abierto.
@@ -148,20 +148,20 @@ function resumirReglas(texto: string): string[] {
      * del agente —que se anexan como `- respuesta  <!-- preguntaste: … -->`—
      * desaparecían del panel: el usuario contestaba y no veía nada cambiar.
      */
-    let linea = cruda.replace(/<!--[\s\S]*?-->/g, '').trim()
+    let line = raw.replace(/<!--[\s\S]*?-->/g, '').trim()
 
-    if (enComentario) {
+    if (inComment) {
       // Adentro de un bloque abierto: se sale al ver el cierre, y lo que venga
       // después en esa misma línea sí cuenta.
-      const cierre = linea.indexOf('-->')
-      if (cierre === -1) continue
-      enComentario = false
-      linea = linea.slice(cierre + 3).trim()
+      const closes = line.indexOf('-->')
+      if (closes === -1) continue
+      inComment = false
+      line = line.slice(closes + 3).trim()
     }
 
-    if (linea.includes('<!--')) {
-      enComentario = true
-      linea = linea.slice(0, linea.indexOf('<!--')).trim()
+    if (line.includes('<!--')) {
+      inComment = true
+      line = line.slice(0, line.indexOf('<!--')).trim()
     }
 
     /*
@@ -176,9 +176,9 @@ function resumirReglas(texto: string): string[] {
      * Una regla es una viñeta. La prosa explicativa no lo es. Sin listas de
      * frases prohibidas que mantener.
      */
-    if (!/^[-*+]\s+/.test(linea)) continue
+    if (!/^[-*+]\s+/.test(line)) continue
 
-    const sinVineta = linea
+    const withoutBullet = line
       .replace(/^[-*+]\s*/, '')
       // Las URLs se van: son configuración, no una regla que alguien lea. A
       // dónde escribe el agente se muestra en el pie, y un hash de 32
@@ -189,23 +189,23 @@ function resumirReglas(texto: string): string[] {
 
     // "Roles:" —o lo que quedó de una línea que solo tenía un link— es un
     // renglón que el usuario todavía no llenó.
-    if (sinVineta === '' || sinVineta.endsWith(':') || sinVineta.length < 3) continue
+    if (withoutBullet === '' || withoutBullet.endsWith(':') || withoutBullet.length < 3) continue
 
-    salida.push(sinVineta.slice(0, 140))
+    output.push(withoutBullet.slice(0, 140))
   }
 
-  return salida
+  return output
 }
 
-export function parsearReglas(agenteId: string, texto: string, ruta: string, existe: boolean): ReglasAgente {
+export function parseRules(agentId: string, text: string, path: string, exists: boolean): AgentRules {
   return {
-    agenteId,
-    ruta,
-    existe,
-    texto,
-    resumen: resumirReglas(texto),
-    notion: extraer(texto, RE_NOTION),
-    drive: extraer(texto, RE_DRIVE)
+    agentId,
+    path,
+    exists,
+    text,
+    summary: summarizeRules(text),
+    notion: extract(text, RE_NOTION),
+    drive: extract(text, RE_DRIVE)
   }
 }
 
@@ -217,37 +217,37 @@ export function parsearReglas(agenteId: string, texto: string, ruta: string, exi
  * instructivo como si el usuario los hubiera escrito — y el botón dijera
  * "escribir las primeras" arriba de una lista llena.
  */
-function sinReglas(agenteId: string, plantilla: string, ruta: string): ReglasAgente {
-  return { ...parsearReglas(agenteId, plantilla, ruta, false), resumen: [], notion: [], drive: [] }
+function noRules(agentId: string, template: string, path: string): AgentRules {
+  return { ...parseRules(agentId, template, path, false), summary: [], notion: [], drive: [] }
 }
 
-export function leerReglas(agenteId: string, plantilla = ''): ReglasAgente {
-  const ruta = rutaReglas(agenteId)
+export function readRules(agentId: string, template = ''): AgentRules {
+  const path = rulesPath(agentId)
 
-  if (!existsSync(ruta)) return sinReglas(agenteId, plantilla, ruta)
+  if (!existsSync(path)) return noRules(agentId, template, path)
 
   try {
-    return parsearReglas(agenteId, readFileSync(ruta, 'utf8'), ruta, true)
+    return parseRules(agentId, readFileSync(path, 'utf8'), path, true)
   } catch (error: unknown) {
-    console.warn(`[reglas] no pude leer ${ruta}: ${String(error)}`)
-    return sinReglas(agenteId, plantilla, ruta)
+    console.warn(`[reglas] no pude leer ${path}: ${String(error)}`)
+    return noRules(agentId, template, path)
   }
 }
 
 /** Crea el archivo con la plantilla si no está. Devuelve la ruta. */
-export function asegurarReglas(agenteId: string, plantilla: string): string {
-  const ruta = rutaReglas(agenteId)
-  if (existsSync(ruta)) return ruta
+export function ensureRules(agentId: string, template: string): string {
+  const path = rulesPath(agentId)
+  if (existsSync(path)) return path
 
-  mkdirSync(dirname(ruta), { recursive: true })
-  writeFileSync(ruta, plantilla, 'utf8')
-  console.log(`[reglas] creado ${ruta}`)
-  return ruta
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, template, 'utf8')
+  console.log(`[reglas] creado ${path}`)
+  return path
 }
 
 /** Abre el `.md` en el editor por defecto del sistema. */
-export async function abrirReglas(agenteId: string, plantilla: string): Promise<string> {
-  const ruta = asegurarReglas(agenteId, plantilla)
-  await shell.openPath(ruta)
-  return ruta
+export async function openRules(agentId: string, template: string): Promise<string> {
+  const path = ensureRules(agentId, template)
+  await shell.openPath(path)
+  return path
 }

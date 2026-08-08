@@ -9,43 +9,43 @@
  */
 import { getSupabaseClient } from '../src/main/supabase/client'
 
-interface Chequeo {
-  migracion: string
-  descripcion: string
-  tabla: string
-  columna: string
+interface MigrationCheck {
+  migration: string
+  description: string
+  table: string
+  column: string
 }
 
-const CHEQUEOS: Chequeo[] = [
+const CHECKS: MigrationCheck[] = [
   {
-    migracion: '0003_task_dedupe_key.sql',
-    descripcion: 'identidad de un pendiente, para no duplicarlo entre notas',
-    tabla: 'tasks',
-    columna: 'dedupe_key'
+    migration: '0003_task_dedupe_key.sql',
+    description: 'identidad de un pendiente, para no duplicarlo entre notas',
+    table: 'tasks',
+    column: 'dedupe_key'
   }
 ]
 
 async function main(): Promise<void> {
   const supabase = getSupabaseClient()
-  let faltan = 0
+  let missing = 0
 
-  for (const c of CHEQUEOS) {
-    const { error } = await supabase.from(c.tabla).select(c.columna).limit(1)
+  for (const c of CHECKS) {
+    const { error } = await supabase.from(c.table).select(c.column).limit(1)
 
     if (error === null) {
-      console.log(`  OK      ${c.migracion}`)
+      console.log(`  OK      ${c.migration}`)
       continue
     }
 
-    faltan++
-    console.log(`  FALTA   ${c.migracion}`)
-    console.log(`          ${c.descripcion}`)
-    console.log(`          ${c.tabla}.${c.columna} no existe todavía`)
+    missing++
+    console.log(`  FALTA   ${c.migration}`)
+    console.log(`          ${c.description}`)
+    console.log(`          ${c.table}.${c.column} no existe todavía`)
   }
 
-  if (faltan > 0) {
+  if (missing > 0) {
     console.log(
-      `\n${faltan} migración(es) sin aplicar. Copiá el archivo al SQL Editor de Supabase\n` +
+      `\n${missing} migración(es) sin aplicar. Copiá el archivo al SQL Editor de Supabase\n` +
         'y corrélo antes de escribir nada. Si no, el lote falla a mitad de camino\n' +
         'después de haber gastado cuota.'
     )

@@ -19,11 +19,11 @@ const Row = z.object({
 })
 
 /** Verbos que delatan algo por hacer, no algo ya hecho. */
-const VERBOS_INTENCION =
+const INTENT_VERBS =
   /\b(revisar|verificar|postular|aplicar|llamar|escribir|mandar|enviar|pagar|comprar|inscribir|agendar|leer|estudiar|probar|mirar|averiguar|preguntar|cotizar|renovar|pendiente|falta|tengo que|hay que|recordar)\w*/gi
 
 /** Verbos en pasado: eso YA pasó, no es un pendiente. */
-const VERBOS_HECHO = /\b(pagu[eé]|pagado|pago de|compr[eé]|envi[eé]|llam[eé]|termin[eé]|list[oa])\b/gi
+const DONE_VERBS = /\b(pagu[eé]|pagado|pago de|compr[eé]|envi[eé]|llam[eé]|termin[eé]|list[oa])\b/gi
 
 async function main(): Promise<void> {
   const supabase = getSupabaseClient()
@@ -34,9 +34,9 @@ async function main(): Promise<void> {
   if (error) throw new Error(error.message)
 
   let total = 0
-  let conIntencion = 0
-  let hechos = 0
-  let neutros = 0
+  let withIntent = 0
+  let done = 0
+  let neutral = 0
 
   console.log('='.repeat(72))
   console.log('TODAS LAS NOTAS, CLASIFICADAS A OJO')
@@ -49,34 +49,34 @@ async function main(): Promise<void> {
     if (body.length === 0) continue
 
     total++
-    const intenciones = [...new Set((body.match(VERBOS_INTENCION) ?? []).map((v) => v.toLowerCase()))]
-    const yaHecho = (body.match(VERBOS_HECHO) ?? []).length > 0
+    const intents = [...new Set((body.match(INTENT_VERBS) ?? []).map((v) => v.toLowerCase()))]
+    const alreadyDone = (body.match(DONE_VERBS) ?? []).length > 0
 
-    let etiqueta: string
-    if (yaHecho) {
-      etiqueta = 'HECHO   '
-      hechos++
-    } else if (intenciones.length > 0) {
-      etiqueta = 'PENDIENTE'
-      conIntencion++
+    let label: string
+    if (alreadyDone) {
+      label = 'HECHO   '
+      done++
+    } else if (intents.length > 0) {
+      label = 'PENDIENTE'
+      withIntent++
     } else {
-      etiqueta = 'ni idea '
-      neutros++
+      label = 'ni idea '
+      neutral++
     }
 
     const adj = (parsed.data.attachments ?? []).length
     console.log(
-      `${etiqueta}  ${body.slice(0, 58).padEnd(58)}` +
+      `${label}  ${body.slice(0, 58).padEnd(58)}` +
         `${adj ? ` [${adj} adj]` : ''}` +
-        `${intenciones.length ? `  <- ${intenciones.join(', ')}` : ''}`
+        `${intents.length ? `  <- ${intents.join(', ')}` : ''}`
     )
   }
 
   console.log('\n' + '='.repeat(72))
   console.log(`notas con texto : ${total}`)
-  console.log(`  PENDIENTE     : ${conIntencion}  (hay un verbo de intención)`)
-  console.log(`  HECHO         : ${hechos}  (habla en pasado)`)
-  console.log(`  sin señal     : ${neutros}`)
+  console.log(`  PENDIENTE     : ${withIntent}  (hay un verbo de intención)`)
+  console.log(`  HECHO         : ${done}  (habla en pasado)`)
+  console.log(`  sin señal     : ${neutral}`)
   console.log('='.repeat(72))
   console.log(
     '\nNinguna tiene estado. Nada dice si ya se resolvió: eso no existe todavia\n' +

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { LlmProvider } from '../extraction/llm-port'
-import { esLegible, limpiarOcr } from '../extraction/clean-ocr'
-import { esCifrado, etiquetaDe } from './qr-identity'
+import { isReadable, cleanOcr } from '../extraction/clean-ocr'
+import { isEncrypted, labelOf } from './qr-identity'
 import type { AttachmentInfo, DetectedTask, TaskCandidate } from './types'
 
 /**
@@ -13,7 +13,7 @@ import type { AttachmentInfo, DetectedTask, TaskCandidate } from './types'
  * fueran contexto. Un modelo no puede resumir bien lo que se le entrega sucio, y
  * limpiarlo acá no cuesta nada: son las mismas reglas que ya usa la UI.
  */
-function resumirAdjunto(a: AttachmentInfo): string {
+function summarizeAttachment(a: AttachmentInfo): string {
   const p = a.payload
 
   switch (a.kind) {
@@ -32,10 +32,10 @@ function resumirAdjunto(a: AttachmentInfo): string {
 
       // El ciphertext no es información: decirle al modelo que la entrada está
       // cifrada le da MÁS contexto que pegarle 120 caracteres de base64.
-      const descripciones = codes.map((c) =>
-        esCifrado(c) ? 'entrada de evento cifrada (solo la lee la app del organizador)' : etiquetaDe(c)
+      const descriptions = codes.map((c) =>
+        isEncrypted(c) ? 'entrada de evento cifrada (solo la lee la app del organizador)' : labelOf(c)
       )
-      return `código QR de: ${[...new Set(descripciones)].filter(Boolean).join(' / ')}`
+      return `código QR de: ${[...new Set(descriptions)].filter(Boolean).join(' / ')}`
     }
 
     case 'profile':
@@ -43,9 +43,9 @@ function resumirAdjunto(a: AttachmentInfo): string {
 
     case 'text':
     case 'document': {
-      const limpio = limpiarOcr(String(p.text ?? ''))
-      if (!esLegible(limpio)) return 'una captura de pantalla que el OCR no pudo leer'
-      return `captura de pantalla, texto leído: "${limpio.replace(/\n/g, ' · ').slice(0, 400)}"`
+      const clean = cleanOcr(String(p.text ?? ''))
+      if (!isReadable(clean)) return 'una captura de pantalla que el OCR no pudo leer'
+      return `captura de pantalla, texto leído: "${clean.replace(/\n/g, ' · ').slice(0, 400)}"`
     }
 
     default:
@@ -53,7 +53,7 @@ function resumirAdjunto(a: AttachmentInfo): string {
   }
 }
 
-const RespuestaSchema = z.object({
+const DetectionSchema = z.object({
   tasks: z
     .array(
       z.object({
@@ -85,7 +85,7 @@ const RespuestaSchema = z.object({
  * es "postularme" hay que ENTENDER que una oferta guardada es una oportunidad sin
  * atender. Ninguna regla de texto llega ahí.
  */
-const INSTRUCCIONES = `Leés notas cortas que una persona se escribe a sí misma al guardar algo
+const INSTRUCTIONS = `Leés notas cortas que una persona se escribe a sí misma al guardar algo
 en su app de notas. Tu única tarea es decidir si queda ALGO POR HACER.
 
 Respondé SOLO con un objeto JSON, sin markdown y sin explicaciones:
@@ -147,12 +147,12 @@ donde 15 son ruido se deja de leer a la semana. Preferí perderte uno antes que
 llenar la lista.`
 
 /** Saca el JSON aunque el modelo lo haya envuelto en markdown o prosa. */
-function extraerJson(bruto: string): unknown {
-  const sinCerca = bruto.replace(/```(?:json)?/gi, '').trim()
-  const inicio = sinCerca.indexOf('{')
-  const fin = sinCerca.lastIndexOf('}')
-  if (inicio === -1 || fin <= inicio) throw new Error('la respuesta no traía JSON')
-  return JSON.parse(sinCerca.slice(inicio, fin + 1))
+function extractJson(raw: string): unknown {
+  const withoutFences = raw.replace(/```(?:json)?/gi, '').trim()
+  const start = withoutFences.indexOf('{')
+  const end = withoutFences.lastIndexOf('}')
+  if (start === -1 || end <= start) throw new Error('la respuesta no traía JSON')
+  return JSON.parse(withoutFences.slice(start, end + 1))
 }
 
 export interface DetectionResult {
@@ -170,7 +170,7 @@ export interface DetectionResult {
  * segundo pedido "resumime esta nota" duplicaría el consumo de cuota para
  * mandar exactamente el mismo contexto.
  *
- * `hoy` entra por parámetro y no se lee del reloj: hace falta para decidir si un
+ * `today` entra por parámetro y no se lee del reloj: hace falta para decidir si un
  * evento ya pasó, y pasarlo explícito mantiene la función testeable.
  *
  * NUNCA propaga excepciones: un modelo caído o una respuesta con forma rara
@@ -181,25 +181,25 @@ export async function detectTasks(
   provider: LlmProvider,
   model: string | null,
   candidate: TaskCandidate,
-  hoy: string
+  today: string
 ): Promise<DetectionResult> {
-  const utiles = candidate.attachments.filter((a) => a.kind !== 'none' && a.kind !== 'failed')
-  const adjuntos =
-    utiles.length > 0
-      ? utiles.map((a) => `  - ${resumirAdjunto(a)}`).join('\n')
+  const useful = candidate.attachments.filter((a) => a.kind !== 'none' && a.kind !== 'failed')
+  const attachments =
+    useful.length > 0
+      ? useful.map((a) => `  - ${summarizeAttachment(a)}`).join('\n')
       : '  (sin adjuntos)'
 
   const prompt =
-    `${INSTRUCCIONES}\n\n` +
-    `Hoy es ${hoy}. Un evento con fecha anterior ya pasó y no es pendiente.\n\n` +
+    `${INSTRUCTIONS}\n\n` +
+    `Hoy es ${today}. Un evento con fecha anterior ya pasó y no es pendiente.\n\n` +
     `--- NOTA ---\n${candidate.body.trim() || '(sin texto)'}\n\n` +
-    `--- LO QUE GUARDÓ CON ELLA ---\n${adjuntos}`
+    `--- LO QUE GUARDÓ CON ELLA ---\n${attachments}`
 
   try {
-    const bruto = await provider.run(prompt, model)
-    const parsed = RespuestaSchema.parse(extraerJson(bruto))
+    const raw = await provider.run(prompt, model)
+    const parsed = DetectionSchema.parse(extractJson(raw))
 
-    const resumen = parsed.summary?.trim() ?? ''
+    const summary = parsed.summary?.trim() ?? ''
 
     return {
       tasks: parsed.tasks
@@ -214,7 +214,7 @@ export async function detectTasks(
       // largo, es más honesto no tener resumen que mostrar algo peor que el
       // original. El +40 deja pasar el caso de una nota corta reformulada.
       summary:
-        resumen.length > 0 && resumen.length < candidate.body.trim().length + 40 ? resumen : null
+        summary.length > 0 && summary.length < candidate.body.trim().length + 40 ? summary : null
     }
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error)

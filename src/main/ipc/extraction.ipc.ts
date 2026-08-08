@@ -36,8 +36,8 @@ export function registerExtractionHandlers(): void {
   registerHandler(IpcChannels.EXTRACTION_LIST, async () => await listResults())
 
   registerHandler(IpcChannels.EXTRACTION_RESET, async () => {
-    const borradas = await clearResults()
-    return { deleted: borradas }
+    const deleted = await clearResults()
+    return { deleted }
   })
 
   registerHandler(IpcChannels.EXTRACTION_RUN, async (payload: unknown) => {

@@ -15,20 +15,20 @@ export interface ProviderInfo {
   cliVersion: string
 }
 
-const DISCOVERY: Record<string, (forzar: boolean) => Promise<Discovery>> = {
+const DISCOVERY: Record<string, (force: boolean) => Promise<Discovery>> = {
   'claude-code': discoverClaudeModels,
   agy: discoverAgyModels
 }
 
 /** Qué CLIs hay realmente instalados, con sus modelos. Para poblar el selector. */
-export async function detectProviders(forzar = false): Promise<ProviderInfo[]> {
-  const encontrados: ProviderInfo[] = []
+export async function detectProviders(force = false): Promise<ProviderInfo[]> {
+  const found: ProviderInfo[] = []
 
   for (const p of PROVIDERS) {
     if (!(await p.isAvailable())) continue
 
-    const d = await DISCOVERY[p.id](forzar)
-    encontrados.push({
+    const d = await DISCOVERY[p.id](force)
+    found.push({
       id: p.id,
       name: p.name,
       models: d.models,
@@ -38,7 +38,7 @@ export async function detectProviders(forzar = false): Promise<ProviderInfo[]> {
     })
   }
 
-  return encontrados
+  return found
 }
 
 export function getProvider(id: string): LlmProvider | null {
@@ -53,11 +53,11 @@ export function getProvider(id: string): LlmProvider | null {
  * Se prefiere `claude` porque es el que el usuario ya tiene logueado, y se cae
  * a `agy` si no está.
  *
- * `modelo` por defecto es el más barato que sirva: elegir un botón en una
+ * `model` por defecto es el más barato que sirva: elegir un botón en una
  * pantalla no necesita el modelo más caro, y esto gasta la cuota del usuario.
  */
-export async function primerProviderDisponible(
-  modelo = 'sonnet',
+export async function firstAvailableProvider(
+  model = 'sonnet',
   /**
    * Manejar un navegador arranca un proceso del CLI POR PASO, y ese proceso
    * carga su configuración y sus MCP antes de empezar a pensar. Con el techo
@@ -65,26 +65,26 @@ export async function primerProviderDisponible(
    * tiraba trabajo que ya estaba hecho.
    */
   timeoutMs = 240_000
-): Promise<{ correr: (prompt: string) => Promise<string>; id: string; modelo: string } | null> {
+): Promise<{ run: (prompt: string) => Promise<string>; id: string; model: string } | null> {
   for (const p of PROVIDERS) {
     if (!(await p.isAvailable())) continue
 
     // El alias puede no existir en ese CLI (agy no tiene "sonnet"). Se pide la
     // lista real y se cae al primero que haya antes que fallar por un nombre.
-    let elegido: string | null = modelo
+    let chosen: string | null = model
     try {
       const models = await p.listModels()
-      if (models.length > 0 && !models.some((m) => m.id === modelo)) {
-        elegido = models[0].id
+      if (models.length > 0 && !models.some((m) => m.id === model)) {
+        chosen = models[0].id
       }
     } catch {
-      elegido = null
+      chosen = null
     }
 
     return {
       id: p.id,
-      modelo: elegido ?? 'por defecto',
-      correr: (prompt: string) => p.run(prompt, elegido, timeoutMs)
+      model: chosen ?? 'por defecto',
+      run: (prompt: string) => p.run(prompt, chosen, timeoutMs)
     }
   }
 

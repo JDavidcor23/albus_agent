@@ -1,7 +1,7 @@
 import { BrowserWindow } from 'electron'
 import { createServer } from 'node:http'
 import { z } from 'zod'
-import { CLAVES, guardarSecreto } from './store'
+import { KEYS, saveSecret } from './store'
 
 /**
  * Conectar Google con un botón, sin terminal.
@@ -30,13 +30,13 @@ const TokenSchema = z.object({
   scope: z.string().default('')
 })
 
-export interface ResultadoOauth {
+export interface OauthResult {
   ok: boolean
   scopes: string[]
-  mensaje: string
+  message: string
 }
 
-function credenciales(): { id: string; secret: string } {
+function credentials(): { id: string; secret: string } {
   const id = process.env.GOOGLE_CLIENT_ID
   const secret = process.env.GOOGLE_CLIENT_SECRET
   if (!id || !secret) {
@@ -50,27 +50,27 @@ const HTML_OK = `<!doctype html><meta charset="utf-8">
 <div style="text-align:center"><div style="font-size:2rem;color:#C9973F">listo</div>
 <p style="color:#8A8478">Ya podés cerrar esto. Albus lo guardó solo.</p></div>`
 
-export function conectarGoogle(timeoutMs = 3 * 60_000): Promise<ResultadoOauth> {
-  const { id, secret } = credenciales()
+export function connectGoogle(timeoutMs = 3 * 60_000): Promise<OauthResult> {
+  const { id, secret } = credentials()
 
-  return new Promise<ResultadoOauth>((resolve) => {
-    let terminado = false
-    let ventana: BrowserWindow | null = null
+  return new Promise<OauthResult>((resolve) => {
+    let finished = false
+    let authWindow: BrowserWindow | null = null
 
-    const cerrar = (r: ResultadoOauth): void => {
-      if (terminado) return
-      terminado = true
-      clearTimeout(limite)
+    const close = (r: OauthResult): void => {
+      if (finished) return
+      finished = true
+      clearTimeout(limit)
       try {
-        servidor.close()
+        server.close()
       } catch {
         // Ya estaba cerrado.
       }
-      if (ventana !== null && !ventana.isDestroyed()) ventana.destroy()
+      if (authWindow !== null && !authWindow.isDestroyed()) authWindow.destroy()
       resolve(r)
     }
 
-    const servidor = createServer((req, res) => {
+    const server = createServer((req, res) => {
       const u = new URL(req.url ?? '/', 'http://127.0.0.1')
       const code = u.searchParams.get('code')
       const error = u.searchParams.get('error')
@@ -79,23 +79,23 @@ export function conectarGoogle(timeoutMs = 3 * 60_000): Promise<ResultadoOauth> 
       res.end(code !== null ? HTML_OK : `<h2>No se pudo: ${error ?? 'sin código'}</h2>`)
 
       if (code === null) {
-        cerrar({ ok: false, scopes: [], mensaje: error ?? 'Google no devolvió código' })
+        close({ ok: false, scopes: [], message: error ?? 'Google no devolvió código' })
         return
       }
 
-      void canjear(code, redirect, id, secret).then(cerrar)
+      void exchange(code, redirect, id, secret).then(close)
     })
 
     let redirect = ''
 
-    servidor.listen(0, '127.0.0.1', () => {
-      const dir = servidor.address()
-      if (dir === null || typeof dir === 'string') {
-        cerrar({ ok: false, scopes: [], mensaje: 'no pude abrir un puerto local' })
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address()
+      if (addr === null || typeof addr === 'string') {
+        close({ ok: false, scopes: [], message: 'no pude abrir un puerto local' })
         return
       }
 
-      redirect = `http://127.0.0.1:${dir.port}`
+      redirect = `http://127.0.0.1:${addr.port}`
 
       const auth = new URL('https://accounts.google.com/o/oauth2/v2/auth')
       auth.searchParams.set('client_id', id)
@@ -107,7 +107,7 @@ export function conectarGoogle(timeoutMs = 3 * 60_000): Promise<ResultadoOauth> 
       auth.searchParams.set('prompt', 'consent')
       auth.searchParams.set('access_type', 'offline')
 
-      ventana = new BrowserWindow({
+      authWindow = new BrowserWindow({
         width: 520,
         height: 680,
         autoHideMenuBar: true,
@@ -115,26 +115,26 @@ export function conectarGoogle(timeoutMs = 3 * 60_000): Promise<ResultadoOauth> 
         webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false }
       })
 
-      ventana.on('closed', () =>
-        cerrar({ ok: false, scopes: [], mensaje: 'cerraste la ventana antes de terminar' })
+      authWindow.on('closed', () =>
+        close({ ok: false, scopes: [], message: 'cerraste la ventana antes de terminar' })
       )
 
-      void ventana.loadURL(auth.toString())
+      void authWindow.loadURL(auth.toString())
     })
 
-    const limite = setTimeout(
-      () => cerrar({ ok: false, scopes: [], mensaje: 'se acabó el tiempo' }),
+    const limit = setTimeout(
+      () => close({ ok: false, scopes: [], message: 'se acabó el tiempo' }),
       timeoutMs
     )
   })
 }
 
-async function canjear(
+async function exchange(
   code: string,
   redirect: string,
   id: string,
   secret: string
-): Promise<ResultadoOauth> {
+): Promise<OauthResult> {
   try {
     const res = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
@@ -149,7 +149,7 @@ async function canjear(
     })
 
     const json: unknown = await res.json().catch(() => ({}))
-    if (!res.ok) return { ok: false, scopes: [], mensaje: `Google rechazó el código` }
+    if (!res.ok) return { ok: false, scopes: [], message: `Google rechazó el código` }
 
     const t = TokenSchema.parse(json)
     const scopes = t.scope.split(/\s+/).filter(Boolean)
@@ -158,18 +158,18 @@ async function canjear(
       return {
         ok: false,
         scopes,
-        mensaje:
+        message:
           'Google no devolvió refresh token. Revocá el acceso en myaccount.google.com/permissions y probá de nuevo.'
       }
     }
 
-    guardarSecreto(CLAVES.googleRefreshToken, t.refresh_token)
-    return { ok: true, scopes, mensaje: 'Google conectado' }
+    saveSecret(KEYS.googleRefreshToken, t.refresh_token)
+    return { ok: true, scopes, message: 'Google conectado' }
   } catch (error: unknown) {
     return {
       ok: false,
       scopes: [],
-      mensaje: error instanceof Error ? error.message : String(error)
+      message: error instanceof Error ? error.message : String(error)
     }
   }
 }

@@ -1,11 +1,11 @@
 import { z } from 'zod'
 import { getSupabaseClient } from './client'
-import { esFotoDeCamara, fusionarCapturas } from '../core/extraction/clean-ocr'
-import { esCifrado } from '../core/tasks/qr-identity'
-import { leerResumen } from './note-summary-repo'
+import { isCameraPhoto, mergeScreenshots } from '../core/extraction/clean-ocr'
+import { isEncrypted } from '../core/tasks/qr-identity'
+import { readSummary } from './note-summary-repo'
 import type { DetectedTask, Task, TaskCandidate, TaskStatus } from '../core/tasks/types'
 
-const CandidatoSchema = z.object({
+const CandidateSchema = z.object({
   id: z.string().uuid(),
   user_id: z.string().uuid(),
   body: z.string().nullable(),
@@ -49,7 +49,7 @@ export async function listTaskCandidates(limit: number): Promise<TaskCandidate[]
   const out: TaskCandidate[] = []
   for (const raw of Array.isArray(data) ? data : []) {
     // Por fila, no por lote: una entry corrupta se saltea sola.
-    const parsed = CandidatoSchema.safeParse(raw)
+    const parsed = CandidateSchema.safeParse(raw)
     if (!parsed.success) {
       console.warn('[tasks-repo] fila de entries descartada por schema inválido')
       continue
@@ -87,7 +87,7 @@ export async function saveTasks(
   source: string
 ): Promise<number> {
   const supabase = getSupabaseClient()
-  let guardados = 0
+  let saved = 0
 
   for (const t of tasks) {
     const { error } = await supabase.from('tasks').insert({
@@ -109,10 +109,10 @@ export async function saveTasks(
       console.warn(`[tasks-repo] no se pudo guardar "${t.title}": ${error.message}`)
       continue
     }
-    guardados++
+    saved++
   }
 
-  return guardados
+  return saved
 }
 
 /**
@@ -180,7 +180,7 @@ export async function listTasks(status: TaskStatus | 'all' = 'open'): Promise<Ta
   return out
 }
 
-const DetalleSchema = z.object({
+const DetailSchema = z.object({
   id: z.string(),
   entry_id: z.string(),
   /** Hace falta para resolver el email del dueño y no ofrecérselo como contacto. */
@@ -253,12 +253,12 @@ const RE_URL = /https?:\/\/[^\s<>"')\]]+/g
  * y ocupaba 192 caracteres del detalle. Que no haya nada que mostrar es
  * información, y el título ya explica por qué.
  */
-function textoDe(p: Record<string, unknown>): string | null {
+function textFrom(p: Record<string, unknown>): string | null {
   if (typeof p.text === 'string' && p.text.trim().length > 0) return p.text
 
   if (Array.isArray(p.codes) && p.codes.length > 0) {
-    const legibles = p.codes.filter((c): c is string => typeof c === 'string' && !esCifrado(c))
-    return legibles.length > 0 ? legibles.join('\n') : null
+    const readable = p.codes.filter((c): c is string => typeof c === 'string' && !isEncrypted(c))
+    return readable.length > 0 ? readable.join('\n') : null
   }
 
   if (Array.isArray(p.profiles) && p.profiles.length > 0) return p.profiles.join('\n')
@@ -288,7 +288,7 @@ function textoDe(p: Record<string, unknown>): string | null {
  * Nunca lanza: si la consulta falla, se sigue sin filtrar. Un email de más es
  * ruido; un detalle que no carga es un pendiente que no se puede leer.
  */
-async function emailDelDueño(userId: string): Promise<string | null> {
+async function ownerEmail(userId: string): Promise<string | null> {
   try {
     const supabase = getSupabaseClient()
     const { data, error } = await supabase.auth.admin.getUserById(userId)
@@ -337,17 +337,17 @@ export async function getTaskDetail(id: string): Promise<{
   if (error) throw new Error(`Error leyendo el detalle de ${id}: ${error.message}`)
   if (data === null) return null
 
-  const parsed = DetalleSchema.safeParse(data)
+  const parsed = DetailSchema.safeParse(data)
   if (!parsed.success) throw new Error(`Detalle con forma inesperada: ${parsed.error.message}`)
   const r = parsed.data
 
   // Un acumulador por tipo, en orden de aparición.
-  const porTipo = new Map<
+  const byKind = new Map<
     string,
-    { textos: string[]; links: string[]; capturas: number; fotos: number }
+    { texts: string[]; links: string[]; captures: number; photos: number }
   >()
   let noteSummary: string | null = null
-  const crudoParaContactos: string[] = []
+  const rawForContacts: string[] = []
 
   for (const e of r.entries?.extractions ?? []) {
     const p = (e.payload ?? {}) as Record<string, unknown>
@@ -355,44 +355,44 @@ export async function getTaskDetail(id: string): Promise<{
     // attachment_path '' es la fila del body: no es una captura. Ahí vive el
     // resumen de la nota (ver note-summary-repo).
     if (e.attachment_path === '') {
-      noteSummary = leerResumen(p)
+      noteSummary = readSummary(p)
       continue
     }
 
-    const texto = textoDe(p)
+    const text = textFrom(p)
     // Los contactos SÍ se buscan en el crudo de una foto: un email mal leído no
     // sirve, pero uno bien leído se rescata igual, y buscarlo no cuesta nada.
-    if (texto !== null) crudoParaContactos.push(texto)
+    if (text !== null) rawForContacts.push(text)
 
     const drive = p.drive as { webViewLink?: string } | undefined
-    const grupo = porTipo.get(e.kind) ?? { textos: [], links: [], capturas: 0, fotos: 0 }
-    const esFoto = esFotoDeCamara(e.attachment_path)
+    const group = byKind.get(e.kind) ?? { texts: [], links: [], captures: 0, photos: 0 }
+    const isPhoto = isCameraPhoto(e.attachment_path)
 
-    grupo.capturas++
-    if (esFoto) grupo.fotos++
+    group.captures++
+    if (isPhoto) group.photos++
 
     // El OCR de una foto no entra a la fusión: 17% conservado son fragmentos
     // inventados, y mezclarlos con el texto de una captura buena contamina las dos.
-    if (texto !== null && !esFoto) grupo.textos.push(texto)
+    if (text !== null && !isPhoto) group.texts.push(text)
 
-    if (typeof drive?.webViewLink === 'string') grupo.links.push(drive.webViewLink)
-    porTipo.set(e.kind, grupo)
+    if (typeof drive?.webViewLink === 'string') group.links.push(drive.webViewLink)
+    byKind.set(e.kind, group)
   }
 
-  const sources: TaskSourceRow[] = [...porTipo.entries()].map(([kind, g]) => {
-    const fusionado = fusionarCapturas(g.textos)
+  const sources: TaskSourceRow[] = [...byKind.entries()].map(([kind, g]) => {
+    const merged = mergeScreenshots(g.texts)
     return {
       kind,
-      captures: g.capturas,
-      photos: g.fotos,
-      text: fusionado.length > 0 ? fusionado : null,
-      rawText: g.textos.length > 0 ? g.textos.join('\n\n— — —\n\n') : null,
+      captures: g.captures,
+      photos: g.photos,
+      text: merged.length > 0 ? merged : null,
+      rawText: g.texts.length > 0 ? g.texts.join('\n\n— — —\n\n') : null,
       driveLinks: [...new Set(g.links)]
     }
   })
 
-  const todoElCrudo = crudoParaContactos.join('\n')
-  const propio = await emailDelDueño(r.user_id)
+  const allRaw = rawForContacts.join('\n')
+  const own = await ownerEmail(r.user_id)
 
   return {
     task: {
@@ -410,10 +410,10 @@ export async function getTaskDetail(id: string): Promise<{
     noteBody: (r.entries?.body ?? '').trim(),
     noteSummary,
     contacts: {
-      emails: [...new Set(todoElCrudo.match(RE_EMAIL) ?? [])].filter(
-        (e) => propio === null || e.toLowerCase() !== propio
+      emails: [...new Set(allRaw.match(RE_EMAIL) ?? [])].filter(
+        (e) => own === null || e.toLowerCase() !== own
       ),
-      urls: [...new Set(todoElCrudo.match(RE_URL) ?? [])]
+      urls: [...new Set(allRaw.match(RE_URL) ?? [])]
     },
     sources
   }

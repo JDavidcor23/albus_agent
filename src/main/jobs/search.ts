@@ -16,7 +16,7 @@ import { createCsvTracker } from './tracker'
  * el usuario ya sabe mantener.
  */
 
-const cacheBun: { value: string | null | undefined } = { value: undefined }
+const bunCache: { value: string | null | undefined } = { value: undefined }
 
 /**
  * `.nullish()` y no `.optional()`, y no es un detalle de estilo.
@@ -31,24 +31,27 @@ const cacheBun: { value: string | null | undefined } = { value: undefined }
  * Es el modo de falla más caro de esta clase de código: no tira, no loguea,
  * simplemente devuelve vacío y todo lo de abajo se degrada.
  */
-const textoOpcional = z.string().nullish().transform((v) => v ?? '')
+const optionalText = z
+  .string()
+  .nullish()
+  .transform((v) => v ?? '')
 
 const ResultSchema = z.object({
   id: z.string(),
   title: z.string(),
   company: z.string(),
-  location: textoOpcional,
-  date: textoOpcional,
+  location: optionalText,
+  date: optionalText,
   url: z.string()
 })
 
 const SearchSchema = z.object({ results: z.array(z.unknown()) })
 
 const DetailSchema = z.object({
-  description: textoOpcional,
-  applyUrl: textoOpcional,
-  seniority: textoOpcional,
-  employmentType: textoOpcional
+  description: optionalText,
+  applyUrl: optionalText,
+  seniority: optionalText,
+  employmentType: optionalText
 })
 
 function cliPath(skill: string): string {
@@ -56,14 +59,14 @@ function cliPath(skill: string): string {
 }
 
 async function bun(): Promise<string> {
-  const bin = await resolveBinary('bun', cacheBun)
+  const bin = await resolveBinary('bun', bunCache)
   if (bin === null) {
     throw new Error('bun no está en el PATH — los CLIs de búsqueda corren con bun')
   }
   return bin
 }
 
-async function correrCli(args: string[], etiqueta: string): Promise<string> {
+async function runCli(args: string[], label: string): Promise<string> {
   const bin = await bun()
   // Los argumentos son nuestros o vienen validados por zod. Nada del usuario
   // llega crudo a argv, y no se usa `exec` con strings armados a mano.
@@ -73,11 +76,11 @@ async function correrCli(args: string[], etiqueta: string): Promise<string> {
     cwd: workspaceDir(),
     stdio: ['ignore', 'pipe', 'pipe']
   })
-  return collect(child, etiqueta, null)
+  return collect(child, label, null)
 }
 
 /** Exportados para que el verificador los pruebe contra la forma real del CLI. */
-export const SCHEMAS_INTERNOS = { ResultSchema, DetailSchema }
+export const INTERNAL_SCHEMAS = { ResultSchema, DetailSchema }
 
 export interface SearchQuery {
   query: string
@@ -91,7 +94,7 @@ export interface SearchQuery {
  * Valida FILA POR FILA, no el lote entero. Una vacante con un campo raro no
  * puede costar la búsqueda completa — misma regla que rige la extracción.
  */
-export async function buscar(q: SearchQuery): Promise<JobCandidate[]> {
+export async function search(q: SearchQuery): Promise<JobCandidate[]> {
   const args = [
     cliPath('linkedin-search'),
     'search',
@@ -107,25 +110,25 @@ export async function buscar(q: SearchQuery): Promise<JobCandidate[]> {
   if (q.jobAgeDays > 0) args.push('--jobage', String(q.jobAgeDays))
   if (q.remote !== null) args.push('--remote', q.remote)
 
-  const salida = await correrCli(args, `linkedin-search "${q.query}"`)
+  const output = await runCli(args, `linkedin-search "${q.query}"`)
 
-  const lote = SearchSchema.safeParse(JSON.parse(salida))
-  if (!lote.success) return []
+  const batch = SearchSchema.safeParse(JSON.parse(output))
+  if (!batch.success) return []
 
-  const candidatos: JobCandidate[] = []
-  let salteadas = 0
+  const candidates: JobCandidate[] = []
+  let skipped = 0
 
-  for (const cruda of lote.data.results) {
-    const fila = ResultSchema.safeParse(cruda)
-    if (!fila.success) {
-      salteadas++
+  for (const raw of batch.data.results) {
+    const row = ResultSchema.safeParse(raw)
+    if (!row.success) {
+      skipped++
       continue
     }
-    candidatos.push({ ...fila.data, description: '' })
+    candidates.push({ ...row.data, description: '' })
   }
 
-  if (salteadas > 0) console.warn(`[jobs] ${salteadas} resultado(s) con forma inesperada`)
-  return candidatos
+  if (skipped > 0) console.warn(`[jobs] ${skipped} resultado(s) con forma inesperada`)
+  return candidates
 }
 
 /**
@@ -136,41 +139,41 @@ export async function buscar(q: SearchQuery): Promise<JobCandidate[]> {
  * quieta. Cuatro en paralelo lo bajan a un cuarto sin parecer un scraper
  * agresivo — que es justo lo que no queremos parecerle a LinkedIn.
  */
-const DETALLES_EN_PARALELO = 4
+const DETAILS_IN_PARALLEL = 4
 
-/** Corre `fn` sobre todos, de a `limite`, conservando el orden de entrada. */
-async function mapConLimite<T, R>(
+/** Corre `fn` sobre todos, de a `limit`, conservando el orden de entrada. */
+async function mapWithLimit<T, R>(
   items: T[],
-  limite: number,
-  fn: (item: T, indice: number) => Promise<R>
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>
 ): Promise<R[]> {
-  const salida = new Array<R>(items.length)
-  let siguiente = 0
+  const output = new Array<R>(items.length)
+  let next = 0
 
-  const obrero = async (): Promise<void> => {
+  const worker = async (): Promise<void> => {
     for (;;) {
-      const i = siguiente++
+      const i = next++
       if (i >= items.length) return
-      salida[i] = await fn(items[i], i)
+      output[i] = await fn(items[i], i)
     }
   }
 
-  await Promise.all(Array.from({ length: Math.min(limite, items.length) }, obrero))
-  return salida
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return output
 }
 
 /**
  * Trae la descripción de cada vacante. Es una request por vacante, así que se
  * hace DESPUÉS del dedupe y solo sobre las que van a puntuarse.
  */
-export async function conDetalle(candidatos: JobCandidate[]): Promise<JobCandidate[]> {
-  return mapConLimite(candidatos, DETALLES_EN_PARALELO, async (c) => {
+export async function withDetail(candidates: JobCandidate[]): Promise<JobCandidate[]> {
+  return mapWithLimit(candidates, DETAILS_IN_PARALLEL, async (c) => {
     try {
-      const salida = await correrCli(
+      const output = await runCli(
         [cliPath('linkedin-search'), 'detail', c.id, '--format', 'json'],
         `detail ${c.id}`
       )
-      const d = DetailSchema.safeParse(JSON.parse(salida))
+      const d = DetailSchema.safeParse(JSON.parse(output))
       if (!d.success) {
         // Ruidoso: que el detalle no parsee degrada TODAS las tarjetas y el
         // ranking, y sin este log el síntoma es "sin descripción" sin causa.
@@ -189,11 +192,16 @@ export async function conDetalle(candidatos: JobCandidate[]): Promise<JobCandida
 
 const SeenSchema = z.object({ seen: z.record(z.string(), z.unknown()) })
 
-/** URLs que el workspace ya vio en corridas anteriores. */
+/**
+ * URLs que el workspace ya vio en corridas anteriores.
+ *
+ * `job_scraper/seen_jobs.json` y su clave `seen` son FROZEN: pertenecen al
+ * workspace hermano `ai-job-search`.
+ */
 export async function seenJobsUrls(): Promise<Set<string>> {
   try {
-    const crudo = await readFile(join(workspaceDir(), 'job_scraper', 'seen_jobs.json'), 'utf8')
-    const parsed = SeenSchema.safeParse(JSON.parse(crudo))
+    const raw = await readFile(join(workspaceDir(), 'job_scraper', 'seen_jobs.json'), 'utf8')
+    const parsed = SeenSchema.safeParse(JSON.parse(raw))
     return parsed.success ? new Set(Object.keys(parsed.data.seen)) : new Set()
   } catch {
     return new Set()
@@ -205,27 +213,27 @@ export async function seenJobsUrls(): Promise<Set<string>> {
  * el slug del puesto adelante. Lo único estable es el id numérico del final:
  * comparar strings enteros haría que la misma vacante entre dos veces.
  */
-export function claveDedupe(url: string): string {
+export function dedupeKey(url: string): string {
   const id = url.match(/(\d{8,})/)
   if (id !== null) return `li:${id[1]}`
   return url.replace(/^https?:\/\//, '').replace(/\/$/, '').toLowerCase()
 }
 
-export interface DedupeFuentes {
+export interface DedupeSources {
   /** Las de Notion. Vacío si no está configurado: no bloquea la búsqueda. */
   notion: Set<string>
 }
 
 export async function dedupe(
-  candidatos: JobCandidate[],
-  fuentes: DedupeFuentes
-): Promise<{ nuevas: JobCandidate[]; repetidas: number }> {
-  const vistas = new Set<string>()
+  candidates: JobCandidate[],
+  sources: DedupeSources
+): Promise<{ unseen: JobCandidate[]; duplicates: number }> {
+  const seen = new Set<string>()
 
-  for (const url of await seenJobsUrls()) vistas.add(claveDedupe(url))
-  for (const url of await createCsvTracker().seenUrls()) vistas.add(claveDedupe(url))
-  for (const url of fuentes.notion) vistas.add(claveDedupe(url))
+  for (const url of await seenJobsUrls()) seen.add(dedupeKey(url))
+  for (const url of await createCsvTracker().seenUrls()) seen.add(dedupeKey(url))
+  for (const url of sources.notion) seen.add(dedupeKey(url))
 
-  const nuevas = candidatos.filter((c) => !vistas.has(claveDedupe(c.url)))
-  return { nuevas, repetidas: candidatos.length - nuevas.length }
+  const unseen = candidates.filter((c) => !seen.has(dedupeKey(c.url)))
+  return { unseen, duplicates: candidates.length - unseen.length }
 }

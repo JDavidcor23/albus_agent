@@ -50,18 +50,18 @@ async function main(): Promise<void> {
     console.log('='.repeat(70))
 
     const bytes = await source.downloadAttachment(path)
-    const texto = await readText(bytes)
+    const text = await readText(bytes)
 
     console.log('\n--- OCR crudo ---')
-    console.log(texto.trim() || '(vacio)')
+    console.log(text.trim() || '(vacio)')
 
     console.log('\n--- que ve cada patron ---')
-    console.log(`  findEntity     (riel)     : ${String(findEntity(texto))}`)
-    console.log(`  findMerchant   (a quien)  : ${String(findMerchant(texto))}`)
-    console.log(`  findAccountRef (contrato) : ${String(findAccountRef(texto))}`)
-    console.log(`  findAmount                : ${String(findAmount(texto))}`)
-    console.log(`  findDate                  : ${String(findDate(texto))}`)
-    console.log(`  findReference  (transacc) : ${String(findReference(texto))}`)
+    console.log(`  findEntity     (riel)     : ${String(findEntity(text))}`)
+    console.log(`  findMerchant   (a quien)  : ${String(findMerchant(text))}`)
+    console.log(`  findAccountRef (contrato) : ${String(findAccountRef(text))}`)
+    console.log(`  findAmount                : ${String(findAmount(text))}`)
+    console.log(`  findDate                  : ${String(findDate(text))}`)
+    console.log(`  findReference  (transacc) : ${String(findReference(text))}`)
   }
 
   await terminateOcr()

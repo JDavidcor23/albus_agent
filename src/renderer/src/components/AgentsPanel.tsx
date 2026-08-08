@@ -16,7 +16,7 @@ import { JobChat } from './JobChat'
  */
 
 /** id del registro → el componente que lo dibuja. */
-const PANELES: Record<string, (props: PanelProps) => React.JSX.Element> = {
+const PANELS: Record<string, (props: PanelProps) => React.JSX.Element> = {
   // Chat y no formulario: el agente se maneja hablándole. Ver `JobChat.tsx`.
   'job-search': (p) => (
     <JobChat providerId={p.providerId} modelId={p.modelId} onError={p.onError} />
@@ -26,7 +26,7 @@ const PANELES: Record<string, (props: PanelProps) => React.JSX.Element> = {
 export interface PanelProps {
   providerId: string | null
   modelId: string | null
-  onError: (mensaje: string | null) => void
+  onError: (message: string | null) => void
 }
 
 interface Props extends PanelProps {
@@ -34,27 +34,27 @@ interface Props extends PanelProps {
 }
 
 export function AgentsPanel({ providerId, modelId, onError, providers }: Props): React.JSX.Element {
-  const [agentes, setAgentes] = useState<AgentInfo[]>([])
-  const [activo, setActivo] = useState<string | null>(null)
-  const [cargando, setCargando] = useState(true)
+  const [agents, setAgents] = useState<AgentInfo[]>([])
+  const [active, setActive] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
   /** Lo que el usuario está escribiendo, por pregunta. */
-  const [borradores, setBorradores] = useState<Record<string, string>>({})
-  const [respondiendo, setRespondiendo] = useState<string | null>(null)
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [answering, setAnswering] = useState<string | null>(null)
 
-  const cargar = useCallback((): void => {
+  const load = useCallback((): void => {
     void window.api.listAgents().then((res) => {
-      setCargando(false)
+      setLoading(false)
       if (!res.ok) {
         onError(res.error.message)
         return
       }
-      setAgentes(res.data)
+      setAgents(res.data)
       // Con un solo agente no tiene sentido hacerlo elegir.
-      if (res.data.length === 1) setActivo(res.data[0].id)
+      if (res.data.length === 1) setActive(res.data[0].id)
     })
   }, [onError])
 
-  useEffect(cargar, [cargar])
+  useEffect(load, [load])
 
   /**
    * Abre el `.md` y RECARGA al volver el foco a la ventana.
@@ -68,26 +68,26 @@ export function AgentsPanel({ providerId, modelId, onError, providers }: Props):
    * devuelve el main —no con lo que la UI supone—: la pregunta desaparece y la
    * regla nueva aparece abajo en el mismo instante.
    */
-  const responder = async (agenteId: string, preguntaId: string, texto: string): Promise<void> => {
-    const limpio = texto.trim()
-    if (limpio === '') return
+  const answer = async (agentId: string, questionId: string, text: string): Promise<void> => {
+    const clean = text.trim()
+    if (clean === '') return
 
     onError(null)
-    setRespondiendo(preguntaId)
+    setAnswering(questionId)
     try {
-      const res = await window.api.answerAgentQuestion(agenteId, preguntaId, limpio)
+      const res = await window.api.answerAgentQuestion(agentId, questionId, clean)
       if (res.ok) {
-        setAgentes(res.data.agentes)
-        setBorradores((p) => ({ ...p, [preguntaId]: '' }))
+        setAgents(res.data.agents)
+        setDrafts((p) => ({ ...p, [questionId]: '' }))
       } else {
         onError(res.error.message)
       }
     } finally {
-      setRespondiendo(null)
+      setAnswering(null)
     }
   }
 
-  const abrirReglas = async (id: string): Promise<void> => {
+  const openRules = async (id: string): Promise<void> => {
     onError(null)
     const res = await window.api.openAgentRules(id)
     if (!res.ok) {
@@ -95,18 +95,18 @@ export function AgentsPanel({ providerId, modelId, onError, providers }: Props):
       return
     }
 
-    const alVolver = (): void => {
-      cargar()
-      window.removeEventListener('focus', alVolver)
+    const onFocusBack = (): void => {
+      load()
+      window.removeEventListener('focus', onFocusBack)
     }
-    window.addEventListener('focus', alVolver)
+    window.addEventListener('focus', onFocusBack)
   }
 
-  if (cargando) {
+  if (loading) {
     return <div className="idle-state"><span className="idle-text">buscando agentes…</span></div>
   }
 
-  if (agentes.length === 0) {
+  if (agents.length === 0) {
     return (
       <div className="empty-state">
         <div className="empty-title">no hay agentes registrados</div>
@@ -115,24 +115,24 @@ export function AgentsPanel({ providerId, modelId, onError, providers }: Props):
     )
   }
 
-  const seleccionado = agentes.find((a) => a.id === activo) ?? null
-  const Panel = seleccionado !== null ? PANELES[seleccionado.id] : undefined
+  const selected = agents.find((a) => a.id === active) ?? null
+  const Panel = selected !== null ? PANELS[selected.id] : undefined
 
   return (
     <div className="agentes">
       <div className="agente-grid">
-        {agentes.map((a) => (
+        {agents.map((a) => (
           <button
             key={a.id}
             type="button"
-            className={`agente-card ${activo === a.id ? 'agente-card-on' : ''} ${
-              a.disponible ? '' : 'agente-card-off'
+            className={`agente-card ${active === a.id ? 'agente-card-on' : ''} ${
+              a.available ? '' : 'agente-card-off'
             }`}
-            onClick={() => setActivo(activo === a.id ? null : a.id)}
+            onClick={() => setActive(active === a.id ? null : a.id)}
           >
-            <span className="agente-nombre">{a.nombre}</span>
-            <span className="agente-desc">{a.descripcion}</span>
-            {a.motivo !== '' && <span className="agente-motivo">{a.motivo}</span>}
+            <span className="agente-nombre">{a.name}</span>
+            <span className="agente-desc">{a.description}</span>
+            {a.reason !== '' && <span className="agente-motivo">{a.reason}</span>}
           </button>
         ))}
       </div>
@@ -149,33 +149,33 @@ export function AgentsPanel({ providerId, modelId, onError, providers }: Props):
         es trabajo esperando al usuario, y cada respuesta se vuelve una regla
         —así que contestar una vez ahorra que vuelva a preguntar para siempre.
       */}
-      {seleccionado !== null && seleccionado.reglas.preguntas.length > 0 && (
+      {selected !== null && selected.rules.questions.length > 0 && (
         <section className="preguntas">
           <header className="preguntas-head">
             <h3 className="preguntas-titulo">
               El agente te preguntó
-              <span className="preguntas-cuantas">{seleccionado.reglas.preguntas.length}</span>
+              <span className="preguntas-cuantas">{selected.rules.questions.length}</span>
             </h3>
             <p className="preguntas-sub">
               tu respuesta queda escrita en las reglas — no vuelve a preguntar
             </p>
           </header>
 
-          {seleccionado.reglas.preguntas.map((q) => (
+          {selected.rules.questions.map((q) => (
             <article key={q.id} className="pregunta">
-              <p className="pregunta-texto">{q.pregunta}</p>
-              {q.contexto !== '' && <p className="pregunta-contexto">{q.contexto}</p>}
+              <p className="pregunta-texto">{q.question}</p>
+              {q.context !== '' && <p className="pregunta-contexto">{q.context}</p>}
 
               {/* Las sugerencias son atajos, no un select: siempre se puede escribir otra cosa. */}
-              {q.opciones.length > 0 && (
+              {q.options.length > 0 && (
                 <div className="pregunta-opciones">
-                  {q.opciones.map((o) => (
+                  {q.options.map((o) => (
                     <button
                       key={o}
                       type="button"
                       className="pregunta-opcion"
-                      disabled={respondiendo === q.id}
-                      onClick={() => void responder(seleccionado.id, q.id, o)}
+                      disabled={answering === q.id}
+                      onClick={() => void answer(selected.id, q.id, o)}
                     >
                       {o}
                     </button>
@@ -187,22 +187,22 @@ export function AgentsPanel({ providerId, modelId, onError, providers }: Props):
                 <input
                   className="pregunta-input"
                   placeholder="escribí tu respuesta…"
-                  value={borradores[q.id] ?? ''}
-                  disabled={respondiendo === q.id}
-                  onChange={(e) => setBorradores((p) => ({ ...p, [q.id]: e.target.value }))}
+                  value={drafts[q.id] ?? ''}
+                  disabled={answering === q.id}
+                  onChange={(e) => setDrafts((p) => ({ ...p, [q.id]: e.target.value }))}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && (borradores[q.id] ?? '').trim() !== '') {
-                      void responder(seleccionado.id, q.id, borradores[q.id])
+                    if (e.key === 'Enter' && (drafts[q.id] ?? '').trim() !== '') {
+                      void answer(selected.id, q.id, drafts[q.id])
                     }
                   }}
                 />
                 <button
                   type="button"
                   className="reglas-editar"
-                  disabled={respondiendo === q.id || (borradores[q.id] ?? '').trim() === ''}
-                  onClick={() => void responder(seleccionado.id, q.id, borradores[q.id] ?? '')}
+                  disabled={answering === q.id || (drafts[q.id] ?? '').trim() === ''}
+                  onClick={() => void answer(selected.id, q.id, drafts[q.id] ?? '')}
                 >
-                  {respondiendo === q.id ? 'guardando…' : 'responder'}
+                  {answering === q.id ? 'guardando…' : 'responder'}
                 </button>
               </div>
             </article>
@@ -210,7 +210,7 @@ export function AgentsPanel({ providerId, modelId, onError, providers }: Props):
         </section>
       )}
 
-      {seleccionado !== null && seleccionado.reglas.soporta && (
+      {selected !== null && selected.rules.supported && (
         <section className="reglas">
           <header className="reglas-head">
             <div>
@@ -222,13 +222,13 @@ export function AgentsPanel({ providerId, modelId, onError, providers }: Props):
             <button
               type="button"
               className="reglas-editar"
-              onClick={() => void abrirReglas(seleccionado.id)}
+              onClick={() => void openRules(selected.id)}
             >
-              {seleccionado.reglas.existe ? 'editar' : 'escribir las primeras'}
+              {selected.rules.exists ? 'editar' : 'escribir las primeras'}
             </button>
           </header>
 
-          {seleccionado.reglas.resumen.length === 0 ? (
+          {selected.rules.summary.length === 0 ? (
             /*
               Vacío con EJEMPLOS, no con una instrucción.
               "Pegá el link de tu base de Notion" hacía creer que las reglas son
@@ -245,23 +245,23 @@ export function AgentsPanel({ providerId, modelId, onError, providers }: Props):
             </div>
           ) : (
             <ul className="reglas-lista">
-              {seleccionado.reglas.resumen.map((linea, i) => (
-                <li key={i}>{linea}</li>
+              {selected.rules.summary.map((line, i) => (
+                <li key={i}>{line}</li>
               ))}
             </ul>
           )}
 
           {/* A dónde llega, como pie: es consecuencia de las reglas, no el tema. */}
-          {(seleccionado.reglas.notion.length > 0 || seleccionado.reglas.drive.length > 0) && (
+          {(selected.rules.notion.length > 0 || selected.rules.drive.length > 0) && (
             <footer className="reglas-pie">
-              {seleccionado.reglas.notion.length > 0 && (
+              {selected.rules.notion.length > 0 && (
                 <span>
-                  escribe en <strong>{seleccionado.reglas.notion[0].etiqueta || 'Notion'}</strong>
+                  escribe en <strong>{selected.rules.notion[0].label || 'Notion'}</strong>
                 </span>
               )}
-              {seleccionado.reglas.drive.length > 0 && (
+              {selected.rules.drive.length > 0 && (
                 <span>
-                  archiva en <strong>{seleccionado.reglas.drive[0].etiqueta || 'Drive'}</strong>
+                  archiva en <strong>{selected.rules.drive[0].label || 'Drive'}</strong>
                 </span>
               )}
             </footer>
@@ -269,13 +269,13 @@ export function AgentsPanel({ providerId, modelId, onError, providers }: Props):
         </section>
       )}
 
-      {seleccionado !== null && Panel !== undefined ? (
+      {selected !== null && Panel !== undefined ? (
         <div className="agente-panel">
           <Panel providerId={providerId} modelId={modelId} onError={onError} />
         </div>
-      ) : seleccionado !== null ? (
+      ) : selected !== null ? (
         <div className="empty-state">
-          <div className="empty-title">{seleccionado.nombre} no tiene pantalla todavía</div>
+          <div className="empty-title">{selected.name} no tiene pantalla todavía</div>
           <div className="empty-subtitle">está en el registro pero le falta el componente</div>
         </div>
       ) : null}

@@ -2,8 +2,8 @@ import { app, clipboard } from 'electron'
 import { join } from 'node:path'
 import { createBrowserPage } from '../browser/page'
 import type { BrowserPort } from '../core/jobs/ports'
-import { lograrObjetivo, type CorrerModelo } from './navigate-llm'
-import { primerProviderDisponible } from '../providers/registry'
+import { achieveGoal, type RunModel } from './navigate-llm'
+import { firstAvailableProvider } from '../providers/registry'
 
 /**
  * UN motor para conectar CUALQUIER servicio. No hay uno por servicio.
@@ -19,13 +19,13 @@ import { primerProviderDisponible } from '../providers/registry'
  *
  * Acá un servicio es DATOS, no código:
  *
- *   { url, objetivos: ['crear un token y mostrarlo'], patronSecreto: 'sbp_...' }
+ *   { url, goals: ['crear un token y mostrarlo'], secretPattern: 'sbp_...' }
  *
  * Sumar un servicio nuevo son cinco líneas en una tabla. Cero lógica nueva.
  *
  * ## Lo único que sigue siendo código, y por qué
  *
- * El agente no puede ver un DOM si nadie se lo pasa: `INVENTARIO` lee la página
+ * El agente no puede ver un DOM si nadie se lo pasa: `INVENTORY` lee la página
  * y se la describe. Pero eso se escribe UNA vez y sirve para cualquier sitio —
  * no es "el scraper de Notion", es la vista. Y el ejecutor es determinista a
  * propósito: el agente devuelve QUÉ elemento, nunca JavaScript para correr.
@@ -51,19 +51,19 @@ import { primerProviderDisponible } from '../providers/registry'
  * "navegá a esta URL" sería dejar que elija a dónde ir; acá el destino lo pone
  * la tabla de servicios, que es un dato que escribimos nosotros.
  */
-export type Objetivo = string | { url: string; que: string }
+export type Goal = string | { url: string; what: string }
 
-export function textoObjetivo(o: Objetivo): string {
-  return typeof o === 'string' ? o : o.que
+export function goalText(g: Goal): string {
+  return typeof g === 'string' ? g : g.what
 }
 
-export function urlObjetivo(o: Objetivo): string | null {
-  return typeof o === 'string' ? null : o.url
+export function goalUrl(g: Goal): string | null {
+  return typeof g === 'string' ? null : g.url
 }
 
-export interface ServicioConectable {
+export interface ConnectableService {
   id: string
-  nombre: string
+  name: string
   /** Dónde empieza todo. La página de credenciales del servicio. */
   url: string
   /**
@@ -73,23 +73,23 @@ export interface ServicioConectable {
    * hacerlo visible" — no "apretá el botón azul de arriba a la derecha". El
    * día que el servicio rediseñe su panel, el objetivo sigue siendo verdad.
    */
-  objetivos: Objetivo[]
+  goals: Goal[]
   /**
    * Cómo se reconoce el secreto en la pantalla. Es lo que hace que esto sea
    * declarativo: cada servicio tiene su prefijo (`ntn_`, `sbp_`, `sk_live_`).
    */
-  patronSecreto: string
+  secretPattern: string
   /** Textos que delatan que la sesión no está iniciada. */
-  textosLogin?: string[]
+  loginTexts?: string[]
   /** Cuántas acciones puede hacer el agente por objetivo. El freno. */
-  maxPasos?: number
+  maxSteps?: number
 
   /**
    * La prueba de que quedó funcionando: preguntarle a la API del servicio.
    *
    * Que los clicks no hayan tirado no prueba nada. Esto sí.
    */
-  verificar?: (secreto: string) => Promise<{ ok: boolean; detalle: string }>
+  verify?: (secret: string) => Promise<{ ok: boolean; detail: string }>
 
   /**
    * El plan B cuando el agente no puede, y no por torpeza.
@@ -105,40 +105,40 @@ export interface ServicioConectable {
    * la vida, y Albus se entera solo — no hay que apretar "listo" ni volver a
    * correr nada.
    */
-  pedirAlHumano?: {
+  askHuman?: {
     url: string
-    instrucciones: string[]
+    instructions: string[]
     /** Cuánto se espera antes de rendirse. */
     timeoutMs?: number
   }
 }
 
-export interface PasoConexion {
-  paso: string
+export interface ConnectionStep {
+  step: string
   ok: boolean
-  detalle: string
+  detail: string
   /** Miniatura en `data:`. El CSP del renderer bloquea `file://`. */
-  captura?: string
+  screenshot?: string
 }
 
-export interface ResultadoConexion {
+export interface ConnectionResult {
   ok: boolean
-  pasos: PasoConexion[]
-  mensaje: string
+  steps: ConnectionStep[]
+  message: string
   /** El secreto. NUNCA sale de acá hacia el renderer. */
-  secreto: string | null
+  secret: string | null
   /** `true` = mostrale al usuario el campo para pegarlo a mano. */
-  caerAManual: boolean
+  fallBackToManual: boolean
 }
 
-export interface OpcionesConexion {
-  onPaso?: (p: PasoConexion) => void
+export interface ConnectionOptions {
+  onStep?: (p: ConnectionStep) => void
   /** Cuánto se espera a que el usuario entre, si hace falta. */
-  timeoutLoginMs?: number
-  capturas?: boolean
+  loginTimeoutMs?: number
+  screenshots?: boolean
 }
 
-function carpetaCapturas(): string {
+function screenshotsDir(): string {
   try {
     return join(app.getPath('userData'), 'capturas')
   } catch {
@@ -147,7 +147,7 @@ function carpetaCapturas(): string {
   }
 }
 
-const LOGIN_POR_DEFECTO = [
+const DEFAULT_LOGIN_TEXTS = [
   'log in',
   'sign in',
   'iniciar sesión',
@@ -160,7 +160,7 @@ const LOGIN_POR_DEFECTO = [
  * Señales de que YA se entró. Genéricas a propósito: son las palabras que
  * cualquier panel de cuenta muestra, no las de un servicio en particular.
  */
-const ADENTRO = ['log out', 'sign out', 'cerrar sesión', 'settings', 'configuración', 'account']
+const SIGNED_IN = ['log out', 'sign out', 'cerrar sesión', 'settings', 'configuración', 'account']
 
 /**
  * Buscar la credencial en la PANTALLA y en el PORTAPAPELES.
@@ -173,13 +173,13 @@ const ADENTRO = ['log out', 'sign out', 'cerrar sesión', 'settings', 'configura
  * Por eso "apretá Copy" es una acción legítima del agente, y acá se recoge el
  * resultado. Es genérico: cualquier servicio que solo permita copiar funciona.
  */
-async function buscarSecreto(browser: BrowserPort, patron: string): Promise<string | null> {
-  const enPantalla = await browser.extraerPatron(patron)
-  if (enPantalla !== null) return enPantalla
+async function findSecret(browser: BrowserPort, pattern: string): Promise<string | null> {
+  const onScreen = await browser.extractPattern(pattern)
+  if (onScreen !== null) return onScreen
 
   try {
-    const pegado = clipboard.readText()
-    const m = pegado.match(new RegExp(patron))
+    const pasted = clipboard.readText()
+    const m = pasted.match(new RegExp(pattern))
     if (m !== null) return m[0]
   } catch {
     // Sin portapapeles (headless, o el SO lo niega) se sigue con la pantalla.
@@ -188,60 +188,60 @@ async function buscarSecreto(browser: BrowserPort, patron: string): Promise<stri
   return null
 }
 
-export async function conectarConAgente(
-  servicio: ServicioConectable,
-  opciones: OpcionesConexion = {}
-): Promise<ResultadoConexion> {
-  const pasos: PasoConexion[] = []
+export async function connectWithAgent(
+  service: ConnectableService,
+  options: ConnectionOptions = {}
+): Promise<ConnectionResult> {
+  const steps: ConnectionStep[] = []
 
-  const registrar = (paso: string, ok: boolean, detalle = '', captura?: string): void => {
-    const p: PasoConexion = { paso, ok, detalle, captura }
-    pasos.push(p)
-    console.log(`[conexión:${servicio.id}] ${ok ? 'ok' : 'FALLA'} ${paso}${detalle ? ` — ${detalle}` : ''}`)
-    opciones.onPaso?.(p)
+  const record = (step: string, ok: boolean, detail = '', screenshot?: string): void => {
+    const p: ConnectionStep = { step, ok, detail, screenshot }
+    steps.push(p)
+    console.log(`[conexión:${service.id}] ${ok ? 'ok' : 'FALLA'} ${step}${detail ? ` — ${detail}` : ''}`)
+    options.onStep?.(p)
   }
 
-  const salida = (
+  const output = (
     ok: boolean,
-    mensaje: string,
-    secreto: string | null,
-    caerAManual: boolean
-  ): ResultadoConexion => ({ ok, pasos, mensaje, secreto, caerAManual })
+    message: string,
+    secret: string | null,
+    fallBackToManual: boolean
+  ): ConnectionResult => ({ ok, steps, message, secret, fallBackToManual })
 
   // Visible siempre: el usuario tiene que poder entrar con su clave, y tiene
   // derecho a ver qué está haciendo un proceso automático con su cuenta.
   const browser: BrowserPort = createBrowserPage({ visible: true })
 
-  const proveedor = await primerProviderDisponible()
-  if (proveedor === null) {
+  const provider = await firstAvailableProvider()
+  if (provider === null) {
     await browser.close()
-    registrar(
+    record(
       'buscar quién maneje el navegador',
       false,
       'no hay ningún CLI de IA instalado (claude / agy). Sin eso esto no puede navegar solo.'
     )
-    return salida(false, 'no hay ningún CLI de IA instalado', null, true)
+    return output(false, 'no hay ningún CLI de IA instalado', null, true)
   }
 
-  const correr: CorrerModelo = proveedor.correr
-  registrar('quién maneja el navegador', true, `${proveedor.id} (${proveedor.modelo})`)
+  const runModel: RunModel = provider.run
+  record('quién maneja el navegador', true, `${provider.id} (${provider.model})`)
 
   let n = 0
-  const capturarArchivo = async (): Promise<string | null> => {
-    if (opciones.capturas === false) return null
+  const captureFile = async (): Promise<string | null> => {
+    if (options.screenshots === false) return null
     try {
       return await browser.screenshot(
-        join(carpetaCapturas(), `${servicio.id}-${Date.now()}-${n++}.png`)
+        join(screenshotsDir(), `${service.id}-${Date.now()}-${n++}.png`)
       )
     } catch {
       return null
     }
   }
 
-  const capturarUi = async (): Promise<string | undefined> => {
-    if (opciones.capturas === false) return undefined
+  const captureUi = async (): Promise<string | undefined> => {
+    if (options.screenshots === false) return undefined
     try {
-      return await browser.capturaMiniatura()
+      return await browser.thumbnail()
     } catch {
       return undefined
     }
@@ -250,7 +250,7 @@ export async function conectarConAgente(
   // El portapapeles se vacía antes de empezar. Si al final tiene algo que
   // matchea el patrón, salió de esta corrida y no de algo que el usuario copió
   // hace media hora — que sería guardar una credencial vieja o ajena.
-  const portapapelesPrevio = (() => {
+  const previousClipboard = (() => {
     try {
       const v = clipboard.readText()
       clipboard.writeText('')
@@ -260,12 +260,12 @@ export async function conectarConAgente(
     }
   })()
 
-  const restaurarPortapapeles = (): void => {
+  const restoreClipboard = (): void => {
     // Cortesía: lo que el usuario tenía copiado vuelve a su lugar. Menos si es
     // el secreto — eso no se le deja pegado en el portapapeles a nadie.
     try {
-      if (portapapelesPrevio !== null && clipboard.readText() !== portapapelesPrevio) {
-        clipboard.writeText(portapapelesPrevio)
+      if (previousClipboard !== null && clipboard.readText() !== previousClipboard) {
+        clipboard.writeText(previousClipboard)
       }
     } catch {
       // Sin portapapeles no hay nada que restaurar.
@@ -273,113 +273,113 @@ export async function conectarConAgente(
   }
 
   try {
-    await browser.open(servicio.url)
-    registrar('abrir la página', true, servicio.url, await capturarUi())
+    await browser.open(service.url)
+    record('abrir la página', true, service.url, await captureUi())
 
     // ── entrar, si hace falta ────────────────────────────────────────────
-    const textosLogin = servicio.textosLogin ?? LOGIN_POR_DEFECTO
-    if (await browser.esperarTexto(textosLogin, 3000)) {
+    const loginTexts = service.loginTexts ?? DEFAULT_LOGIN_TEXTS
+    if (await browser.waitForText(loginTexts, 3000)) {
       // El agente decide CÓMO entrar: si el sitio ofrece "Continue with
       // Google" y hay sesión de Google en este navegador, lo resuelve solo.
       // No está hardcodeado que sea Google — es lo que el agente vea.
-      const sso = await lograrObjetivo(
+      const sso = await achieveGoal(
         browser,
         {
-          objetivo:
+          goal:
             'Entrar a este sitio SIN escribir credenciales, usando una sesión que ya exista en este navegador ' +
             '(un botón de tipo "Continuar con Google" / "Continue with Google", o similar). ' +
             'Si la única forma de entrar es escribir un mail, una contraseña o un código, es IMPOSIBLE: decilo.'
         },
-        correr,
+        runModel,
         {
-          maxPasos: 4,
-          capturar: capturarArchivo,
-          onAccion: (d, ok) => registrar(`entrar · ${d}`, ok, '')
+          maxSteps: 4,
+          capture: captureFile,
+          onAction: (d, ok) => record(`entrar · ${d}`, ok, '')
         }
       )
-      registrar('entrar sin escribir nada', sso.ok, sso.detalle, await capturarUi())
+      record('entrar sin escribir nada', sso.ok, sso.detail, await captureUi())
 
       if (!sso.ok) {
         // Se le pasa el teclado al usuario. Es la única parte manual, y es
         // deliberada: automatizar el login exige guardar la contraseña.
         browser.reveal()
-        registrar(
+        record(
           'te toca a vos',
           true,
-          `entrá a ${servicio.nombre} en la ventana abierta. Es la única vez: la sesión queda guardada.`
+          `entrá a ${service.name} en la ventana abierta. Es la única vez: la sesión queda guardada.`
         )
 
-        const entro = await browser.esperarTexto(
-          ADENTRO,
-          opciones.timeoutLoginMs ?? 5 * 60_000
+        const signedIn = await browser.waitForText(
+          SIGNED_IN,
+          options.loginTimeoutMs ?? 5 * 60_000
         )
-        if (!entro) {
-          registrar('iniciar sesión', false, 'se acabó el tiempo')
-          return salida(false, `no llegaste a entrar a ${servicio.nombre}`, null, true)
+        if (!signedIn) {
+          record('iniciar sesión', false, 'se acabó el tiempo')
+          return output(false, `no llegaste a entrar a ${service.name}`, null, true)
         }
       }
 
       // La SPA sigue montando después de mostrar el título.
-      await browser.open(servicio.url)
-      registrar('volver a la página de credenciales', true)
+      await browser.open(service.url)
+      record('volver a la página de credenciales', true)
     } else {
-      registrar('sesión', true, 'ya estabas adentro')
+      record('sesión', true, 'ya estabas adentro')
     }
 
     // ── los objetivos, en orden ──────────────────────────────────────────
     // Acá está todo lo que distingue un servicio de otro: una lista de frases.
-    let secreto: string | null = null
+    let secret: string | null = null
 
-    for (const obj of servicio.objetivos) {
-      const objetivo = textoObjetivo(obj)
-      const destino = urlObjetivo(obj)
+    for (const g of service.goals) {
+      const goal = goalText(g)
+      const target = goalUrl(g)
 
       // Navegar lo hace el motor: el agente no tiene esa acción, y pedírsela
       // era lo que hacía fallar el paso de compartir la base.
-      if (destino !== null) {
-        await browser.open(destino)
-        registrar('ir a la página', true, destino, await capturarUi())
+      if (target !== null) {
+        await browser.open(target)
+        record('ir a la página', true, target, await captureUi())
       }
 
       // Antes de gastar un turno, mirar si el secreto ya apareció: un objetivo
       // puede haberlo dejado a la vista —o en el portapapeles— de paso.
-      if (secreto === null) secreto = await buscarSecreto(browser, servicio.patronSecreto)
+      if (secret === null) secret = await findSecret(browser, service.secretPattern)
 
-      const r = await lograrObjetivo(browser, { objetivo }, correr, {
-        maxPasos: servicio.maxPasos ?? 8,
-        capturar: capturarArchivo,
-        onAccion: (d, ok) => registrar(d, ok, '')
+      const r = await achieveGoal(browser, { goal }, runModel, {
+        maxSteps: service.maxSteps ?? 8,
+        capture: captureFile,
+        onAction: (d, ok) => record(d, ok, '')
       })
 
-      registrar(objetivo, r.ok, r.detalle, await capturarUi())
+      record(goal, r.ok, r.detail, await captureUi())
 
       if (!r.ok) {
         // Con el secreto ya en mano, un objetivo posterior que falla no tira
         // todo: se guarda lo que hay y se dice qué quedó pendiente.
-        const yaTengo = secreto ?? (await buscarSecreto(browser, servicio.patronSecreto))
-        if (yaTengo !== null) {
-          return salida(
+        const alreadyHave = secret ?? (await findSecret(browser, service.secretPattern))
+        if (alreadyHave !== null) {
+          return output(
             false,
-            `Conseguí la credencial, pero quedó pendiente: ${objetivo}. ${r.detalle}`,
-            yaTengo,
+            `Conseguí la credencial, pero quedó pendiente: ${goal}. ${r.detail}`,
+            alreadyHave,
             false
           )
         }
-        return salida(false, r.detalle, null, true)
+        return output(false, r.detail, null, true)
       }
 
       // Después de cada objetivo se vuelve a mirar: el secreto puede haber
       // aparecido recién ahora.
-      if (secreto === null) {
-        for (let i = 0; i < 5 && secreto === null; i++) {
-          secreto = await buscarSecreto(browser, servicio.patronSecreto)
-          if (secreto === null) await new Promise((res) => setTimeout(res, 700))
+      if (secret === null) {
+        for (let i = 0; i < 5 && secret === null; i++) {
+          secret = await findSecret(browser, service.secretPattern)
+          if (secret === null) await new Promise((res) => setTimeout(res, 700))
         }
-        if (secreto !== null) {
-          registrar(
+        if (secret !== null) {
+          record(
             'leer la credencial',
             true,
-            `${secreto.slice(0, 8)}… (${secreto.length} caracteres)`
+            `${secret.slice(0, 8)}… (${secret.length} caracteres)`
           )
         }
       }
@@ -397,63 +397,63 @@ export async function conectarConAgente(
      * misma necesidad para todos, así que la sabe el motor. Un servicio nuevo
      * no tiene que acordarse de escribirlo.
      */
-    if (secreto === null) {
-      const rescate = await lograrObjetivo(
+    if (secret === null) {
+      const rescue = await achieveGoal(
         browser,
         {
-          objetivo:
+          goal:
             `Hacer que la credencial de esta página quede DISPONIBLE. Empieza con un prefijo del estilo ` +
-            `"${servicio.patronSecreto.split('[')[0].split('|')[0]}". ` +
+            `"${service.secretPattern.split('[')[0].split('|')[0]}". ` +
             `Puede estar tapada detrás de un botón "Show" / "Reveal" / un ícono de ojo — apretalo. ` +
             `Si el sitio NO permite verla y solo ofrece un botón de COPIAR ("Copy", "Copiar", un ícono de ` +
             `dos hojitas), apretá ESE: copiarla al portapapeles también sirve. ` +
             `Si hay que entrar a la integración desde una lista para llegar a su token, entrá primero.`
         },
-        correr,
+        runModel,
         {
-          maxPasos: 5,
-          capturar: capturarArchivo,
-          onAccion: (d, ok) => registrar(`buscar la credencial · ${d}`, ok, '')
+          maxSteps: 5,
+          capture: captureFile,
+          onAction: (d, ok) => record(`buscar la credencial · ${d}`, ok, '')
         }
       )
-      registrar('hacer visible la credencial', rescate.ok, rescate.detalle, await capturarUi())
+      record('hacer visible la credencial', rescue.ok, rescue.detail, await captureUi())
 
-      for (let i = 0; i < 6 && secreto === null; i++) {
-        secreto = await buscarSecreto(browser, servicio.patronSecreto)
-        if (secreto === null) await new Promise((res) => setTimeout(res, 700))
+      for (let i = 0; i < 6 && secret === null; i++) {
+        secret = await findSecret(browser, service.secretPattern)
+        if (secret === null) await new Promise((res) => setTimeout(res, 700))
       }
     }
 
-    if (secreto === null) {
-      const visible = (await browser.textoVisible()).slice(0, 400)
-      registrar(
+    if (secret === null) {
+      const visible = (await browser.visibleText()).slice(0, 400)
+      record(
         'leer la credencial',
         false,
         `ni en la pantalla ni en el portapapeles. Se veía: ${visible}`,
-        await capturarUi()
+        await captureUi()
       )
-      return salida(false, 'hice los pasos pero no pude conseguir la credencial', null, true)
+      return output(false, 'hice los pasos pero no pude conseguir la credencial', null, true)
     }
 
-    registrar('leer la credencial', true, `${secreto.slice(0, 8)}… (${secreto.length} caracteres)`)
+    record('leer la credencial', true, `${secret.slice(0, 8)}… (${secret.length} caracteres)`)
 
     // ── ¿funciona de verdad? ─────────────────────────────────────────────
-    if (servicio.verificar === undefined) {
-      return salida(true, `${servicio.nombre} conectado`, secreto, false)
+    if (service.verify === undefined) {
+      return output(true, `${service.name} conectado`, secret, false)
     }
 
     // El llamador todavía no guardó el secreto, así que la verificación tiene
     // que poder usar ESTE valor y no el que haya guardado de antes.
-    const v = await servicio.verificar(secreto)
+    const v = await service.verify(secret)
     if (v.ok) {
-      registrar('preguntarle a la API si funciona', true, v.detalle)
-      return salida(true, `${servicio.nombre} conectado — ${v.detalle}`, secreto, false)
+      record('preguntarle a la API si funciona', true, v.detail)
+      return output(true, `${service.name} conectado — ${v.detail}`, secret, false)
     }
 
-    registrar('preguntarle a la API si funciona', false, v.detalle, await capturarUi())
+    record('preguntarle a la API si funciona', false, v.detail, await captureUi())
 
-    if (servicio.pedirAlHumano === undefined) {
-      return salida(false, v.detalle, secreto, false)
+    if (service.askHuman === undefined) {
+      return output(false, v.detail, secret, false)
     }
 
     /**
@@ -463,34 +463,34 @@ export async function conectarConAgente(
      * botón sería una forma de que el usuario diga que hizo algo que no hizo,
      * y de volver a empezar por nada.
      */
-    const pedido = servicio.pedirAlHumano
-    await browser.open(pedido.url)
+    const request = service.askHuman
+    await browser.open(request.url)
     browser.reveal()
 
-    registrar(
+    record(
       'te toca a vos — 10 segundos, una sola vez',
       true,
-      pedido.instrucciones.join('  →  ')
+      request.instructions.join('  →  ')
     )
 
-    const hasta = Date.now() + (pedido.timeoutMs ?? 4 * 60_000)
-    let ultimo = v.detalle
+    const until = Date.now() + (request.timeoutMs ?? 4 * 60_000)
+    let last = v.detail
 
-    while (Date.now() < hasta) {
+    while (Date.now() < until) {
       await new Promise((res) => setTimeout(res, 3000))
-      const otra = await servicio.verificar(secreto)
-      if (otra.ok) {
-        registrar('listo, lo detecté solo', true, otra.detalle)
-        return salida(true, `${servicio.nombre} conectado — ${otra.detalle}`, secreto, false)
+      const again = await service.verify(secret)
+      if (again.ok) {
+        record('listo, lo detecté solo', true, again.detail)
+        return output(true, `${service.name} conectado — ${again.detail}`, secret, false)
       }
-      ultimo = otra.detalle
+      last = again.detail
     }
 
-    registrar('esperar el permiso', false, `se acabó el tiempo. Último intento: ${ultimo}`)
-    return salida(
+    record('esperar el permiso', false, `se acabó el tiempo. Último intento: ${last}`)
+    return output(
       false,
-      `El token quedó guardado. Falta darle acceso: ${pedido.instrucciones.join(' → ')}`,
-      secreto,
+      `El token quedó guardado. Falta darle acceso: ${request.instructions.join(' → ')}`,
+      secret,
       false
     )
   } catch (error: unknown) {
@@ -505,17 +505,17 @@ export async function conectarConAgente(
      * bueno — obligando a repetir los tres minutos de navegación por un
      * timeout que no tenía nada que ver.
      */
-    const rescatado = await buscarSecreto(browser, servicio.patronSecreto).catch(() => null)
-    registrar('la corrida', false, m, await capturarUi())
+    const rescued = await findSecret(browser, service.secretPattern).catch(() => null)
+    record('la corrida', false, m, await captureUi())
 
-    if (rescatado !== null) {
-      registrar('la credencial se salva igual', true, 'no hay que volver a sacarla')
-      return salida(false, `${m} (pero la credencial quedó guardada)`, rescatado, false)
+    if (rescued !== null) {
+      record('la credencial se salva igual', true, 'no hay que volver a sacarla')
+      return output(false, `${m} (pero la credencial quedó guardada)`, rescued, false)
     }
 
-    return salida(false, m, null, true)
+    return output(false, m, null, true)
   } finally {
-    restaurarPortapapeles()
+    restoreClipboard()
     await browser.close()
   }
 }

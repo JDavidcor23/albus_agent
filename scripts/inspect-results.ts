@@ -29,18 +29,18 @@ async function main(): Promise<void> {
   if (error) throw new Error(error.message)
   const rows = (data ?? []) as Row[]
 
-  const esImagen = (r: Row): boolean => r.attachment_path !== ''
+  const isImage = (r: Row): boolean => r.attachment_path !== ''
 
   console.log('=== kind segun origen ===')
-  const tabla = new Map<string, { body: number; img: number }>()
+  const table = new Map<string, { body: number; img: number }>()
   for (const r of rows) {
-    const e = tabla.get(r.kind) ?? { body: 0, img: 0 }
-    if (esImagen(r)) e.img++
+    const e = table.get(r.kind) ?? { body: 0, img: 0 }
+    if (isImage(r)) e.img++
     else e.body++
-    tabla.set(r.kind, e)
+    table.set(r.kind, e)
   }
   console.log('kind        body  imagen')
-  for (const [kind, e] of [...tabla].sort((a, b) => b[1].img + b[1].body - a[1].img - a[1].body)) {
+  for (const [kind, e] of [...table].sort((a, b) => b[1].img + b[1].body - a[1].img - a[1].body)) {
     console.log(`${kind.padEnd(12)}${String(e.body).padStart(4)}${String(e.img).padStart(8)}`)
   }
 
@@ -56,16 +56,16 @@ async function main(): Promise<void> {
   }
 
   console.log('\n=== calidad del OCR en las imagenes que cayeron en "text" ===')
-  const textoDeImagen = rows.filter((r) => r.kind === 'text' && esImagen(r))
-  console.log(`${textoDeImagen.length} imagenes. Muestra de las primeras 6:\n`)
-  for (const r of textoDeImagen.slice(0, 6)) {
+  const imageText = rows.filter((r) => r.kind === 'text' && isImage(r))
+  console.log(`${imageText.length} imagenes. Muestra de las primeras 6:\n`)
+  for (const r of imageText.slice(0, 6)) {
     const t = String(r.payload.text ?? '').replace(/\s+/g, ' ').trim()
-    const legible = t.replace(/[^\p{L}\p{N} ]/gu, '').length / Math.max(t.length, 1)
-    console.log(`  [${(legible * 100).toFixed(0)}% alfanumerico, ${t.length} chars] ${t.slice(0, 110)}`)
+    const readable = t.replace(/[^\p{L}\p{N} ]/gu, '').length / Math.max(t.length, 1)
+    console.log(`  [${(readable * 100).toFixed(0)}% alfanumerico, ${t.length} chars] ${t.slice(0, 110)}`)
   }
 
-  const vacias = textoDeImagen.filter((r) => String(r.payload.text ?? '').trim().length < 20).length
-  console.log(`\n  ${vacias}/${textoDeImagen.length} sacaron menos de 20 caracteres (OCR practicamente vacio)`)
+  const empties = imageText.filter((r) => String(r.payload.text ?? '').trim().length < 20).length
+  console.log(`\n  ${empties}/${imageText.length} sacaron menos de 20 caracteres (OCR practicamente vacio)`)
 }
 
 main().catch((e: unknown) => {

@@ -22,21 +22,21 @@ import type { JobPosting } from '../core/jobs/types'
 const cache: { value: string | null | undefined } = { value: undefined }
 
 /** Compilar, revisar y verificar un kit lleva minutos. Veinte es el techo. */
-const TIMEOUT_KIT_MS = 20 * 60_000
+const KIT_TIMEOUT_MS = 20 * 60_000
 
 export interface KitRequest {
   url: string
   company: string
   role: string
   slug: string
-  onLinea?: (linea: string) => void
+  onLine?: (line: string) => void
 }
 
 export interface KitResult {
   ok: boolean
   cv: string | null
   cover: string | null
-  mensaje: string
+  message: string
 }
 
 /**
@@ -67,10 +67,10 @@ function prompt(req: KitRequest): string {
   ].join('\n')
 }
 
-export async function generarKit(req: KitRequest): Promise<KitResult> {
+export async function generateKit(req: KitRequest): Promise<KitResult> {
   const bin = await resolveBinary('claude', cache)
   if (bin === null) {
-    return { ok: false, cv: null, cover: null, mensaje: 'claude no está en el PATH' }
+    return { ok: false, cv: null, cover: null, message: 'claude no está en el PATH' }
   }
 
   const slug = req.slug !== '' ? req.slug : slugify(req.company)
@@ -79,12 +79,12 @@ export async function generarKit(req: KitRequest): Promise<KitResult> {
 
   // Si ya existe no se regenera: compilar de nuevo cuesta minutos y cuota, y
   // el kit anterior ya pasó su verificación.
-  const previo = await kitSource.findKit(posting)
-  if (previo.cv !== null) {
-    return { ok: true, cv: previo.cv, cover: previo.cover, mensaje: 'el kit ya estaba compilado' }
+  const previous = await kitSource.findKit(posting)
+  if (previous.cv !== null) {
+    return { ok: true, cv: previous.cv, cover: previous.cover, message: 'el kit ya estaba compilado' }
   }
 
-  req.onLinea?.(`generando el kit de ${req.company}… esto tarda varios minutos`)
+  req.onLine?.(`generando el kit de ${req.company}… esto tarda varios minutos`)
 
   try {
     // cwd en el workspace: ahí viven las skills, las plantillas y el .claude
@@ -96,18 +96,23 @@ export async function generarKit(req: KitRequest): Promise<KitResult> {
     })
 
     await collect(child, `claude /apply ${req.company}`, prompt(req), {
-      timeoutMs: TIMEOUT_KIT_MS,
-      onLinea: (l) => req.onLinea?.(l.slice(0, 160))
+      timeoutMs: KIT_TIMEOUT_MS,
+      onLine: (l) => req.onLine?.(l.slice(0, 160))
     })
   } catch (error: unknown) {
-    const mensaje = error instanceof Error ? error.message : String(error)
+    const message = error instanceof Error ? error.message : String(error)
     // Aunque el CLI falle, puede haber dejado los PDF: se mira el disco antes
     // de dar el kit por perdido. El estado real manda sobre el exit code.
-    const igual = await kitSource.findKit(posting)
-    if (igual.cv !== null) {
-      return { ok: true, cv: igual.cv, cover: igual.cover, mensaje: 'compilado (el CLI salió mal)' }
+    const afterFailure = await kitSource.findKit(posting)
+    if (afterFailure.cv !== null) {
+      return {
+        ok: true,
+        cv: afterFailure.cv,
+        cover: afterFailure.cover,
+        message: 'compilado (el CLI salió mal)'
+      }
     }
-    return { ok: false, cv: null, cover: null, mensaje }
+    return { ok: false, cv: null, cover: null, message }
   }
 
   // La verdad es el disco, no lo que el agente diga que hizo.
@@ -117,7 +122,7 @@ export async function generarKit(req: KitRequest): Promise<KitResult> {
       ok: false,
       cv: null,
       cover: null,
-      mensaje: `el agente terminó pero no hay cv/main_${slug}.pdf en el workspace`
+      message: `el agente terminó pero no hay cv/main_${slug}.pdf en el workspace`
     }
   }
 
@@ -125,6 +130,6 @@ export async function generarKit(req: KitRequest): Promise<KitResult> {
     ok: true,
     cv: final.cv,
     cover: final.cover,
-    mensaje: final.cover === null ? 'CV listo (sin carta)' : 'CV y carta listos'
+    message: final.cover === null ? 'CV listo (sin carta)' : 'CV y carta listos'
   }
 }

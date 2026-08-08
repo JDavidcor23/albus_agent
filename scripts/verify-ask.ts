@@ -7,16 +7,16 @@
  * REALES que quedaron en la tabla, no inventados — un matcheo difuso probado
  * contra datos de juguete no prueba nada.
  */
-import { interpretar, redactar } from '../src/main/core/tasks/ask'
+import { interpret, compose } from '../src/main/core/tasks/ask'
 import type { Task } from '../src/main/core/tasks/types'
 
-let fallas = 0
+let failures = 0
 
-function check(nombre: string, ok: boolean, detalle = ''): void {
-  if (ok) console.log(`PASS  ${nombre}`)
+function check(name: string, ok: boolean, detail = ''): void {
+  if (ok) console.log(`PASS  ${name}`)
   else {
-    console.log(`FAIL  ${nombre} — ${detalle}`)
-    fallas++
+    console.log(`FAIL  ${name} — ${detail}`)
+    failures++
   }
 }
 
@@ -35,7 +35,7 @@ function task(id: string, title: string, source = 'cli:agy'): Task {
   }
 }
 
-const ABIERTOS: Task[] = [
+const OPEN: Task[] = [
   task('1', 'Hacer cursos de IA'),
   task('2', 'Investigar si los vídeos de IA generan plata en YouTube'),
   task('3', 'Postularme a la vacante de Senior Frontend React Developer'),
@@ -49,84 +49,84 @@ const ABIERTOS: Task[] = [
 
 function main(): void {
   // --- Listar ---------------------------------------------------------------
-  for (const frase of ['¿qué tengo pendiente?', 'que me falta', 'pendientes', 'mis tareas']) {
-    check(`"${frase}" -> pendientes`, interpretar(frase, ABIERTOS).kind === 'pendientes')
+  for (const phrase of ['¿qué tengo pendiente?', 'que me falta', 'pendientes', 'mis tareas']) {
+    check(`"${phrase}" -> pendientes`, interpret(phrase, OPEN).kind === 'tasks')
   }
 
   // --- Cerrar con un match claro -------------------------------------------
-  const cursos = interpretar('ya hice los cursos de ia', ABIERTOS)
+  const courses = interpret('ya hice los cursos de ia', OPEN)
   check(
     '"ya hice los cursos de ia" cierra el correcto',
-    cursos.kind === 'cerrar' && cursos.taskId === '1',
-    JSON.stringify(cursos)
+    courses.kind === 'close' && courses.taskId === '1',
+    JSON.stringify(courses)
   )
 
-  const yt = interpretar('no va lo de youtube', ABIERTOS)
+  const yt = interpret('no va lo de youtube', OPEN)
   check(
     '"no va lo de youtube" descarta el correcto',
-    yt.kind === 'cerrar' && yt.taskId === '2' && yt.comoDismissed,
+    yt.kind === 'close' && yt.taskId === '2' && yt.asDismissed,
     JSON.stringify(yt)
   )
 
   // --- Ambiguo: NO debe cerrar a ciegas ------------------------------------
   // "postularme" matchea dos vacantes. Cerrar la equivocada es peor que
   // preguntar: el usuario creeria que resolvio algo que sigue abierto.
-  const vacante = interpretar('ya me postulé', ABIERTOS)
+  const jobPost = interpret('ya me postulé', OPEN)
   check(
     '"ya me postulé" (matchea 2 vacantes) pregunta en vez de adivinar',
-    vacante.kind === 'ambiguo' && vacante.candidatos.length === 2,
-    JSON.stringify(vacante)
+    jobPost.kind === 'ambiguous' && jobPost.candidates.length === 2,
+    JSON.stringify(jobPost)
   )
 
-  const qr = interpretar('ya usé el qr', ABIERTOS)
+  const qr = interpret('ya usé el qr', OPEN)
   check(
     '"ya usé el qr" (matchea 3) pregunta en vez de adivinar',
-    qr.kind === 'ambiguo' && qr.candidatos.length === 3,
+    qr.kind === 'ambiguous' && qr.candidates.length === 3,
     JSON.stringify(qr)
   )
 
   // --- "listo" a secas no dice QUÉ -----------------------------------------
-  const listo = interpretar('listo', ABIERTOS)
+  const done = interpret('listo', OPEN)
   check(
     '"listo" a secas no cierra nada',
-    listo.kind === 'ambiguo' && listo.termino === '',
-    JSON.stringify(listo)
+    done.kind === 'ambiguous' && done.term === '',
+    JSON.stringify(done)
   )
 
   // --- Sin coincidencias ----------------------------------------------------
-  const nada = interpretar('ya hice el asado', ABIERTOS)
+  const noMatch = interpret('ya hice el asado', OPEN)
   check(
     '"ya hice el asado" no matchea nada y lo dice',
-    nada.kind === 'ambiguo' && nada.candidatos.length === 0,
-    JSON.stringify(nada)
+    noMatch.kind === 'ambiguous' && noMatch.candidates.length === 0,
+    JSON.stringify(noMatch)
   )
 
   // --- La negación gana: cerrar de más es el peor error posible ------------
-  for (const frase of [
+  for (const phrase of [
     'todavia no hice los cursos de ia',
     'aun no me postulé',
     'no he usado el qr'
   ]) {
-    const r = interpretar(frase, ABIERTOS)
-    check(`"${frase}" NO cierra nada`, r.kind !== 'cerrar', JSON.stringify(r))
+    const r = interpret(phrase, OPEN)
+    check(`"${phrase}" NO cierra nada`, r.kind !== 'close', JSON.stringify(r))
   }
 
   // --- Fuera de tema --------------------------------------------------------
-  check('"hola" -> ayuda', interpretar('hola', ABIERTOS).kind === 'ayuda')
-  check('vacío -> ayuda', interpretar('   ', ABIERTOS).kind === 'ayuda')
+  check('"hola" -> ayuda', interpret('hola', OPEN).kind === 'help')
+  check('vacío -> ayuda', interpret('   ', OPEN).kind === 'help')
 
   // --- Redacción ------------------------------------------------------------
   check(
     'sin pendientes lo dice claro',
-    redactar({ kind: 'pendientes' }, []) === 'No te queda nada pendiente.'
+    compose({ kind: 'tasks' }, []) === 'No te queda nada pendiente.'
   )
   check(
     'cuenta bien en singular',
-    redactar({ kind: 'pendientes' }, [ABIERTOS[0]]).includes('1 cosa')
+    compose({ kind: 'tasks' }, [OPEN[0]]).includes('1 cosa')
   )
 
-  console.log(fallas === 0 ? '\nTODO OK' : `\n${fallas} FALLAS`)
-  process.exit(fallas === 0 ? 0 : 1)
+  console.log(failures === 0 ? '\nTODO OK' : `\n${failures} FALLAS`)
+  process.exit(failures === 0 ? 0 : 1)
 }
 
 main()

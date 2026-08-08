@@ -27,7 +27,7 @@ export interface Discovery {
 }
 
 interface CacheFile {
-  [claveProveedorVersion: string]: Discovery
+  [providerVersionKey: string]: Discovery
 }
 
 /**
@@ -59,10 +59,10 @@ function cachePath(): string {
 }
 
 function readCache(): CacheFile {
-  const ruta = cachePath()
-  if (!existsSync(ruta)) return {}
+  const path = cachePath()
+  if (!existsSync(path)) return {}
   try {
-    return JSON.parse(readFileSync(ruta, 'utf8')) as CacheFile
+    return JSON.parse(readFileSync(path, 'utf8')) as CacheFile
   } catch {
     return {}
   }
@@ -74,8 +74,8 @@ function writeCache(cache: CacheFile): void {
 }
 
 export function getCached(providerId: string, cliVersion: string): Discovery | null {
-  const entrada = readCache()[`${providerId}@${cliVersion}`]
-  return entrada ?? null
+  const entry = readCache()[`${providerId}@${cliVersion}`]
+  return entry ?? null
 }
 
 export function putCached(providerId: string, d: Discovery): void {

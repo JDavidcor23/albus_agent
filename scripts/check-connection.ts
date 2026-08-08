@@ -21,22 +21,22 @@ async function main(): Promise<void> {
   const source = createItemSource()
   const pending = await source.listPending(500)
 
-  const porTipo = new Map<string, number>()
+  const byKind = new Map<string, number>()
   for (const item of pending) {
-    const tipo = item.attachmentPath === '' ? 'texto (body)' : item.mime
-    porTipo.set(tipo, (porTipo.get(tipo) ?? 0) + 1)
+    const kind = item.attachmentPath === '' ? 'texto (body)' : item.mime
+    byKind.set(kind, (byKind.get(kind) ?? 0) + 1)
   }
 
   console.log(`\nConexión OK. ${pending.length} items pendientes:\n`)
-  for (const [tipo, n] of [...porTipo].sort((a, b) => b[1] - a[1])) {
-    console.log(`  ${String(n).padStart(4)}  ${tipo}`)
+  for (const [kind, n] of [...byKind].sort((a, b) => b[1] - a[1])) {
+    console.log(`  ${String(n).padStart(4)}  ${kind}`)
   }
 
   // Bajamos un solo archivo para confirmar que Storage también responde: que la
   // tabla se lea no garantiza que el bucket esté accesible con esta credencial.
-  const primerAdjunto = pending.find((i) => i.attachmentPath !== '')
-  if (primerAdjunto) {
-    const bytes = await source.downloadAttachment(primerAdjunto.attachmentPath)
+  const firstAttachment = pending.find((i) => i.attachmentPath !== '')
+  if (firstAttachment) {
+    const bytes = await source.downloadAttachment(firstAttachment.attachmentPath)
     console.log(`\nStorage OK. Bajé 1 archivo de prueba: ${bytes.byteLength} bytes.`)
   } else {
     console.log('\nNo hay adjuntos pendientes que probar contra Storage.')

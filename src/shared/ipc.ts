@@ -67,11 +67,11 @@ export const IpcEvents = {
 export interface ConnectionStepRow {
   /** Qué servicio se está conectando. */
   id: string
-  paso: string
+  step: string
   ok: boolean
-  detalle: string
+  detail: string
   /** Ruta absoluta del PNG de cómo se veía la pantalla en ese momento. */
-  captura?: string
+  screenshot?: string
 }
 
 export type IpcResult<T> =
@@ -201,7 +201,7 @@ export interface AskAnswer {
   text: string
   tasks: TaskRow[]
   /** Qué entendió. Sirve para no adivinar en silencio cuando no entendió nada. */
-  intent: 'pendientes' | 'cerrar' | 'ambiguo' | 'ayuda'
+  intent: 'tasks' | 'close' | 'ambiguous' | 'help'
 }
 
 /**
@@ -260,7 +260,7 @@ export interface TaskDetail {
  * Allowlist de host y no "empieza con https": un `https://malicioso.com` pasaría
  * ese chequeo igual.
  */
-export const HOSTS_ABRIBLES: readonly string[] = [
+export const OPENABLE_HOSTS: readonly string[] = [
   'drive.google.com',
   'docs.google.com',
   // Para el botón de agendar. Es una allowlist, así que agregar un host es una
@@ -286,10 +286,10 @@ export const HOSTS_ABRIBLES: readonly string[] = [
  * `evil-linkedin.com` terminaría en "linkedin.com" y pasaría un endsWith
  * ingenuo. Hay un assert para ese caso exacto.
  */
-export const DOMINIOS_ABRIBLES: readonly string[] = ['linkedin.com', 'meetup.com']
+export const OPENABLE_DOMAINS: readonly string[] = ['linkedin.com', 'meetup.com']
 
-function hostBajoDominio(host: string, dominio: string): boolean {
-  return host === dominio || host.endsWith(`.${dominio}`)
+function hostUnderDomain(host: string, domain: string): boolean {
+  return host === domain || host.endsWith(`.${domain}`)
 }
 
 // ── postulación laboral ────────────────────────────────────────────────────
@@ -309,7 +309,7 @@ export interface JobsStatus {
   /** ¿El token de Google alcanza para mandar correos? */
   gmailReady: boolean
   /** Qué correr para arreglar lo que falte. Vacío = está todo. */
-  faltantes: string[]
+  missing: string[]
 }
 
 // ── búsqueda y triage ──────────────────────────────────────────────────────
@@ -333,7 +333,7 @@ export interface RankedJobRow {
 }
 
 /** Lo mínimo que el router necesita para resolver "la primera". */
-export interface ChatVacante {
+export interface ChatJob {
   id: string
   company: string
   title: string
@@ -348,36 +348,36 @@ export interface ChatVacante {
  * ya se envió) va a poder hacerlo sin mover nada de lugar.
  */
 export type ChatIntent =
-  | { kind: 'buscar'; queries: string[]; ubicacion: string | null }
-  | { kind: 'postular'; id: string }
-  | { kind: 'mostrar'; id: string }
-  | { kind: 'enviar'; id: string }
-  | { kind: 'descartar'; id: string }
-  | { kind: 'ambiguo'; candidatas: ChatVacante[]; termino: string }
-  | { kind: 'conversar'; texto: string }
-  | { kind: 'ayuda' }
+  | { kind: 'search'; queries: string[]; location: string | null }
+  | { kind: 'apply'; id: string }
+  | { kind: 'show'; id: string }
+  | { kind: 'send'; id: string }
+  | { kind: 'discard'; id: string }
+  | { kind: 'ambiguous'; candidates: ChatJob[]; term: string }
+  | { kind: 'chat'; text: string }
+  | { kind: 'help' }
 
 export interface HuntResult {
-  encontradas: number
-  repetidas: number
-  rankeadas: number
-  califican: RankedJobRow[]
-  descartadas: RankedJobRow[]
-  notionEscritas: number
+  found: number
+  duplicates: number
+  ranked: number
+  qualified: RankedJobRow[]
+  rejected: RankedJobRow[]
+  notionWrites: number
   notionError: string | null
-  resumen: string
+  summary: string
 }
 
 export interface HuntProgress {
-  fase: string
-  detalle: string
+  phase: string
+  detail: string
 }
 
 export interface KitResultRow {
   ok: boolean
   cv: string | null
   cover: string | null
-  mensaje: string
+  message: string
 }
 
 export interface EmailApplyResult {
@@ -411,20 +411,20 @@ export interface ConnectionInfo {
    * Google salía dos veces —token de API y sesión de navegador— y para el
    * usuario eso es una cuenta con dos permisos. Sin grupo, cae en el suyo.
    */
-  grupo: string
+  group: string
   /** Qué aporta ESTA entrada dentro del grupo. Vacío si el grupo es de una. */
-  capacidad: string
-  nombre: string
-  paraQue: string
-  vias: ('navegador' | 'token')[]
-  dondeSacarlo: string
-  conectado: boolean
+  capability: string
+  name: string
+  purpose: string
+  methods: ('browser' | 'token')[]
+  credentialUrl: string
+  connected: boolean
   /**
    * `yml` = `albus.yml`, el archivo que el usuario puede abrir y editar.
    * `app` = lo cifrado de antes (legado). `env` = una variable de entorno.
    */
-  origen: 'yml' | 'app' | 'env' | 'ninguno'
-  detalle: string
+  source: 'yml' | 'app' | 'env' | 'none'
+  detail: string
   /**
    * ¿El sistema operativo ofrece cifrado de credenciales?
    *
@@ -433,24 +433,24 @@ export interface ConnectionInfo {
    * cuenta de Windows" y "está en un archivo de texto". El usuario tiene
    * derecho a saber cuál de las dos es.
    */
-  cifradoDisponible: boolean
+  encryptionAvailable: boolean
 }
 
 export interface AgentInfo {
   id: string
-  nombre: string
-  descripcion: string
+  name: string
+  description: string
   /** `false` = se pinta apagado con el motivo, no se esconde. */
-  disponible: boolean
-  motivo: string
-  reglas: AgentRulesInfo
+  available: boolean
+  reason: string
+  rules: AgentRulesInfo
 }
 
 /** Una referencia que el usuario enlazó en su `.md` de reglas. */
 export interface RuleRef {
   id: string
   /** Lo que escribió al lado del link. Un hash de 32 no le dice nada a nadie. */
-  etiqueta: string
+  label: string
 }
 
 /**
@@ -469,20 +469,20 @@ export interface RuleRef {
  */
 export interface AgentQuestion {
   id: string
-  pregunta: string
+  question: string
   /** Dónde apareció: la vacante, el campo. Sin esto es incontestable después. */
-  contexto: string
-  creada: string
+  context: string
+  createdAt: string
   /** Sugerencias del agente. No obligan: se puede escribir cualquier cosa. */
-  opciones: string[]
+  options: string[]
 }
 
 export interface AgentRulesInfo {
-  soporta: boolean
-  existe: boolean
-  ruta: string
+  supported: boolean
+  exists: boolean
+  path: string
   /** Lo que el agente preguntó y sigue sin respuesta. */
-  preguntas: AgentQuestion[]
+  questions: AgentQuestion[]
   /**
    * Las reglas que el usuario escribió, en sus palabras.
    *
@@ -491,7 +491,7 @@ export interface AgentRulesInfo {
    * "si me postulo, guardá el CV en esta carpeta", no un inventario de
    * integraciones.
    */
-  resumen: string[]
+  summary: string[]
   notion: RuleRef[]
   drive: RuleRef[]
 }
@@ -526,7 +526,7 @@ export interface JobApplyResult {
  * misma razón que la de `openExternal`: la URL viene de afuera y abrir un
  * navegador con la sesión del usuario adentro no es una operación inocente.
  */
-export const HOSTS_POSTULABLES: readonly string[] = [
+export const APPLICABLE_HOSTS: readonly string[] = [
   'boards.greenhouse.io',
   'job-boards.greenhouse.io',
   'jobs.lever.co',
@@ -542,29 +542,29 @@ export const HOSTS_POSTULABLES: readonly string[] = [
  * `www.linkedin.com` sirve, y enumerar los treinta países es garantizar que
  * falte el que aparezca mañana.
  */
-export const DOMINIOS_POSTULABLES: readonly string[] = ['linkedin.com']
+export const APPLICABLE_DOMAINS: readonly string[] = ['linkedin.com']
 
-export function esUrlPostulable(url: string): boolean {
+export function isApplicableUrl(url: string): boolean {
   try {
     const parsed = new URL(url)
     if (parsed.protocol !== 'https:') return false
 
     const host = parsed.hostname.toLowerCase()
-    if (HOSTS_POSTULABLES.includes(host)) return true
-    return DOMINIOS_POSTULABLES.some((d) => hostBajoDominio(host, d))
+    if (APPLICABLE_HOSTS.includes(host)) return true
+    return APPLICABLE_DOMAINS.some((d) => hostUnderDomain(host, d))
   } catch {
     return false
   }
 }
 
-export function esUrlAbrible(url: string): boolean {
+export function isOpenableUrl(url: string): boolean {
   try {
     const parsed = new URL(url)
     if (parsed.protocol !== 'https:') return false
 
     const host = parsed.hostname.toLowerCase()
-    if (HOSTS_ABRIBLES.includes(host)) return true
-    if (DOMINIOS_ABRIBLES.some((d) => hostBajoDominio(host, d))) return true
+    if (OPENABLE_HOSTS.includes(host)) return true
+    if (OPENABLE_DOMAINS.some((d) => hostUnderDomain(host, d))) return true
 
     // Invariante: todo lo POSTULABLE es abrible. Si Albus puede navegar ahí con
     // tu sesión adentro, abrirlo en tu navegador es estrictamente menos
@@ -572,7 +572,7 @@ export function esUrlAbrible(url: string): boolean {
     // forma garantizada de que se desincronicen — y ya pasó: el scraper devuelve
     // Greenhouse y Lever, y "ver la vacante" habría fallado igual que con
     // `co.linkedin.com`.
-    return esUrlPostulable(url)
+    return isApplicableUrl(url)
   } catch {
     return false
   }

@@ -40,32 +40,32 @@
  * `JWT expired` NO está: un token vencido es un problema de configuración que
  * hay que ver, no un hipo. `Invalid API key` tampoco, por lo mismo.
  */
-export const ES_TRANSITORIO = /issued at future|JWTIssuedAtFuture/i
+export const IS_TRANSIENT = /issued at future|JWTIssuedAtFuture/i
 
 /** Uno más sería esperar 3.5 s por algo que se resuelve en el primer reintento. */
-const MAX_REINTENTOS = 2
+const MAX_RETRIES = 2
 
 /** Esperas entre intentos. El desfase que vimos se corrige en menos de un segundo. */
-const ESPERAS_MS = [250, 750]
+const WAITS_MS = [250, 750]
 
-function dormir(ms: number): Promise<void> {
+function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
 }
 
 /**
  * Envuelve un `fetch` y reintenta solo el transitorio de arriba.
  *
- * `factorEspera` existe para los chequeos: en 0 corren sin dormir. En producción
+ * `waitFactor` existe para los chequeos: en 0 corren sin dormir. En producción
  * queda en 1 y nadie lo pasa.
  */
-export function crearFetchConReintento(fetchBase: typeof fetch, factorEspera = 1): typeof fetch {
-  return async function fetchConReintento(
+export function createFetchWithRetry(fetchBase: typeof fetch, waitFactor = 1): typeof fetch {
+  return async function fetchWithRetry(
     input: RequestInfo | URL,
     init?: RequestInit
   ): Promise<Response> {
-    let ultima: Response | null = null
+    let last: Response | null = null
 
-    for (let intento = 0; intento <= MAX_REINTENTOS; intento++) {
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       const res = await fetchBase(input, init)
 
       // El camino feliz no paga nada: ni se mira el cuerpo.
@@ -74,24 +74,24 @@ export function crearFetchConReintento(fetchBase: typeof fetch, factorEspera = 1
       // `clone()` y no `text()` directo: el cuerpo se lee una sola vez y el que
       // llamó lo necesita entero. Sin el clone, supabase-js recibe un stream
       // ya consumido y el error se vuelve "body used already".
-      let cuerpo = ''
+      let body = ''
       try {
-        cuerpo = await res.clone().text()
+        body = await res.clone().text()
       } catch {
         return res
       }
 
-      if (!ES_TRANSITORIO.test(cuerpo)) return res
+      if (!IS_TRANSIENT.test(body)) return res
 
-      ultima = res
+      last = res
 
-      if (intento < MAX_REINTENTOS) {
-        const espera = ESPERAS_MS[intento] * factorEspera
+      if (attempt < MAX_RETRIES) {
+        const wait = WAITS_MS[attempt] * waitFactor
         console.warn(
           `[supabase] transitorio del servidor ("JWT issued at future"), ` +
-            `reintento ${intento + 1}/${MAX_REINTENTOS} en ${espera} ms`
+            `reintento ${attempt + 1}/${MAX_RETRIES} en ${wait} ms`
         )
-        if (espera > 0) await dormir(espera)
+        if (wait > 0) await sleep(wait)
       }
     }
 
@@ -100,6 +100,6 @@ export function crearFetchConReintento(fetchBase: typeof fetch, factorEspera = 1
       '[supabase] el transitorio no se resolvió en 3 intentos. ' +
         'Si se repite, es desfase de reloj entre los nodos de Supabase: reportarlo con la hora exacta.'
     )
-    return ultima as Response
+    return last as Response
   } as typeof fetch
 }

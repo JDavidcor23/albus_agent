@@ -14,97 +14,97 @@ import type { ConnectionInfo, ConnectionStepRow } from '../../../shared/ipc'
  */
 
 interface Props {
-  onCambio: () => void
+  onChange: () => void
   onError: (m: string | null) => void
 }
 
-export function ConnectionsPanel({ onCambio, onError }: Props): React.JSX.Element {
-  const [conexiones, setConexiones] = useState<ConnectionInfo[]>([])
-  const [cargando, setCargando] = useState(true)
-  const [ocupado, setOcupado] = useState<string | null>(null)
-  const [borradores, setBorradores] = useState<Record<string, string>>({})
-  const [aviso, setAviso] = useState<string | null>(null)
+export function ConnectionsPanel({ onChange, onError }: Props): React.JSX.Element {
+  const [connections, setConnections] = useState<ConnectionInfo[]>([])
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [notice, setNotice] = useState<string | null>(null)
   /** Los pasos de cada servicio, en orden. Se limpian al reintentar. */
-  const [pasos, setPasos] = useState<Record<string, ConnectionStepRow[]>>({})
+  const [steps, setSteps] = useState<Record<string, ConnectionStepRow[]>>({})
 
   // Los pasos llegan por evento, no por la respuesta del invoke: esa no vuelve
   // hasta que todo terminó. La desuscripción es obligatoria — sin ella el
   // StrictMode de React monta el handler dos veces y todo sale duplicado.
   useEffect(() => {
     return window.api.onConnectionStep((p) => {
-      setPasos((prev) => ({ ...prev, [p.id]: [...(prev[p.id] ?? []), p] }))
+      setSteps((prev) => ({ ...prev, [p.id]: [...(prev[p.id] ?? []), p] }))
     })
   }, [])
 
-  const cargar = useCallback((): void => {
+  const load = useCallback((): void => {
     void window.api.listConnections().then((res) => {
-      setCargando(false)
-      if (res.ok) setConexiones(res.data)
+      setLoading(false)
+      if (res.ok) setConnections(res.data)
       else onError(res.error.message)
     })
   }, [onError])
 
-  useEffect(cargar, [cargar])
+  useEffect(load, [load])
 
-  const aplicar = (lista: ConnectionInfo[], mensaje: string): void => {
-    setConexiones(lista)
-    setAviso(mensaje)
-    onCambio()
+  const apply = (list: ConnectionInfo[], message: string): void => {
+    setConnections(list)
+    setNotice(message)
+    onChange()
   }
 
-  const conectarNavegador = async (c: ConnectionInfo): Promise<void> => {
+  const connectViaBrowser = async (c: ConnectionInfo): Promise<void> => {
     onError(null)
-    setAviso(null)
+    setNotice(null)
     // Los pasos del intento anterior se van: mezclarlos con los nuevos hace
     // que el usuario lea como actual un error que ya no está pasando.
-    setPasos((p) => ({ ...p, [c.id]: [] }))
-    setOcupado(c.id)
+    setSteps((p) => ({ ...p, [c.id]: [] }))
+    setBusy(c.id)
     try {
       const res = await window.api.connectWithBrowser(c.id)
-      if (res.ok) aplicar(res.data.conexiones, res.data.mensaje)
+      if (res.ok) apply(res.data.connections, res.data.message)
       else onError(res.error.message)
     } finally {
-      setOcupado(null)
+      setBusy(null)
     }
   }
 
-  const guardarToken = async (c: ConnectionInfo): Promise<void> => {
-    const token = (borradores[c.id] ?? '').trim()
+  const saveToken = async (c: ConnectionInfo): Promise<void> => {
+    const token = (drafts[c.id] ?? '').trim()
     if (token.length < 8) {
       onError('ese token es muy corto')
       return
     }
 
     onError(null)
-    setAviso(null)
-    setOcupado(c.id)
+    setNotice(null)
+    setBusy(c.id)
     try {
       const res = await window.api.connectWithToken(c.id, token)
       if (res.ok) {
         // El campo se vacía apenas se guarda: no queda el secreto colgado en
         // el estado de React ni visible en pantalla.
-        setBorradores((p) => ({ ...p, [c.id]: '' }))
-        aplicar(res.data.conexiones, res.data.mensaje)
+        setDrafts((p) => ({ ...p, [c.id]: '' }))
+        apply(res.data.connections, res.data.message)
       } else {
         onError(res.error.message)
       }
     } finally {
-      setOcupado(null)
+      setBusy(null)
     }
   }
 
-  const desconectar = async (c: ConnectionInfo): Promise<void> => {
-    setOcupado(c.id)
+  const disconnect = async (c: ConnectionInfo): Promise<void> => {
+    setBusy(c.id)
     try {
       const res = await window.api.disconnect(c.id)
-      if (res.ok) aplicar(res.data.conexiones, `${c.nombre} desconectado`)
+      if (res.ok) apply(res.data.connections, `${c.name} desconectado`)
       else onError(res.error.message)
     } finally {
-      setOcupado(null)
+      setBusy(null)
     }
   }
 
-  if (cargando) return <p className="cli-hint">cargando conexiones…</p>
+  if (loading) return <p className="cli-hint">cargando conexiones…</p>
 
   /*
     Una tarjeta por CUENTA, no por mecanismo.
@@ -112,75 +112,75 @@ export function ConnectionsPanel({ onCambio, onError }: Props): React.JSX.Elemen
     quien mira es una sola cuenta con dos permisos. Se agrupan conservando el
     orden en que el main los declaró: ese orden es intencional.
   */
-  const grupos: { grupo: string; nombre: string; miembros: ConnectionInfo[] }[] = []
-  for (const c of conexiones) {
-    const ya = grupos.find((g) => g.grupo === c.grupo)
-    if (ya === undefined) grupos.push({ grupo: c.grupo, nombre: c.nombre, miembros: [c] })
-    else ya.miembros.push(c)
+  const groups: { group: string; name: string; members: ConnectionInfo[] }[] = []
+  for (const c of connections) {
+    const existing = groups.find((g) => g.group === c.group)
+    if (existing === undefined) groups.push({ group: c.group, name: c.name, members: [c] })
+    else existing.members.push(c)
   }
 
   return (
     <div className="conexiones">
-      {aviso !== null && <p className="conexion-aviso">{aviso}</p>}
+      {notice !== null && <p className="conexion-aviso">{notice}</p>}
 
-      {grupos.map((g) => (
-        <div key={g.grupo} className="conexion-grupo">
-          {g.miembros.length > 1 && (
+      {groups.map((g) => (
+        <div key={g.group} className="conexion-grupo">
+          {g.members.length > 1 && (
             <div className="conexion-grupo-head">
               <span
                 className={`conexion-punto ${
-                  g.miembros.every((m) => m.conectado) ? 'conexion-punto-on' : ''
+                  g.members.every((m) => m.connected) ? 'conexion-punto-on' : ''
                 }`}
               />
-              <span className="conexion-nombre">{g.nombre}</span>
+              <span className="conexion-nombre">{g.name}</span>
               <span className="conexion-grupo-cuenta">
-                {g.miembros.filter((m) => m.conectado).length}/{g.miembros.length} permisos
+                {g.members.filter((m) => m.connected).length}/{g.members.length} permisos
               </span>
             </div>
           )}
 
-          {g.miembros.map((c) => (
+          {g.members.map((c) => (
         <div
           key={c.id}
-          className={`conexion ${c.conectado ? 'conexion-on' : ''} ${
-            g.miembros.length > 1 ? 'conexion-hija' : ''
+          className={`conexion ${c.connected ? 'conexion-on' : ''} ${
+            g.members.length > 1 ? 'conexion-hija' : ''
           }`}
         >
           <div className="conexion-head">
-            {g.miembros.length === 1 && (
-              <span className={`conexion-punto ${c.conectado ? 'conexion-punto-on' : ''}`} />
+            {g.members.length === 1 && (
+              <span className={`conexion-punto ${c.connected ? 'conexion-punto-on' : ''}`} />
             )}
             <span className="conexion-nombre">
-              {g.miembros.length > 1 ? c.capacidad : c.nombre}
+              {g.members.length > 1 ? c.capability : c.name}
             </span>
             {/*
               De dónde sale la credencial. No es un detalle de implementación:
               es la diferencia entre arreglar algo en diez segundos y no
               entender por qué la app usa un token que ya cambiaste.
             */}
-            {c.conectado && c.origen !== 'ninguno' && (
+            {c.connected && c.source !== 'none' && (
               <span className="conexion-origen">
-                {c.origen === 'yml' ? 'albus.yml' : c.origen === 'env' ? 'desde .env' : 'guardado'}
+                {c.source === 'yml' ? 'albus.yml' : c.source === 'env' ? 'desde .env' : 'guardado'}
               </span>
             )}
-            {c.conectado && (
+            {c.connected && (
               <button
                 type="button"
                 className="conexion-quitar"
-                disabled={ocupado === c.id || c.origen === 'env'}
-                title={c.origen === 'env' ? 'está en el .env: sacalo de ahí' : ''}
-                onClick={() => void desconectar(c)}
+                disabled={busy === c.id || c.source === 'env'}
+                title={c.source === 'env' ? 'está en el .env: sacalo de ahí' : ''}
+                onClick={() => void disconnect(c)}
               >
                 desconectar
               </button>
             )}
           </div>
 
-          <p className="conexion-para">{c.paraQue}</p>
-          {!c.conectado && c.detalle !== '' && <p className="conexion-detalle">{c.detalle}</p>}
-          {c.conectado && c.detalle !== '' && <p className="conexion-detalle">{c.detalle}</p>}
+          <p className="conexion-para">{c.purpose}</p>
+          {!c.connected && c.detail !== '' && <p className="conexion-detalle">{c.detail}</p>}
+          {c.connected && c.detail !== '' && <p className="conexion-detalle">{c.detail}</p>}
 
-          {!c.conectado && (
+          {!c.connected && (
             <>
               {/*
                 La vía por navegador es SIEMPRE la principal: se abre una
@@ -188,15 +188,15 @@ export function ConnectionsPanel({ onCambio, onError }: Props): React.JSX.Elemen
                 Pegar un token es la red de contención para cuando el servicio
                 cambie su pantalla, no el camino normal.
               */}
-              {c.vias.includes('navegador') && (
+              {c.methods.includes('browser') && (
                 <div className="conexion-acciones">
                   <button
                     type="button"
                     className="btn-conectar"
-                    disabled={ocupado === c.id}
-                    onClick={() => void conectarNavegador(c)}
+                    disabled={busy === c.id}
+                    onClick={() => void connectViaBrowser(c)}
                   >
-                    {ocupado === c.id ? 'abriendo el navegador…' : `conectar ${c.nombre}`}
+                    {busy === c.id ? 'abriendo el navegador…' : `conectar ${c.name}`}
                   </button>
                   <span className="conexion-como">
                     se abre una ventana · entrás vos · el resto lo hace Albus
@@ -204,10 +204,10 @@ export function ConnectionsPanel({ onCambio, onError }: Props): React.JSX.Elemen
                 </div>
               )}
 
-              {c.vias.includes('token') && (
+              {c.methods.includes('token') && (
                 <details className="conexion-manual">
                   <summary>
-                    {c.vias.includes('navegador')
+                    {c.methods.includes('browser')
                       ? 'o pegá el token a mano'
                       : 'pegá el token'}
                   </summary>
@@ -223,17 +223,17 @@ export function ConnectionsPanel({ onCambio, onError }: Props): React.JSX.Elemen
                       className="job-input conexion-input"
                       type="password"
                       placeholder="pegá el token acá"
-                      value={borradores[c.id] ?? ''}
-                      onChange={(e) => setBorradores((p) => ({ ...p, [c.id]: e.target.value }))}
+                      value={drafts[c.id] ?? ''}
+                      onChange={(e) => setDrafts((p) => ({ ...p, [c.id]: e.target.value }))}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') void guardarToken(c)
+                        if (e.key === 'Enter') void saveToken(c)
                       }}
                     />
                     <button
                       type="button"
                       className="btn-conectar"
-                      disabled={ocupado === c.id || (borradores[c.id] ?? '').trim().length < 8}
-                      onClick={() => void guardarToken(c)}
+                      disabled={busy === c.id || (drafts[c.id] ?? '').trim().length < 8}
+                      onClick={() => void saveToken(c)}
                     >
                       guardar
                     </button>
@@ -248,26 +248,26 @@ export function ConnectionsPanel({ onCambio, onError }: Props): React.JSX.Elemen
             cifrado porque se lee de arriba hacia abajo: primero qué apretar,
             después qué está pasando.
           */}
-          {(pasos[c.id]?.length ?? 0) > 0 && (
+          {(steps[c.id]?.length ?? 0) > 0 && (
             <ol className="conexion-pasos">
-              {pasos[c.id].map((p, i) => (
+              {steps[c.id].map((p, i) => (
                 <li key={i} className={p.ok ? 'paso-ok' : 'paso-falla'}>
                   <span className="paso-marca">{p.ok ? '✓' : '✕'}</span>
                   <div className="paso-cuerpo">
-                    <span className="paso-nombre">{p.paso}</span>
-                    {p.detalle !== '' && <span className="paso-detalle">{p.detalle}</span>}
+                    <span className="paso-nombre">{p.step}</span>
+                    {p.detail !== '' && <span className="paso-detalle">{p.detail}</span>}
                     {/*
                       La captura viene como data: — no como ruta. El CSP del
                       renderer es `img-src 'self' data:` y un file:// se
                       bloquea sin decir por qué.
                     */}
-                    {p.captura !== undefined && (
-                      <img className="paso-captura" src={p.captura} alt={`pantalla: ${p.paso}`} />
+                    {p.screenshot !== undefined && (
+                      <img className="paso-captura" src={p.screenshot} alt={`pantalla: ${p.step}`} />
                     )}
                   </div>
                 </li>
               ))}
-              {ocupado === c.id && (
+              {busy === c.id && (
                 <li className="paso-corriendo">
                   <span className="paso-marca">·</span>
                   <div className="paso-cuerpo">
@@ -278,7 +278,7 @@ export function ConnectionsPanel({ onCambio, onError }: Props): React.JSX.Elemen
             </ol>
           )}
 
-          {!c.cifradoDisponible && c.vias.includes('token') && (
+          {!c.encryptionAvailable && c.methods.includes('token') && (
             <p className="conexion-detalle">
               este sistema no ofrece cifrado: el token queda en texto plano en albus.yml
             </p>

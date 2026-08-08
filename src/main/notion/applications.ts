@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { notionDatabaseId, notionFetch } from './client'
-import { propiedadesNotion, type FilaNotion } from '../core/jobs/notion-map'
+import { notionProperties, type NotionRow } from '../core/jobs/notion-map'
 
 /**
  * El espejo de las postulaciones en Notion.
@@ -9,6 +9,9 @@ import { propiedadesNotion, type FilaNotion } from '../core/jobs/notion-map'
  * veces, la deja en Backlog un día y se postula al otro: si cada corrida
  * insertara, la base terminaría con tres filas de la misma empresa y el
  * seguimiento —que es para lo único que sirve la base— se rompe.
+ *
+ * `'post link'` is the FROZEN upsert key: change it and every run inserts a
+ * duplicate instead of updating.
  */
 
 const PageSchema = z.object({ id: z.string(), url: z.string().optional() })
@@ -41,12 +44,12 @@ export interface UpsertResult {
   url: string
 }
 
-export async function upsertApplication(fila: FilaNotion): Promise<UpsertResult> {
-  const properties = propiedadesNotion(fila)
-  const existente = await findByPostLink(fila.postLink)
+export async function upsertApplication(row: NotionRow): Promise<UpsertResult> {
+  const properties = notionProperties(row)
+  const existing = await findByPostLink(row.postLink)
 
-  if (existente !== null) {
-    const json = await notionFetch(`/pages/${existente}`, {
+  if (existing !== null) {
+    const json = await notionFetch(`/pages/${existing}`, {
       method: 'PATCH',
       body: JSON.stringify({ properties })
     })

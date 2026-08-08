@@ -1,4 +1,4 @@
-import type { ServicioConectable } from './agente-conexion'
+import type { ConnectableService } from './connection-agent'
 import { DEFAULT_DATABASE_ID, notionDatabaseId } from '../notion/client'
 
 /**
@@ -20,21 +20,21 @@ import { DEFAULT_DATABASE_ID, notionDatabaseId } from '../notion/client'
  */
 
 /** El nombre con el que Albus se registra en todos lados. */
-export const NOMBRE_INTEGRACION = 'Albus Agent'
+export const INTEGRATION_NAME = 'Albus Agent'
 
-export function servicioNotion(): ServicioConectable {
+export function notionService(): ConnectableService {
   const id = notionDatabaseId() || DEFAULT_DATABASE_ID
 
   return {
     id: 'notion',
-    nombre: 'Notion',
+    name: 'Notion',
     // La de siempre —/profile/integrations— redirige acá. Se apunta al destino
     // real: un redirect es una carga más y una ventana más para que la SPA
     // quede a medio montar cuando el agente saca su primera foto.
     url: 'https://www.notion.so/developers/connections',
-    patronSecreto: 'ntn_[A-Za-z0-9]{20,}|secret_[A-Za-z0-9]{30,}',
-    objetivos: [
-      `Conseguir el token de una integración interna llamada exactamente "${NOMBRE_INTEGRACION}", ` +
+    secretPattern: 'ntn_[A-Za-z0-9]{20,}|secret_[A-Za-z0-9]{30,}',
+    goals: [
+      `Conseguir el token de una integración interna llamada exactamente "${INTEGRATION_NAME}", ` +
         `creándola si todavía no existe y abriéndola si ya existe. ` +
         `Si hay que elegir tipo de autenticación, tiene que ser el de TOKEN interno, NO OAuth. ` +
         `El objetivo NO está cumplido con el formulario lleno sin confirmar: hay que apretar el botón que la crea ` +
@@ -50,8 +50,8 @@ export function servicioNotion(): ServicioConectable {
       // ningún elemento lo lleva a esa página.
       {
         url: `https://www.notion.so/${id.replace(/-/g, '')}`,
-        que:
-          `Darle acceso a ESTA página a la integración "${NOMBRE_INTEGRACION}". ` +
+        what:
+          `Darle acceso a ESTA página a la integración "${INTEGRATION_NAME}". ` +
           `El camino normal es el menú de más opciones (tres puntos "···" arriba a la derecha, que puede ` +
           `NO tener texto) → "Connections" / "Conexiones" → elegirla → confirmar. ` +
           `Está cumplido cuando la integración figura con acceso a la página.`
@@ -59,16 +59,16 @@ export function servicioNotion(): ServicioConectable {
     ],
 
     // La única prueba que vale: que la API conteste con ESTE token.
-    async verificar(secreto) {
+    async verify(secret) {
       const { setNotionTokenResolver } = await import('../notion/client')
       const { knownPostLinks } = await import('../notion/applications')
-      setNotionTokenResolver(() => secreto)
+      setNotionTokenResolver(() => secret)
 
       try {
         const urls = await knownPostLinks()
-        return { ok: true, detalle: `la base responde: ${urls.size} postulación(es) registradas` }
+        return { ok: true, detail: `la base responde: ${urls.size} postulación(es) registradas` }
       } catch (error: unknown) {
-        return { ok: false, detalle: error instanceof Error ? error.message : String(error) }
+        return { ok: false, detail: error instanceof Error ? error.message : String(error) }
       }
     },
 
@@ -83,12 +83,12 @@ export function servicioNotion(): ServicioConectable {
      * Diez segundos, una sola vez en la vida, y Albus lo detecta solo
      * preguntándole a la API — no hay que avisarle nada.
      */
-    pedirAlHumano: {
+    askHuman: {
       url: `https://www.notion.so/${id.replace(/-/g, '')}`,
-      instrucciones: [
+      instructions: [
         'en la página que se abrió, apretá "···" (arriba a la derecha)',
         'Connections',
-        `elegí "${NOMBRE_INTEGRACION}"`,
+        `elegí "${INTEGRATION_NAME}"`,
         'confirmá — Albus se da cuenta solo y sigue'
       ]
     }
@@ -101,16 +101,16 @@ export function servicioNotion(): ServicioConectable {
  * Es exactamente el mismo motor, con otras cinco líneas de datos. Si Albus
  * necesita mañana un token de Supabase, ya sabe cómo sacarlo.
  */
-export function servicioSupabase(): ServicioConectable {
+export function supabaseService(): ConnectableService {
   return {
     id: 'supabase',
-    nombre: 'Supabase',
+    name: 'Supabase',
     url: 'https://supabase.com/dashboard/account/tokens',
-    patronSecreto: 'sbp_[A-Za-z0-9]{20,}',
-    objetivos: [
-      `Generar un access token personal llamado exactamente "${NOMBRE_INTEGRACION}" y dejar su valor visible ` +
+    secretPattern: 'sbp_[A-Za-z0-9]{20,}',
+    goals: [
+      `Generar un access token personal llamado exactamente "${INTEGRATION_NAME}" y dejar su valor visible ` +
         `en pantalla. Si ya existe uno con ese nombre, su valor NO se puede volver a ver: hay que generar otro ` +
-        `(podés llamarlo "${NOMBRE_INTEGRACION} 2"). El objetivo no está cumplido hasta que el token completo ` +
+        `(podés llamarlo "${INTEGRATION_NAME} 2"). El objetivo no está cumplido hasta que el token completo ` +
         `esté a la vista o copiado en un campo.`
     ]
   }
@@ -123,12 +123,12 @@ export function servicioSupabase(): ServicioConectable {
  * configuración —el id de la base de Notion sale del `.env` o de lo guardado—
  * y una constante de módulo la congelaría al importar.
  */
-export const CONECTABLES: Record<string, () => ServicioConectable> = {
-  notion: servicioNotion,
-  supabase: servicioSupabase
+export const CONNECTABLE: Record<string, () => ConnectableService> = {
+  notion: notionService,
+  supabase: supabaseService
 }
 
-export function conectable(id: string): ServicioConectable | null {
-  const armar = CONECTABLES[id]
-  return armar === undefined ? null : armar()
+export function connectable(id: string): ConnectableService | null {
+  const build = CONNECTABLE[id]
+  return build === undefined ? null : build()
 }

@@ -1,10 +1,10 @@
 import { readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { coverUploadName, cvUploadName } from '../core/jobs/cv-name'
-import { esEmailValido, modoGmail, type EmailAttachment, type EmailDraft } from '../core/jobs/email'
-import { estadoNotion, scrubPii, type FilaNotion } from '../core/jobs/notion-map'
+import { gmailMode, isValidEmail, type EmailAttachment, type EmailDraft } from '../core/jobs/email'
+import { notionStatus, scrubPii, type NotionRow } from '../core/jobs/notion-map'
 import type { ApplyMode, CandidateProfile, JobPosting } from '../core/jobs/types'
-import { adjuntosDelBorrador, enviarPostulacion, tieneScopeGmail } from '../gmail/send'
+import { draftAttachments, sendApplication, hasGmailScope } from '../gmail/send'
 import { isNotionConfigured } from '../notion/client'
 import { upsertApplication } from '../notion/applications'
 import { createWorkspaceKitSource, loadProfile, slugify } from './workspace'
@@ -48,11 +48,11 @@ export interface EmailApplyReport {
   message: string
 }
 
-function asuntoPorDefecto(p: CandidateProfile, req: EmailApplyRequest): string {
+function defaultSubject(p: CandidateProfile, req: EmailApplyRequest): string {
   return `${req.role} — ${p.fullName}`
 }
 
-function cuerpoPorDefecto(p: CandidateProfile, req: EmailApplyRequest): string {
+function defaultBody(p: CandidateProfile, req: EmailApplyRequest): string {
   return [
     `Hola,`,
     ``,
@@ -74,26 +74,23 @@ function cuerpoPorDefecto(p: CandidateProfile, req: EmailApplyRequest): string {
   ].join('\n')
 }
 
-async function adjuntar(
-  ruta: string | null,
-  nombreVisible: string
-): Promise<EmailAttachment | null> {
-  if (ruta === null) return null
+async function attach(path: string | null, displayName: string): Promise<EmailAttachment | null> {
+  if (path === null) return null
   try {
-    const bytes = await readFile(ruta)
+    const bytes = await readFile(path)
     return {
-      filename: nombreVisible,
-      mimeType: ruta.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream',
+      filename: displayName,
+      mimeType: path.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream',
       content: new Uint8Array(bytes)
     }
   } catch (error: unknown) {
-    console.warn(`[jobs] no pude leer ${basename(ruta)}: ${String(error)}`)
+    console.warn(`[jobs] no pude leer ${basename(path)}: ${String(error)}`)
     return null
   }
 }
 
 export async function applyByEmail(req: EmailApplyRequest): Promise<EmailApplyReport> {
-  const fallo = (status: EmailApplyReport['status'], message: string): EmailApplyReport => ({
+  const fail = (status: EmailApplyReport['status'], message: string): EmailApplyReport => ({
     status,
     to: [req.to],
     subject: req.subject,
@@ -103,18 +100,18 @@ export async function applyByEmail(req: EmailApplyRequest): Promise<EmailApplyRe
     message
   })
 
-  if (!esEmailValido(req.to)) return fallo('blocked', `"${req.to}" no es una dirección válida`)
+  if (!isValidEmail(req.to)) return fail('blocked', `"${req.to}" no es una dirección válida`)
 
   const profile = await loadProfile()
 
   if (req.to.toLowerCase() === profile.email.toLowerCase() && req.mode === 'auto') {
     // Mandarse la postulación a uno mismo es el bug que se descubre tarde.
-    return fallo('blocked', 'el destinatario sos vos mismo')
+    return fail('blocked', 'el destinatario sos vos mismo')
   }
 
-  const scope = await tieneScopeGmail()
+  const scope = await hasGmailScope()
   if (!scope.ok) {
-    return fallo(
+    return fail(
       'blocked',
       'el token de Google no tiene el scope gmail.compose. Corré: npm run gmail:auth'
     )
@@ -130,14 +127,17 @@ export async function applyByEmail(req: EmailApplyRequest): Promise<EmailApplyRe
   const kitSource = createWorkspaceKitSource(uploadStagingDir())
   const kit = await kitSource.findKit(posting)
 
-  const adjuntos: EmailAttachment[] = []
-  const cv = await adjuntar(kit.cv, kit.cv !== null ? cvUploadName(profile, kit.cv) : '')
-  if (cv !== null) adjuntos.push(cv)
-  const cover = await adjuntar(kit.cover, kit.cover !== null ? coverUploadName(profile, kit.cover) : '')
-  if (cover !== null) adjuntos.push(cover)
+  const attachments: EmailAttachment[] = []
+  const cv = await attach(kit.cv, kit.cv !== null ? cvUploadName(profile, kit.cv) : '')
+  if (cv !== null) attachments.push(cv)
+  const cover = await attach(
+    kit.cover,
+    kit.cover !== null ? coverUploadName(profile, kit.cover) : ''
+  )
+  if (cover !== null) attachments.push(cover)
 
-  if (adjuntos.length === 0) {
-    return fallo(
+  if (attachments.length === 0) {
+    return fail(
       'blocked',
       `no hay PDF compilado para "${posting.slug}" en el workspace. Generá el kit antes de mandar el mail.`
     )
@@ -147,91 +147,92 @@ export async function applyByEmail(req: EmailApplyRequest): Promise<EmailApplyRe
     fromName: profile.fullName,
     fromEmail: profile.email,
     to: [req.to],
-    cc: req.cc.filter(esEmailValido),
-    subject: req.subject !== '' ? req.subject : asuntoPorDefecto(profile, req),
-    body: req.body !== '' ? req.body : cuerpoPorDefecto(profile, req),
-    attachments: adjuntos
+    cc: req.cc.filter(isValidEmail),
+    subject: req.subject !== '' ? req.subject : defaultSubject(profile, req),
+    body: req.body !== '' ? req.body : defaultBody(profile, req),
+    attachments
   }
 
-  const accion = modoGmail(req.mode)
+  const action = gmailMode(req.mode)
 
   // `dry-run` tampoco crea el borrador: no toca la cuenta de Gmail para nada.
-  if (accion === 'nada') {
+  if (action === 'none') {
     return {
       status: 'draft',
       to: draft.to,
       subject: draft.subject,
-      attachedAs: adjuntos.map((a) => ({ filename: a.filename, size: a.content.byteLength })),
+      attachedAs: attachments.map((a) => ({ filename: a.filename, size: a.content.byteLength })),
       draftId: '',
       notion: { pageId: null, error: null },
       message: 'dry-run: el mail está armado pero no se creó ni el borrador'
     }
   }
 
-  let resultado
+  let result
   try {
-    resultado = await enviarPostulacion(draft, accion)
+    result = await sendApplication(draft, action)
   } catch (error: unknown) {
-    return fallo('failed', error instanceof Error ? error.message : String(error))
+    return fail('failed', error instanceof Error ? error.message : String(error))
   }
 
   // Leemos de vuelta lo que Gmail guardó: que la API devuelva 200 no prueba
   // que el adjunto haya llegado con el nombre correcto.
   let attachedAs: { filename: string; size: number }[] = []
-  if (resultado.kind === 'draft') {
+  if (result.kind === 'draft') {
     try {
-      attachedAs = await adjuntosDelBorrador(resultado.id)
+      attachedAs = await draftAttachments(result.id)
     } catch {
-      attachedAs = adjuntos.map((a) => ({ filename: a.filename, size: a.content.byteLength }))
+      attachedAs = attachments.map((a) => ({ filename: a.filename, size: a.content.byteLength }))
     }
   } else {
-    attachedAs = adjuntos.map((a) => ({ filename: a.filename, size: a.content.byteLength }))
+    attachedAs = attachments.map((a) => ({ filename: a.filename, size: a.content.byteLength }))
   }
 
-  const notion = await espejar(profile, req, resultado.kind)
+  const notion = await mirror(profile, req, result.kind)
 
   return {
-    status: resultado.kind,
+    status: result.kind,
     to: draft.to,
     subject: draft.subject,
     attachedAs,
-    draftId: resultado.kind === 'draft' ? resultado.id : '',
+    draftId: result.kind === 'draft' ? result.id : '',
     notion,
     message:
-      resultado.kind === 'draft'
+      result.kind === 'draft'
         ? 'borrador creado en Gmail con el CV adjunto. Revisalo y mandalo vos.'
         : 'correo enviado'
   }
 }
 
-async function espejar(
+async function mirror(
   profile: CandidateProfile,
   req: EmailApplyRequest,
   kind: 'draft' | 'sent'
 ): Promise<{ pageId: string | null; error: string | null }> {
   if (!isNotionConfigured()) return { pageId: null, error: 'falta NOTION_TOKEN en .env' }
 
-  const estado = estadoNotion(kind === 'sent' ? 'submitted' : 'filled')
-  if (estado === null) return { pageId: null, error: 'estado sin mapear' }
+  const status = notionStatus(kind === 'sent' ? 'submitted' : 'filled')
+  if (status === null) return { pageId: null, error: 'estado sin mapear' }
 
   try {
-    const fila: FilaNotion = {
+    const row: NotionRow = {
       company: req.company,
       role: req.role,
-      estado,
-      fecha: new Date().toISOString().slice(0, 10),
-      fitScore: Number.isFinite(Number(req.fitRating)) && req.fitRating !== '' ? Number(req.fitRating) : null,
+      status,
+      date: new Date().toISOString().slice(0, 10),
+      fitScore:
+        Number.isFinite(Number(req.fitRating)) && req.fitRating !== '' ? Number(req.fitRating) : null,
       postLink: req.postUrl,
       // El correo de contacto de la EMPRESA sí va: no es PII del candidato y es
       // lo único que permite retomar el hilo. El suyo nunca.
       contactUrl: req.to,
       jobDescription: scrubPii(req.jobDescription, profile),
       coverLetter: '',
-      proximaAccion:
+      nextAction:
         kind === 'draft' ? 'Borrador en Gmail esperando que lo mandes' : 'Esperando respuesta'
     }
 
-    const r = await upsertApplication(fila)
+    const r = await upsertApplication(row)
     return { pageId: r.pageId, error: null }
   } catch (error: unknown) {
     return { pageId: null, error: error instanceof Error ? error.message : String(error) }

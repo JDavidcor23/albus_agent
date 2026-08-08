@@ -22,13 +22,13 @@ loadDotenv()
 
 const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.compose'
 
-function requireEnv(nombre: string): string {
-  const v = process.env[nombre]
-  if (!v) throw new Error(`Falta ${nombre} en .env`)
+function requireEnv(name: string): string {
+  const v = process.env[name]
+  if (!v) throw new Error(`Falta ${name} en .env`)
   return v
 }
 
-async function scopesActuales(): Promise<string[]> {
+async function currentScopes(): Promise<string[]> {
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -54,7 +54,7 @@ async function scopesActuales(): Promise<string[]> {
   return s.success ? s.data.scope.split(/\s+/).filter(Boolean) : []
 }
 
-function abrirNavegador(url: string): void {
+function openBrowser(url: string): void {
   // `start` en Windows necesita un título vacío antes de la URL, si no toma la
   // URL como título y no abre nada.
   if (process.platform === 'win32') spawn('cmd', ['/c', 'start', '', url], { detached: true })
@@ -62,36 +62,36 @@ function abrirNavegador(url: string): void {
   else spawn('xdg-open', [url], { detached: true })
 }
 
-async function pedirConsentimiento(scopes: string[]): Promise<void> {
+async function requestConsent(scopes: string[]): Promise<void> {
   const clientId = requireEnv('GOOGLE_CLIENT_ID')
   const clientSecret = requireEnv('GOOGLE_CLIENT_SECRET')
 
   const code = await new Promise<string>((resolve, reject) => {
     const server = createServer((req, res) => {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1')
-      const codigo = url.searchParams.get('code')
+      const received = url.searchParams.get('code')
       const error = url.searchParams.get('error')
 
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
       res.end(
-        codigo !== null
+        received !== null
           ? '<h2>Listo. Volvé a la terminal.</h2>'
           : `<h2>No se pudo: ${error ?? 'sin código'}</h2>`
       )
 
       server.close()
-      if (codigo !== null) resolve(codigo)
+      if (received !== null) resolve(received)
       else reject(new Error(error ?? 'Google no devolvió código'))
     })
 
     server.listen(0, '127.0.0.1', () => {
-      const dir = server.address()
-      if (dir === null || typeof dir === 'string') {
+      const addr = server.address()
+      if (addr === null || typeof addr === 'string') {
         reject(new Error('no pude abrir el puerto local'))
         return
       }
 
-      const redirect = `http://127.0.0.1:${dir.port}`
+      const redirect = `http://127.0.0.1:${addr.port}`
       const auth = new URL('https://accounts.google.com/o/oauth2/v2/auth')
       auth.searchParams.set('client_id', clientId)
       auth.searchParams.set('redirect_uri', redirect)
@@ -106,7 +106,7 @@ async function pedirConsentimiento(scopes: string[]): Promise<void> {
       console.log(`\nEsperando en ${redirect}`)
       console.log('Se abre el navegador. Si no, entrá acá a mano:\n')
       console.log(auth.toString())
-      abrirNavegador(auth.toString())
+      openBrowser(auth.toString())
       ;(globalThis as { __redirect?: string }).__redirect = redirect
     })
   })
@@ -149,26 +149,26 @@ async function pedirConsentimiento(scopes: string[]): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const actuales = await scopesActuales()
+  const current = await currentScopes()
 
   console.log('\nScopes del token guardado:')
-  for (const s of actuales) console.log(`  · ${s}`)
+  for (const s of current) console.log(`  · ${s}`)
 
-  const yaTiene = actuales.includes(GMAIL_SCOPE) || actuales.includes('https://mail.google.com/')
-  console.log(`\ngmail.compose: ${yaTiene ? 'SÍ — no hace falta hacer nada' : 'NO'}`)
+  const hasScope = current.includes(GMAIL_SCOPE) || current.includes('https://mail.google.com/')
+  console.log(`\ngmail.compose: ${hasScope ? 'SÍ — no hace falta hacer nada' : 'NO'}`)
 
   if (process.argv.includes('--check')) {
-    process.exit(yaTiene ? 0 : 1)
+    process.exit(hasScope ? 0 : 1)
   }
 
-  if (yaTiene) {
+  if (hasScope) {
     console.log('El token ya sirve para mandar correos. Nada que hacer.')
     process.exit(0)
   }
 
   // Los actuales van SIEMPRE en el pedido: un consentimiento nuevo reemplaza
   // al viejo, y si dejáramos Drive afuera el archivado dejaría de funcionar.
-  await pedirConsentimiento([...new Set([...actuales, GMAIL_SCOPE])])
+  await requestConsent([...new Set([...current, GMAIL_SCOPE])])
 }
 
 void main().catch((error: unknown) => {

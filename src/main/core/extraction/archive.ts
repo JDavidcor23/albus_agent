@@ -50,7 +50,7 @@ export function decideArchive(result: ExtractionResult): ArchiveFolder | null {
     // evento porque en la puerta te la escanean, la del contacto porque guardar
     // sale gratis y equivocarse borrando no.
     case 'qr':
-      return tieneProfiles(result.payload) ? 'contactos' : 'qr-eventos'
+      return hasProfiles(result.payload) ? 'contactos' : 'qr-eventos'
 
     case 'profile':
       return 'contactos'
@@ -67,14 +67,14 @@ export function decideArchive(result: ExtractionResult): ArchiveFolder | null {
   }
 }
 
-function tieneProfiles(payload: Record<string, unknown>): boolean {
+function hasProfiles(payload: Record<string, unknown>): boolean {
   const profiles = payload.profiles
   return Array.isArray(profiles) && profiles.length > 0
 }
 
 /** "Pago de GYM!" -> "pago-de-gym". Sin tildes, sin sorpresas en Drive. */
-function slug(texto: string): string {
-  return texto
+function slug(text: string): string {
+  return text
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
@@ -85,9 +85,9 @@ function slug(texto: string): string {
 }
 
 /** La fecha del comprobante le gana a la de captura: es la que vos preguntás. */
-function fechaDe(item: PendingItem, result: ExtractionResult): string {
-  const delPago = result.payload.date
-  if (typeof delPago === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(delPago)) return delPago
+function dateFor(item: PendingItem, result: ExtractionResult): string {
+  const fromReceipt = result.payload.date
+  if (typeof fromReceipt === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(fromReceipt)) return fromReceipt
   return item.createdAt.slice(0, 10)
 }
 
@@ -106,14 +106,14 @@ function fechaDe(item: PendingItem, result: ExtractionResult): string {
  *    con el mismo nombre sin avisar.
  */
 export function archiveFileName(item: PendingItem, result: ExtractionResult): string {
-  const fecha = fechaDe(item, result)
+  const date = dateFor(item, result)
   const base = item.attachmentPath.split('/').pop() ?? ''
   const ext = base.includes('.') ? base.slice(base.lastIndexOf('.')) : ''
 
-  const etiqueta = slug(item.context ?? '') || result.kind
-  const sufijo = archiveKey(item).slice(0, 6)
+  const label = slug(item.context ?? '') || result.kind
+  const suffix = archiveKey(item).slice(0, 6)
 
-  return `${fecha}_${etiqueta}_${sufijo}${ext}`
+  return `${date}_${label}_${suffix}${ext}`
 }
 
 /**

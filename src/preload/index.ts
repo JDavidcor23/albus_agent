@@ -11,7 +11,7 @@ import {
   type GraphState,
   type AgentInfo,
   type ChatIntent,
-  type ChatVacante,
+  type ChatJob,
   type ConnectionInfo,
   type ConnectionStepRow,
   type EmailApplyResult,
@@ -52,7 +52,7 @@ const api = {
   buildGraph: (
     providerId: string,
     modelId: string | null
-  ): Promise<IpcResult<{ graph: Graph; path: string; lotesFallidos: number }>> =>
+  ): Promise<IpcResult<{ graph: Graph; path: string; failedBatches: number }>> =>
     ipcRenderer.invoke(IpcChannels.GRAPH_BUILD, { providerId, modelId }),
 
   revealGraph: (): Promise<IpcResult<{ path: string }>> =>
@@ -75,8 +75,8 @@ const api = {
   copyToClipboard: (text: string): Promise<IpcResult<{ copied: boolean }>> =>
     ipcRenderer.invoke(IpcChannels.CLIPBOARD_WRITE, { text }),
 
-  onGraphProgress: (cb: (p: { hechos: number; total: number }) => void): (() => void) => {
-    const handler = (_e: unknown, payload: { hechos: number; total: number }): void => cb(payload)
+  onGraphProgress: (cb: (p: { done: number; total: number }) => void): (() => void) => {
+    const handler = (_e: unknown, payload: { done: number; total: number }): void => cb(payload)
     ipcRenderer.on(IpcEvents.GRAPH_PROGRESS, handler)
     return () => ipcRenderer.removeListener(IpcEvents.GRAPH_PROGRESS, handler)
   },
@@ -109,23 +109,23 @@ const api = {
    * Se abre el archivo y no una pantalla de configuración porque agregar una
    * regla nueva tiene que ser escribir una línea, no construir un formulario.
    */
-  openAgentRules: (id: string): Promise<IpcResult<{ ruta: string }>> =>
+  openAgentRules: (id: string): Promise<IpcResult<{ path: string }>> =>
     ipcRenderer.invoke(IpcChannels.AGENTS_RULES_OPEN, { id }),
 
   /** Responder una duda del agente. La respuesta se vuelve una regla suya. */
   answerAgentQuestion: (
     id: string,
-    preguntaId: string,
-    respuesta: string
-  ): Promise<IpcResult<{ ok: boolean; agentes: AgentInfo[] }>> =>
-    ipcRenderer.invoke(IpcChannels.AGENTS_ANSWER, { id, preguntaId, respuesta }),
+    questionId: string,
+    answer: string
+  ): Promise<IpcResult<{ ok: boolean; agents: AgentInfo[] }>> =>
+    ipcRenderer.invoke(IpcChannels.AGENTS_ANSWER, { id, questionId, answer }),
 
   listConnections: (): Promise<IpcResult<ConnectionInfo[]>> =>
     ipcRenderer.invoke(IpcChannels.CONNECTIONS_LIST),
 
   connectWithBrowser: (
     id: string
-  ): Promise<IpcResult<{ ok: boolean; mensaje: string; conexiones: ConnectionInfo[] }>> =>
+  ): Promise<IpcResult<{ ok: boolean; message: string; connections: ConnectionInfo[] }>> =>
     ipcRenderer.invoke(IpcChannels.CONNECTIONS_BROWSER, { id }),
 
   /**
@@ -135,7 +135,7 @@ const api = {
    * minutos. Sin esto la pantalla se queda muda y no se distingue "trabajando"
    * de "colgado".
    */
-  onConnectionStep: (cb: (paso: ConnectionStepRow) => void): (() => void) => {
+  onConnectionStep: (cb: (step: ConnectionStepRow) => void): (() => void) => {
     const handler = (_e: unknown, payload: ConnectionStepRow): void => cb(payload)
     ipcRenderer.on(IpcEvents.CONNECTIONS_STEP, handler)
     return () => ipcRenderer.removeListener(IpcEvents.CONNECTIONS_STEP, handler)
@@ -144,15 +144,15 @@ const api = {
   connectWithToken: (
     id: string,
     token: string
-  ): Promise<IpcResult<{ ok: boolean; mensaje: string; conexiones: ConnectionInfo[] }>> =>
+  ): Promise<IpcResult<{ ok: boolean; message: string; connections: ConnectionInfo[] }>> =>
     ipcRenderer.invoke(IpcChannels.CONNECTIONS_TOKEN, { id, token }),
 
-  openTokenPage: (id: string): Promise<IpcResult<{ abierto: boolean }>> =>
+  openTokenPage: (id: string): Promise<IpcResult<{ opened: boolean }>> =>
     ipcRenderer.invoke(IpcChannels.CONNECTIONS_OPEN, { id }),
 
   disconnect: (
     id: string
-  ): Promise<IpcResult<{ ok: boolean; conexiones: ConnectionInfo[] }>> =>
+  ): Promise<IpcResult<{ ok: boolean; connections: ConnectionInfo[] }>> =>
     ipcRenderer.invoke(IpcChannels.CONNECTIONS_CLEAR, { id }),
 
   jobsStatus: (): Promise<IpcResult<JobsStatus>> => ipcRenderer.invoke(IpcChannels.JOBS_STATUS),
@@ -162,7 +162,7 @@ const api = {
     location: string
     /** No hay `jobAgeDays`: el rango lo decide y lo amplía el main. */
     maxRank: number
-    guardarEnNotion: boolean
+    saveToNotion: boolean
     providerId: string
     modelId: string | null
   }): Promise<IpcResult<HuntResult>> => ipcRenderer.invoke(IpcChannels.JOBS_HUNT, req),
@@ -188,10 +188,8 @@ const api = {
   },
 
   /** Interpretar lo que el usuario le escribió al agente. Puro, sin cuota. */
-  jobsChat: (req: {
-    texto: string
-    vacantes: ChatVacante[]
-  }): Promise<IpcResult<ChatIntent>> => ipcRenderer.invoke(IpcChannels.JOBS_CHAT, req),
+  jobsChat: (req: { text: string; jobs: ChatJob[] }): Promise<IpcResult<ChatIntent>> =>
+    ipcRenderer.invoke(IpcChannels.JOBS_CHAT, req),
 
   jobsLogin: (): Promise<IpcResult<{ linkedInSession: boolean }>> =>
     ipcRenderer.invoke(IpcChannels.JOBS_LOGIN),
@@ -229,8 +227,8 @@ const api = {
     slug?: string
   }): Promise<IpcResult<KitResultRow>> => ipcRenderer.invoke(IpcChannels.JOBS_KIT, req),
 
-  onKitProgress: (cb: (p: { id: string; linea: string }) => void): (() => void) => {
-    const handler = (_e: unknown, payload: { id: string; linea: string }): void => cb(payload)
+  onKitProgress: (cb: (p: { id: string; line: string }) => void): (() => void) => {
+    const handler = (_e: unknown, payload: { id: string; line: string }): void => cb(payload)
     ipcRenderer.on(IpcEvents.JOBS_KIT_PROGRESS, handler)
     return () => ipcRenderer.removeListener(IpcEvents.JOBS_KIT_PROGRESS, handler)
   },

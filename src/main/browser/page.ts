@@ -2,22 +2,22 @@ import { BrowserWindow, type WebFrameMain } from 'electron'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, resolve as resolvePath } from 'node:path'
 import { z } from 'zod'
-import type { BrowserPort, Inventario } from '../core/jobs/ports'
+import type { BrowserPort, Inventory } from '../core/jobs/ports'
 import type { FormModel } from '../core/jobs/types'
 import { classifyButton } from '../core/jobs/submit-guard'
 import { CLICK_TIMEOUT_MS, PARTITION, SETTLE_MS } from './session'
 import {
-  clickPorIdScript,
+  clickByIdScript,
   clickScript,
-  clickTextoScript,
+  clickTextScript,
   COUNT_FIELDS,
-  escribirPorEtiquetaScript,
-  escribirPorIdScript,
-  extraerPatronScript,
+  extractPatternScript,
   fillScript,
-  hayTextoScript,
-  INVENTARIO,
-  READ_FORM
+  hasTextScript,
+  INVENTORY,
+  READ_FORM,
+  typeByIdScript,
+  typeByLabelScript
 } from './page-scripts'
 
 /**
@@ -70,36 +70,39 @@ const KINDS = new Set([
   'date'
 ])
 
-const AccionSchema = z.object({ ok: z.boolean(), error: z.string().optional() })
+const ActionSchema = z.object({ ok: z.boolean(), error: z.string().optional() })
 
-const ClickTextoSchema = z.object({
+const ClickTextSchema = z.object({
   ok: z.boolean(),
-  texto: z.string().optional(),
+  text: z.string().optional(),
   error: z.string().optional()
 })
 
-const ItemInventarioSchema = z.object({
+// El espejo exacto de lo que emite `INVENTORY` en page-scripts.ts. `action` es
+// el par acoplado: el script lo escribe desde adentro de la página, acá se
+// valida, y el enum de zod de connections/navigate-llm.ts lo consume.
+const InventoryItemSchema = z.object({
   cid: z.string(),
-  accion: z.enum(['click', 'escribir']),
+  action: z.enum(['click', 'type']),
   tag: z.string(),
-  rol: z.string(),
-  texto: z.string(),
-  valor: z.string(),
+  role: z.string(),
+  text: z.string(),
+  value: z.string(),
   href: z.string(),
-  deshabilitado: z.boolean(),
+  disabled: z.boolean(),
   rect: z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() })
 })
 
-const InventarioSchema = z.object({
+const InventorySchema = z.object({
   url: z.string(),
   title: z.string(),
-  enModal: z.boolean(),
-  texto: z.string(),
-  recortado: z.boolean().default(false),
-  items: z.array(ItemInventarioSchema)
+  inModal: z.boolean(),
+  text: z.string(),
+  truncated: z.boolean().default(false),
+  items: z.array(InventoryItemSchema)
 })
 
-function espera(ms: number): Promise<void> {
+function wait(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
 }
 
@@ -134,10 +137,10 @@ export function createBrowserPage(options: PageOptions): BrowserPort & { window:
    * el frame que más controles tenga.
    */
   async function pickFrame(): Promise<WebFrameMain> {
-    const principal = win.webContents.mainFrame
-    const frames = [principal, ...principal.framesInSubtree]
+    const mainFrame = win.webContents.mainFrame
+    const frames = [mainFrame, ...mainFrame.framesInSubtree]
 
-    let mejor = principal
+    let best = mainFrame
     let max = -1
 
     for (const f of frames) {
@@ -145,25 +148,25 @@ export function createBrowserPage(options: PageOptions): BrowserPort & { window:
         const n = (await f.executeJavaScript(COUNT_FIELDS)) as number
         if (typeof n === 'number' && n > max) {
           max = n
-          mejor = f
+          best = f
         }
       } catch {
         // Un frame cross-origin que no nos deja ejecutar simplemente no compite.
       }
     }
 
-    return mejor
+    return best
   }
 
-  async function ejecutar(script: string): Promise<string> {
+  async function evaluate(script: string): Promise<string> {
     const frame = await pickFrame()
     return (await frame.executeJavaScript(script)) as string
   }
 
-  async function accion(script: string, queHacia: string): Promise<void> {
-    const crudo = await ejecutar(script)
-    const r = AccionSchema.parse(JSON.parse(crudo))
-    if (!r.ok) throw new Error(`${queHacia}: ${r.error ?? 'falló'}`)
+  async function runAction(script: string, whatItWasDoing: string): Promise<void> {
+    const raw = await evaluate(script)
+    const r = ActionSchema.parse(JSON.parse(raw))
+    if (!r.ok) throw new Error(`${whatItWasDoing}: ${r.error ?? 'falló'}`)
   }
 
   return {
@@ -173,7 +176,7 @@ export function createBrowserPage(options: PageOptions): BrowserPort & { window:
       await win.loadURL(url)
       // El HTML llegó, pero LinkedIn pinta el modal desde JavaScript. Sin este
       // respiro leemos un formulario que todavía no existe.
-      await espera(SETTLE_MS)
+      await wait(SETTLE_MS)
     },
 
     currentUrl(): string {
@@ -181,8 +184,8 @@ export function createBrowserPage(options: PageOptions): BrowserPort & { window:
     },
 
     async readForm(): Promise<FormModel> {
-      const crudo = await ejecutar(READ_FORM)
-      const parsed = FormSchema.parse(JSON.parse(crudo))
+      const raw = await evaluate(READ_FORM)
+      const parsed = FormSchema.parse(JSON.parse(raw))
 
       return {
         url: parsed.url,
@@ -198,7 +201,7 @@ export function createBrowserPage(options: PageOptions): BrowserPort & { window:
     },
 
     async fill(selector: string, value: string): Promise<void> {
-      await accion(fillScript(selector, value), 'llenar')
+      await runAction(fillScript(selector, value), 'llenar')
     },
 
     async uploadFile(selector: string, absolutePath: string): Promise<void> {
@@ -228,8 +231,8 @@ export function createBrowserPage(options: PageOptions): BrowserPort & { window:
     },
 
     async click(selector: string): Promise<void> {
-      await accion(clickScript(selector), 'clickear')
-      await espera(CLICK_TIMEOUT_MS)
+      await runAction(clickScript(selector), 'clickear')
+      await wait(CLICK_TIMEOUT_MS)
     },
 
     async screenshot(destPath: string): Promise<string> {
@@ -246,10 +249,10 @@ export function createBrowserPage(options: PageOptions): BrowserPort & { window:
      * PNG, y esto viaja por IPC en cada paso. La calidad alcanza de sobra para
      * que el usuario reconozca qué pantalla estaba viendo Albus.
      */
-    async capturaMiniatura(ancho = 520): Promise<string> {
+    async thumbnail(width = 520): Promise<string> {
       const image = await win.webContents.capturePage()
-      const chica = image.resize({ width: ancho })
-      return `data:image/jpeg;base64,${chica.toJPEG(72).toString('base64')}`
+      const small = image.resize({ width })
+      return `data:image/jpeg;base64,${small.toJPEG(72).toString('base64')}`
     },
 
     async hasSession(domain: string, cookieName: string): Promise<boolean> {
@@ -264,87 +267,85 @@ export function createBrowserPage(options: PageOptions): BrowserPort & { window:
      * tirar una moneda: si Notion todavía no montó el botón, falla aunque el
      * botón esté por aparecer 300 ms después. Fue exactamente lo que rompió la
      * conexión de Notion en el paso "abrir el formulario". Ahora espera igual
-     * que `esperarTexto`, que sí tenía el bucle desde el principio.
+     * que `waitForText`, que sí tenía el bucle desde el principio.
      */
-    async clickTexto(textos: string[], exacto = false, timeoutMs = 8000): Promise<string> {
-      const hasta = Date.now() + timeoutMs
-      let ultimo = `no encontré "${textos.join('" / "')}"`
+    async clickText(texts: string[], exact = false, timeoutMs = 8000): Promise<string> {
+      const until = Date.now() + timeoutMs
+      let last = `no encontré "${texts.join('" / "')}"`
 
       for (;;) {
         try {
-          const crudo = await ejecutar(clickTextoScript(textos, exacto))
-          const r = ClickTextoSchema.parse(JSON.parse(crudo))
+          const raw = await evaluate(clickTextScript(texts, exact))
+          const r = ClickTextSchema.parse(JSON.parse(raw))
           if (r.ok) {
-            await espera(CLICK_TIMEOUT_MS)
-            return r.texto ?? ''
+            await wait(CLICK_TIMEOUT_MS)
+            return r.text ?? ''
           }
-          ultimo = r.error ?? ultimo
+          last = r.error ?? last
         } catch (error: unknown) {
           // La página puede estar navegando. Se reintenta hasta el límite.
-          ultimo = error instanceof Error ? error.message : String(error)
+          last = error instanceof Error ? error.message : String(error)
         }
 
-        if (Date.now() >= hasta) throw new Error(ultimo)
-        await espera(600)
+        if (Date.now() >= until) throw new Error(last)
+        await wait(600)
       }
     },
 
-    async inventario(): Promise<Inventario> {
-      const crudo = await ejecutar(INVENTARIO)
-      return InventarioSchema.parse(JSON.parse(crudo))
+    async inventory(): Promise<Inventory> {
+      const raw = await evaluate(INVENTORY)
+      return InventorySchema.parse(JSON.parse(raw))
     },
 
-    async clickPorId(cid: string): Promise<string> {
-      const crudo = await ejecutar(clickPorIdScript(cid))
-      const r = ClickTextoSchema.parse(JSON.parse(crudo))
+    async clickById(cid: string): Promise<string> {
+      const raw = await evaluate(clickByIdScript(cid))
+      const r = ClickTextSchema.parse(JSON.parse(raw))
       if (!r.ok) throw new Error(r.error ?? 'no pude clickear ese elemento')
-      await espera(CLICK_TIMEOUT_MS)
-      return r.texto ?? ''
+      await wait(CLICK_TIMEOUT_MS)
+      return r.text ?? ''
     },
 
-    async escribirPorId(cid: string, valor: string): Promise<void> {
-      await accion(escribirPorIdScript(cid, valor), 'escribir')
+    async typeById(cid: string, value: string): Promise<void> {
+      await runAction(typeByIdScript(cid, value), 'escribir')
     },
 
     /**
      * Sí, este Chromium se inspecciona: es Chromium de verdad, no un visor.
      * Se abre en panel aparte para no taparle la página al usuario.
      */
-    abrirDevTools(): void {
+    openDevTools(): void {
       if (win.isDestroyed()) return
       if (!win.webContents.isDevToolsOpened()) {
         win.webContents.openDevTools({ mode: 'detach' })
       }
     },
 
-    async esperarTexto(textos: string[], timeoutMs: number): Promise<boolean> {
-      const hasta = Date.now() + timeoutMs
-      while (Date.now() < hasta) {
+    async waitForText(texts: string[], timeoutMs: number): Promise<boolean> {
+      const until = Date.now() + timeoutMs
+      while (Date.now() < until) {
         try {
-          const crudo = await ejecutar(hayTextoScript(textos))
-          if (z.object({ ok: z.boolean() }).parse(JSON.parse(crudo)).ok) return true
+          const raw = await evaluate(hasTextScript(texts))
+          if (z.object({ ok: z.boolean() }).parse(JSON.parse(raw)).ok) return true
         } catch {
           // La página puede estar navegando: se reintenta hasta el límite.
         }
-        await espera(700)
+        await wait(700)
       }
       return false
     },
 
-    async extraerPatron(patron: string, bandera = ''): Promise<string | null> {
-      const crudo = await ejecutar(extraerPatronScript(patron, bandera))
-      const r = z
-        .object({ ok: z.boolean(), valor: z.string().optional() })
-        .parse(JSON.parse(crudo))
-      return r.ok ? (r.valor ?? null) : null
+    async extractPattern(pattern: string, flags = ''): Promise<string | null> {
+      const raw = await evaluate(extractPatternScript(pattern, flags))
+      const r = z.object({ ok: z.boolean(), value: z.string().optional() }).parse(JSON.parse(raw))
+      return r.ok ? (r.value ?? null) : null
     },
 
-    async escribirEn(pistas: string[], valor: string): Promise<void> {
-      await accion(escribirPorEtiquetaScript(pistas, valor), 'escribir')
+    async typeByLabel(hints: string[], value: string): Promise<void> {
+      await runAction(typeByLabelScript(hints, value), 'escribir')
     },
 
-    async textoVisible(): Promise<string> {
-      return (await ejecutar(
+    async visibleText(): Promise<string> {
+      return (await evaluate(
         `(document.body.innerText || '').replace(/\\n{3,}/g, '\\n\\n').slice(0, 4000)`
       )) as string
     },

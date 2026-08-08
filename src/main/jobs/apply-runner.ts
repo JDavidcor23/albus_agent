@@ -6,7 +6,7 @@ import type { ApplyMode, ApplyOutcome, ApplyStep, JobPosting } from '../core/job
 import type { TrackerRow } from '../core/jobs/ports'
 import { createBrowserPage } from '../browser/page'
 import { hasLinkedInSession } from '../browser/session'
-import { estadoNotion, scrubPii, type FilaNotion } from '../core/jobs/notion-map'
+import { notionStatus, scrubPii, type NotionRow } from '../core/jobs/notion-map'
 import { isNotionConfigured } from '../notion/client'
 import { upsertApplication } from '../notion/applications'
 import { createCsvTracker } from './tracker'
@@ -54,51 +54,51 @@ export interface ApplyReport {
   windowLeftOpen: boolean
 }
 
-const SIN_NOTION: NotionMirror = { pageId: null, created: false, error: null }
+const NO_NOTION: NotionMirror = { pageId: null, created: false, error: null }
 
 /**
  * El espejo en Notion. Nunca tira: la postulación ya pasó, y perder el
  * registro es feo pero perder el resultado por no poder registrarlo es peor.
  */
-async function espejarEnNotion(
+async function mirrorInNotion(
   req: ApplyRequest,
   outcome: ApplyOutcome,
   fitScore: number | null,
-  descripcion: string
+  description: string
 ): Promise<NotionMirror> {
   if (!isNotionConfigured()) {
     return { pageId: null, created: false, error: 'falta NOTION_TOKEN en .env' }
   }
 
-  const estado = estadoNotion(outcome.status)
-  if (estado === null) {
+  const status = notionStatus(outcome.status)
+  if (status === null) {
     // Antes que inventar una opción en el select del usuario, no escribimos.
     return { pageId: null, created: false, error: `estado "${outcome.status}" sin mapear` }
   }
 
   try {
     const profile = await loadProfile()
-    const pendientes =
+    const pending =
       outcome.unresolved.length > 0
         ? `Completar a mano: ${outcome.unresolved.slice(0, 6).join('; ')}`
         : outcome.status === 'filled'
           ? 'Formulario lleno esperando tu click de enviar'
           : ''
 
-    const fila: FilaNotion = {
+    const row: NotionRow = {
       company: req.company,
       role: req.role,
-      estado,
-      fecha: new Date().toISOString().slice(0, 10),
+      status,
+      date: new Date().toISOString().slice(0, 10),
       fitScore,
       postLink: req.url,
       contactUrl: req.url,
-      jobDescription: scrubPii(descripcion, profile),
+      jobDescription: scrubPii(description, profile),
       coverLetter: '',
-      proximaAccion: scrubPii(pendientes, profile)
+      nextAction: scrubPii(pending, profile)
     }
 
-    const r = await upsertApplication(fila)
+    const r = await upsertApplication(row)
     return { pageId: r.pageId, created: r.created, error: null }
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error)
@@ -107,12 +107,12 @@ async function espejarEnNotion(
   }
 }
 
-function hoy(): string {
+function today(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
 function screenshotDir(slug: string): string {
-  return join(app.getPath('userData'), 'job-screenshots', `${hoy()}_${slug}`)
+  return join(app.getPath('userData'), 'job-screenshots', `${today()}_${slug}`)
 }
 
 /** Los temporales van al userData de la app, no al workspace del usuario. */
@@ -134,7 +134,7 @@ export async function runApplication(req: ApplyRequest): Promise<ApplyReport> {
   // LinkedIn sin sesión devuelve un muro de login y el bucle leería ESE
   // formulario. Cortamos antes, con un mensaje que dice qué hacer.
   if (/linkedin\.com/i.test(req.url) && !(await hasLinkedInSession())) {
-    const vacio: ApplyOutcome = {
+    const empty: ApplyOutcome = {
       status: 'needs-login',
       url: req.url,
       mode: req.mode,
@@ -144,29 +144,27 @@ export async function runApplication(req: ApplyRequest): Promise<ApplyReport> {
       message: 'no hay sesión de LinkedIn en Albus — corré el login una vez desde jobs:login'
     }
     return {
-      outcome: vacio,
+      outcome: empty,
       kit: { cv: null, cover: null },
       uploadedAs: [],
-      trackerRow: filaTracker(req, posting, null, null, vacio),
+      trackerRow: toTrackerRow(req, posting, null, null, empty),
       trackerWritten: false,
-      notion: SIN_NOTION,
+      notion: NO_NOTION,
       windowLeftOpen: false
     }
   }
 
   const kitSource = createWorkspaceKitSource(uploadStagingDir())
-  const encontrado = await kitSource.findKit(posting)
+  const found = await kitSource.findKit(posting)
 
   const staged: StagedKit = {
-    cvSource: encontrado.cv,
+    cvSource: found.cv,
     cvUpload:
-      encontrado.cv !== null
-        ? await kitSource.stageForUpload(encontrado.cv, profile.cvFileBaseName)
-        : null,
-    coverSource: encontrado.cover,
+      found.cv !== null ? await kitSource.stageForUpload(found.cv, profile.cvFileBaseName) : null,
+    coverSource: found.cover,
     coverUpload:
-      encontrado.cover !== null
-        ? await kitSource.stageForUpload(encontrado.cover, profile.coverFileBaseName)
+      found.cover !== null
+        ? await kitSource.stageForUpload(found.cover, profile.coverFileBaseName)
         : null
   }
 
@@ -205,11 +203,11 @@ export async function runApplication(req: ApplyRequest): Promise<ApplyReport> {
     }
   }
 
-  const dejarAbierta = outcome.status === 'filled' && req.mode === 'review'
-  if (dejarAbierta) browser.reveal()
+  const leaveOpen = outcome.status === 'filled' && req.mode === 'review'
+  if (leaveOpen) browser.reveal()
   else await browser.close()
 
-  const row = filaTracker(req, posting, staged.cvSource, staged.coverSource, outcome)
+  const row = toTrackerRow(req, posting, staged.cvSource, staged.coverSource, outcome)
 
   let trackerWritten = false
   if (outcome.status === 'submitted') {
@@ -227,43 +225,43 @@ export async function runApplication(req: ApplyRequest): Promise<ApplyReport> {
   // que querés ver en el tablero.
   const notion =
     outcome.status === 'failed'
-      ? SIN_NOTION
-      : await espejarEnNotion(req, outcome, numeroOnull(req.fitRating), req.jobDescription)
+      ? NO_NOTION
+      : await mirrorInNotion(req, outcome, numberOrNull(req.fitRating), req.jobDescription)
 
   return {
     outcome,
-    kit: encontrado,
+    kit: found,
     uploadedAs: outcome.uploadedAs,
     trackerRow: row,
     trackerWritten,
     notion,
-    windowLeftOpen: dejarAbierta
+    windowLeftOpen: leaveOpen
   }
 }
 
-function numeroOnull(valor: string): number | null {
-  const n = Number(valor)
-  return valor.trim() !== '' && Number.isFinite(n) ? n : null
+function numberOrNull(value: string): number | null {
+  const n = Number(value)
+  return value.trim() !== '' && Number.isFinite(n) ? n : null
 }
 
 /** Se registra lo que pasó, no lo que uno querría que hubiera pasado. */
-function filaTracker(
+function toTrackerRow(
   req: ApplyRequest,
   posting: JobPosting,
   cv: string | null,
   cover: string | null,
   outcome: ApplyOutcome
 ): TrackerRow {
-  const pendientes =
+  const pending =
     outcome.unresolved.length > 0
       ? ` | sin responder: ${outcome.unresolved.slice(0, 6).join('; ')}`
       : ''
 
-  const relativo = (p: string | null): string =>
+  const relative = (p: string | null): string =>
     p === null ? '' : p.replace(/\\/g, '/').split('/').slice(-2).join('/')
 
   return {
-    date: hoy(),
+    date: today(),
     company: req.company,
     sector: req.sector,
     role: req.role,
@@ -272,9 +270,9 @@ function filaTracker(
     status: outcome.status === 'submitted' ? 'applied' : outcome.status,
     contactPerson: '',
     fitRating: req.fitRating,
-    notes: `${hoy()}: Albus (${outcome.mode}) — ${outcome.message}${pendientes}`,
-    cvFile: relativo(cv),
-    coverLetterFile: relativo(cover),
+    notes: `${today()}: Albus (${outcome.mode}) — ${outcome.message}${pending}`,
+    cvFile: relative(cv),
+    coverLetterFile: relative(cover),
     source: posting.url
   }
 }

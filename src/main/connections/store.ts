@@ -1,7 +1,7 @@
 import { app, safeStorage } from 'electron'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { borrarDeAlbusYml, deAlbusYml, escribirEnAlbusYml } from './albus-yml'
+import { deleteFromAlbusYml, fromAlbusYml, writeToAlbusYml } from './albus-yml'
 
 /**
  * De dónde salen las credenciales de Albus, y en qué orden.
@@ -24,23 +24,23 @@ import { borrarDeAlbusYml, deAlbusYml, escribirEnAlbusYml } from './albus-yml'
  * red — no que fuera indescifrable.
  */
 
-export type ServicioId = 'notion' | 'google'
+export type ServiceId = 'notion' | 'google'
 
-interface Guardado {
+interface Stored {
   /** base64 del blob cifrado por safeStorage. */
-  [clave: string]: string
+  [key: string]: string
 }
 
-function rutaArchivo(): string {
+function filePath(): string {
   return join(app.getPath('userData'), 'connections.json')
 }
 
-function leerCrudo(): Guardado {
-  const ruta = rutaArchivo()
-  if (!existsSync(ruta)) return {}
+function readRaw(): Stored {
+  const path = filePath()
+  if (!existsSync(path)) return {}
   try {
-    const parsed: unknown = JSON.parse(readFileSync(ruta, 'utf8'))
-    return typeof parsed === 'object' && parsed !== null ? (parsed as Guardado) : {}
+    const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
+    return typeof parsed === 'object' && parsed !== null ? (parsed as Stored) : {}
   } catch {
     // Archivo corrupto: se trata como vacío. Perder un token guardado es
     // molesto; que la app no arranque por eso es peor.
@@ -49,10 +49,10 @@ function leerCrudo(): Guardado {
   }
 }
 
-function escribirCrudo(datos: Guardado): void {
-  const ruta = rutaArchivo()
-  mkdirSync(dirname(ruta), { recursive: true })
-  writeFileSync(ruta, JSON.stringify(datos, null, 2), 'utf8')
+function writeRaw(data: Stored): void {
+  const path = filePath()
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, JSON.stringify(data, null, 2), 'utf8')
 }
 
 /**
@@ -60,7 +60,7 @@ function escribirCrudo(datos: Guardado): void {
  * plano dentro de userData es una credencial regalada; mejor decirle al usuario
  * que use el `.env`, donde al menos sabe que está.
  */
-export function cifradoDisponible(): boolean {
+export function encryptionAvailable(): boolean {
   return safeStorage.isEncryptionAvailable()
 }
 
@@ -72,35 +72,35 @@ export function cifradoDisponible(): boolean {
  * decisión tomada, con el `.gitignore` como red, así que no hay nada que
  * negociar en tiempo de ejecución.
  */
-export function guardarSecreto(clave: string, valor: string): void {
-  escribirEnAlbusYml(claveYml(clave), valor)
+export function saveSecret(key: string, value: string): void {
+  writeToAlbusYml(ymlKey(key), value)
 }
 
-export function borrarSecreto(clave: string): void {
-  borrarDeAlbusYml(claveYml(clave))
+export function deleteSecret(key: string): void {
+  deleteFromAlbusYml(ymlKey(key))
 
   // También del legado: si no, "desconectar" borra de un lado y el token
   // reaparece al reiniciar desde el otro.
-  const datos = leerCrudo()
-  delete datos[clave]
-  escribirCrudo(datos)
+  const data = readRaw()
+  delete data[key]
+  writeRaw(data)
 }
 
 /** `null` si no está guardado o si el blob ya no descifra (otra máquina). */
-export function leerSecreto(clave: string): string | null {
+export function readSecret(key: string): string | null {
   // Primero `albus.yml`: es donde se escribe, y si el usuario lo editó a mano
   // hace treinta segundos tiene que ganar sobre cualquier cosa vieja.
-  const enYml = deAlbusYml(claveYml(clave))
-  if (enYml !== null) return enYml
+  const inYml = fromAlbusYml(ymlKey(key))
+  if (inYml !== null) return inYml
 
-  const datos = leerCrudo()
-  const cifrado = datos[clave]
-  if (cifrado === undefined) return null
+  const data = readRaw()
+  const encrypted = data[key]
+  if (encrypted === undefined) return null
 
   try {
-    return safeStorage.decryptString(Buffer.from(cifrado, 'base64'))
+    return safeStorage.decryptString(Buffer.from(encrypted, 'base64'))
   } catch {
-    console.warn(`[connections] "${clave}" no descifra en esta máquina, lo ignoro`)
+    console.warn(`[connections] "${key}" no descifra en esta máquina, lo ignoro`)
     return null
   }
 }
@@ -109,12 +109,12 @@ export function leerSecreto(clave: string): string | null {
  * Lo guardado gana sobre el `.env`: es lo último que el usuario tocó, y si
  * acaba de pegar un token nuevo en la UI espera que ese sea el que se use.
  */
-export function secretoOEntorno(clave: string, variableEntorno: string): string | null {
-  const guardado = leerSecreto(clave)
-  if (guardado !== null && guardado.trim() !== '') return guardado
+export function secretOrEnv(key: string, envVar: string): string | null {
+  const saved = readSecret(key)
+  if (saved !== null && saved.trim() !== '') return saved
 
-  const delEntorno = process.env[variableEntorno]
-  return delEntorno !== undefined && delEntorno.trim() !== '' ? delEntorno : null
+  const fromEnv = process.env[envVar]
+  return fromEnv !== undefined && fromEnv.trim() !== '' ? fromEnv : null
 }
 
 /**
@@ -124,20 +124,17 @@ export function secretoOEntorno(clave: string, variableEntorno: string): string 
  * editar, y saber que el valor sale de ahí es la diferencia entre arreglarlo en
  * diez segundos y no entender por qué la app usa un token viejo.
  */
-export function origenDelSecreto(
-  clave: string,
-  variableEntorno: string
-): 'yml' | 'app' | 'env' | 'ninguno' {
-  if (deAlbusYml(claveYml(clave)) !== null) return 'yml'
+export function secretSource(key: string, envVar: string): 'yml' | 'app' | 'env' | 'none' {
+  if (fromAlbusYml(ymlKey(key)) !== null) return 'yml'
 
-  const datos = leerCrudo()
-  if (datos[clave] !== undefined && leerSecreto(clave) !== null) return 'app'
+  const data = readRaw()
+  if (data[key] !== undefined && readSecret(key) !== null) return 'app'
 
-  const delEntorno = process.env[variableEntorno]
-  return delEntorno !== undefined && delEntorno.trim() !== '' ? 'env' : 'ninguno'
+  const fromEnv = process.env[envVar]
+  return fromEnv !== undefined && fromEnv.trim() !== '' ? 'env' : 'none'
 }
 
-export const CLAVES = {
+export const KEYS = {
   notionToken: 'notion.token',
   googleRefreshToken: 'google.refresh_token'
 } as const
@@ -149,6 +146,6 @@ export const CLAVES = {
  * el usuario ya conoce, y así copiar una del `.env` al `.yml` funciona sin
  * traducir nada.
  */
-function claveYml(clave: string): string {
-  return clave.replace(/\./g, '_').toUpperCase()
+function ymlKey(key: string): string {
+  return key.replace(/\./g, '_').toUpperCase()
 }

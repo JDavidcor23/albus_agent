@@ -18,50 +18,50 @@
  */
 
 /** Lo mínimo que el router necesita saber de una vacante para poder elegirla. */
-export interface VacanteEnPantalla {
+export interface JobOnScreen {
   id: string
   company: string
   title: string
   score: number
 }
 
-export type IntentJob =
+export type JobIntent =
   /** Buscar vacantes nuevas. `queries` vacío = usar lo que digan las reglas. */
-  | { kind: 'buscar'; queries: string[]; ubicacion: string | null }
+  | { kind: 'search'; queries: string[]; location: string | null }
   /** Postularse a una concreta: ya se resolvió a cuál se refiere. */
-  | { kind: 'postular'; id: string }
+  | { kind: 'apply'; id: string }
   /** Mostrar la evidencia de lo último que se hizo con esa vacante. */
-  | { kind: 'mostrar'; id: string }
+  | { kind: 'show'; id: string }
   /** Mandar de verdad lo que quedó frenado en `review`. */
-  | { kind: 'enviar'; id: string }
-  | { kind: 'descartar'; id: string }
+  | { kind: 'send'; id: string }
+  | { kind: 'discard'; id: string }
   /** Dijo algo que apunta a varias vacantes, o a ninguna. */
-  | { kind: 'ambiguo'; candidatas: VacanteEnPantalla[]; termino: string }
+  | { kind: 'ambiguous'; candidates: JobOnScreen[]; term: string }
   /** No es un comando: es conversación. Va al modelo con el contexto. */
-  | { kind: 'conversar'; texto: string }
-  | { kind: 'ayuda' }
+  | { kind: 'chat'; text: string }
+  | { kind: 'help' }
 
-function normalizar(texto: string): string {
-  return texto
+function normalize(text: string): string {
+  return text
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
     .trim()
 }
 
-const PIDE_BUSCAR =
+const WANTS_SEARCH =
   /\b(busca|buscame|buscar|barrido|barre|rastrea|rastrear|vacantes?|trabajos?|ofertas?)\b/
 
-const PIDE_POSTULAR = /\b(postula|postulate|postularme|aplica|aplicar|aplicame|manda el cv)\b/
+const WANTS_APPLY = /\b(postula|postulate|postularme|aplica|aplicar|aplicame|manda el cv)\b/
 
-const PIDE_MOSTRAR =
+const WANTS_SHOW =
   /\b(mostra|mostrame|muestra|muestrame|ver|veamos|pasame|dame|abri|abrime|captura|evidencia|como quedo|como se hizo)\b/
 
-const PIDE_ENVIAR = /\b(envia|enviar|enviala|manda|mandala|mandalo|confirma|dale enviar)\b/
+const WANTS_SEND = /\b(envia|enviar|enviala|manda|mandala|mandalo|confirma|dale enviar)\b/
 
-const PIDE_DESCARTAR = /\b(descarta|descartar|descartala|no me interesa|olvidala|esa no|sacala)\b/
+const WANTS_DISCARD = /\b(descarta|descartar|descartala|no me interesa|olvidala|esa no|sacala)\b/
 
-const PIDE_AYUDA = /\b(ayuda|que podes hacer|que sabes hacer|como funciona|help)\b/
+const WANTS_HELP = /\b(ayuda|que podes hacer|que sabes hacer|como funciona|help)\b/
 
 /**
  * "Colombia", "remoto", "en LATAM" — lo que suena a lugar dentro del pedido.
@@ -70,8 +70,8 @@ const PIDE_AYUDA = /\b(ayuda|que podes hacer|que sabes hacer|como funciona|help)
  * palabra capitalizada del texto se convertiría en ubicación y una búsqueda de
  * "React" terminaría filtrando por un país que no existe.
  */
-function ubicacionDe(texto: string): string | null {
-  const m = /\b(?:en|para|desde)\s+([a-záéíóúñ][\wáéíóúñ\s]{2,24})$/i.exec(texto.trim())
+function locationOf(text: string): string | null {
+  const m = /\b(?:en|para|desde)\s+([a-záéíóúñ][\wáéíóúñ\s]{2,24})$/i.exec(text.trim())
   return m === null ? null : m[1].trim()
 }
 
@@ -82,17 +82,17 @@ function ubicacionDe(texto: string): string | null {
  * busca. Inventar un default acá sería pisar lo que el usuario escribió en su
  * `.md`, que es justo lo que ese archivo viene a evitar.
  */
-function queriesDe(texto: string): string[] {
-  const m = /\b(?:de|como|para|busca(?:me)?)\s+(.+)$/i.exec(texto.trim())
+function queriesOf(text: string): string[] {
+  const m = /\b(?:de|como|para|busca(?:me)?)\s+(.+)$/i.exec(text.trim())
   if (m === null) return []
 
-  const crudo = m[1]
+  const raw = m[1]
     .replace(/\b(?:en|para|desde)\s+[a-záéíóúñ][\wáéíóúñ\s]*$/i, '')
     .replace(/\b(trabajo|trabajos|vacante|vacantes|oferta|ofertas|empleo)\b/gi, '')
     .trim()
 
   return (
-    crudo
+    raw
       .split(/,| y | o /)
       // Sacar "trabajo" de "buscame trabajo DE react" deja la preposición
       // colgada, y el rol termina siendo "de react developer".
@@ -108,43 +108,43 @@ function queriesDe(texto: string): string[] {
  * que matchea con varias. **No adivina.** Postularse a la vacante equivocada no
  * se deshace: se le escribió a un reclutador real con el CV de otro puesto.
  */
-export function resolverVacante(
-  texto: string,
-  vacantes: VacanteEnPantalla[]
-): { id: string } | { ambiguas: VacanteEnPantalla[]; termino: string } | null {
-  if (vacantes.length === 0) return null
+export function resolveJob(
+  text: string,
+  jobs: JobOnScreen[]
+): { id: string } | { ambiguous: JobOnScreen[]; term: string } | null {
+  if (jobs.length === 0) return null
 
-  const t = normalizar(texto)
+  const t = normalize(text)
 
   // "la 2", "#2", "la numero 2"
-  const porNumero = /\b(?:la|el|#|numero|nro\.?)\s*(\d{1,2})\b/.exec(t) ?? /\b(\d{1,2})\b/.exec(t)
-  if (porNumero !== null) {
-    const i = Number(porNumero[1]) - 1
-    if (i >= 0 && i < vacantes.length) return { id: vacantes[i].id }
+  const byNumber = /\b(?:la|el|#|numero|nro\.?)\s*(\d{1,2})\b/.exec(t) ?? /\b(\d{1,2})\b/.exec(t)
+  if (byNumber !== null) {
+    const i = Number(byNumber[1]) - 1
+    if (i >= 0 && i < jobs.length) return { id: jobs[i].id }
   }
 
-  if (/\b(primera|primero|1ra|1ro)\b/.test(t)) return { id: vacantes[0].id }
-  if (/\b(ultima|ultimo)\b/.test(t)) return { id: vacantes[vacantes.length - 1].id }
-  if (/\b(segunda|segundo)\b/.test(t) && vacantes.length > 1) return { id: vacantes[1].id }
-  if (/\b(tercera|tercero)\b/.test(t) && vacantes.length > 2) return { id: vacantes[2].id }
+  if (/\b(primera|primero|1ra|1ro)\b/.test(t)) return { id: jobs[0].id }
+  if (/\b(ultima|ultimo)\b/.test(t)) return { id: jobs[jobs.length - 1].id }
+  if (/\b(segunda|segundo)\b/.test(t) && jobs.length > 1) return { id: jobs[1].id }
+  if (/\b(tercera|tercero)\b/.test(t) && jobs.length > 2) return { id: jobs[2].id }
 
   // Por nombre de empresa o de puesto. Se compara contra el texto entero.
-  const porNombre = vacantes.filter((v) => {
-    const empresa = normalizar(v.company)
-    const puesto = normalizar(v.title)
+  const byName = jobs.filter((v) => {
+    const company = normalize(v.company)
+    const title = normalize(v.title)
     return (
-      (empresa.length > 2 && t.includes(empresa)) ||
-      empresa.split(/\s+/).some((p) => p.length > 3 && t.includes(p)) ||
-      (puesto.length > 3 && t.includes(puesto))
+      (company.length > 2 && t.includes(company)) ||
+      company.split(/\s+/).some((p) => p.length > 3 && t.includes(p)) ||
+      (title.length > 3 && t.includes(title))
     )
   })
 
-  if (porNombre.length === 1) return { id: porNombre[0].id }
-  if (porNombre.length > 1) return { ambiguas: porNombre, termino: texto.trim() }
+  if (byName.length === 1) return { id: byName[0].id }
+  if (byName.length > 1) return { ambiguous: byName, term: text.trim() }
 
   // "esa", "esta", "la que dijiste": con UNA sola en pantalla no hay duda.
-  if (/\b(esa|esta|ese|este|la que|esa misma)\b/.test(t) && vacantes.length === 1) {
-    return { id: vacantes[0].id }
+  if (/\b(esa|esta|ese|este|la que|esa misma)\b/.test(t) && jobs.length === 1) {
+    return { id: jobs[0].id }
   }
 
   return null
@@ -153,35 +153,35 @@ export function resolverVacante(
 /**
  * El pedido, resuelto.
  *
- * `vacantes` es lo que el usuario está VIENDO. Se pasa por parámetro y no se
+ * `jobs` es lo que el usuario está VIENDO. Se pasa por parámetro y no se
  * lee de ningún lado: "la primera" significa la primera de la pantalla, y la
  * pantalla la conoce el llamador.
  */
-export function interpretar(texto: string, vacantes: VacanteEnPantalla[]): IntentJob {
-  const t = normalizar(texto)
-  if (t === '') return { kind: 'ayuda' }
-  if (PIDE_AYUDA.test(t)) return { kind: 'ayuda' }
+export function interpret(text: string, jobs: JobOnScreen[]): JobIntent {
+  const t = normalize(text)
+  if (t === '') return { kind: 'help' }
+  if (WANTS_HELP.test(t)) return { kind: 'help' }
 
-  const conVacante = (kind: 'postular' | 'mostrar' | 'enviar' | 'descartar'): IntentJob => {
-    const r = resolverVacante(texto, vacantes)
+  const withJob = (kind: 'apply' | 'show' | 'send' | 'discard'): JobIntent => {
+    const r = resolveJob(text, jobs)
     if (r === null) {
       // Con UNA sola en pantalla, "postulate" sin más no es ambiguo.
-      if (vacantes.length === 1) return { kind, id: vacantes[0].id }
-      return { kind: 'ambiguo', candidatas: vacantes, termino: texto.trim() }
+      if (jobs.length === 1) return { kind, id: jobs[0].id }
+      return { kind: 'ambiguous', candidates: jobs, term: text.trim() }
     }
-    if ('ambiguas' in r) return { kind: 'ambiguo', candidatas: r.ambiguas, termino: r.termino }
+    if ('ambiguous' in r) return { kind: 'ambiguous', candidates: r.ambiguous, term: r.term }
     return { kind, id: r.id }
   }
 
   // El orden importa: "mandá el CV a la 1" es postular, no enviar un correo
   // suelto. Lo más específico primero.
-  if (PIDE_POSTULAR.test(t)) return conVacante('postular')
-  if (PIDE_DESCARTAR.test(t)) return conVacante('descartar')
-  if (PIDE_ENVIAR.test(t)) return conVacante('enviar')
-  if (PIDE_MOSTRAR.test(t)) return conVacante('mostrar')
+  if (WANTS_APPLY.test(t)) return withJob('apply')
+  if (WANTS_DISCARD.test(t)) return withJob('discard')
+  if (WANTS_SEND.test(t)) return withJob('send')
+  if (WANTS_SHOW.test(t)) return withJob('show')
 
-  if (PIDE_BUSCAR.test(t)) {
-    return { kind: 'buscar', queries: queriesDe(texto), ubicacion: ubicacionDe(texto) }
+  if (WANTS_SEARCH.test(t)) {
+    return { kind: 'search', queries: queriesOf(text), location: locationOf(text) }
   }
 
   /*
@@ -191,5 +191,5 @@ export function interpretar(texto: string, vacantes: VacanteEnPantalla[]): Inten
    * "no entendí" a algo perfectamente razonable es la forma más rápida de que
    * el usuario deje de escribirle al agente.
    */
-  return { kind: 'conversar', texto: texto.trim() }
+  return { kind: 'chat', text: text.trim() }
 }
