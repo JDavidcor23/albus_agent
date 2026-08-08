@@ -17,3 +17,18 @@ albus.yml
 
 # modelos de tesseract (binarios grandes, se descargan)
 *.traineddata
+
+# El .gitignore global ignora CLAUDE.md y .claude/ en todos los repos. Acá no:
+# el .gitignore del proyecto tiene precedencia sobre el global, y esto no es
+# configuración de editor — es la documentación del proyecto. En particular
+# .claude/docs/frozen-contracts.md, que es lo que evita que alguien renombre un
+# string y rompa Notion o Drive sin que salte ningún error.
+!CLAUDE.md
+!.claude/
+
+# ...menos esto, que sí es de esta máquina: permisos y rutas absolutas.
+.claude/settings.local.json
+
+# ...y menos las skills vendorizadas: 60 archivos de terceros que no son de este
+# proyecto y se reinstalan solos. Lo que sí es nuestro son docs/ y agents/.
+.claude/skills/
