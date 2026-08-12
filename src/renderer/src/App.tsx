@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { CliProviderInfo, Graph, ResultRow } from '../../shared/ipc'
-import { LeftPanel } from './components/LeftPanel'
+import { Rail, type View } from './components/Rail'
 import { ResultsFeed } from './components/ResultsFeed'
 import { ErrorBanner } from './components/ErrorBanner'
 import { GraphView } from './components/GraphView'
 import { ChatPanel } from './components/ChatPanel'
 import { AgentsPanel } from './components/AgentsPanel'
+import { SettingsPanel } from './components/SettingsPanel'
 
-/** Un item que ya arrancó pero todavía no terminó: se pinta con su spinner. */
+/** An item that started but has not finished yet: drawn with its spinner. */
 export interface PendingRow {
   id: string
   label: string
@@ -22,7 +23,7 @@ function App(): React.JSX.Element {
   const [providers, setProviders] = useState<CliProviderInfo[]>([])
   const [providerId, setProviderId] = useState<string | null>(null)
   const [modelId, setModelId] = useState<string | null>(null)
-  const [tab, setTab] = useState<'feed' | 'graph' | 'tasks' | 'agents'>('agents')
+  const [view, setView] = useState<View>('chat')
   const [refreshingCli, setRefreshingCli] = useState(false)
   const [loadingCli, setLoadingCli] = useState(true)
   const [graph, setGraph] = useState<Graph | null>(null)
@@ -36,8 +37,8 @@ function App(): React.JSX.Element {
     else setError(res.error.message)
   }, [])
 
-  // Arrancar mostrando lo ya extraído: si no, la pantalla parece vacía aunque
-  // haya 48 resultados guardados.
+  // Start by showing what was already extracted: otherwise the screen looks
+  // empty even with 48 saved results.
   useEffect(() => {
     void loadExisting()
     void window.api.loadGraph().then((res) => {
@@ -49,8 +50,8 @@ function App(): React.JSX.Element {
       setLoadingCli(false)
       if (!res.ok) return
       setProviders(res.data)
-      // Arranca con el primero detectado: el selector informa qué hay, no
-      // pregunta si usarlo.
+      // Starts with the first one found: the picker reports what is there, it
+      // does not ask whether to use it.
       const first = res.data[0]
       if (first !== undefined) {
         setProviderId(first.id)
@@ -67,7 +68,8 @@ function App(): React.JSX.Element {
 
     const offDone = window.api.onItemDone((row) => {
       setInProgress(null)
-      // Reemplaza en vez de apilar: reprocesar un item no lo duplica en pantalla.
+      // Replaces instead of stacking: reprocessing an item does not duplicate
+      // it on screen.
       setRows((prev) => [row, ...prev.filter((r) => r.id !== row.id)])
     })
 
@@ -82,7 +84,7 @@ function App(): React.JSX.Element {
 
   const buildGraph = async (): Promise<void> => {
     if (providerId === null) {
-      setError('no hay CLI detectado para construir el grafo')
+      setError('no CLI detected to build the graph')
       return
     }
     setError(null)
@@ -95,7 +97,7 @@ function App(): React.JSX.Element {
         setGraph(res.data.graph)
         setGraphPath(res.data.path)
         if (res.data.failedBatches > 0) {
-          setError(`${res.data.failedBatches} lote(s) fallaron; el grafo salió incompleto`)
+          setError(`${res.data.failedBatches} batch(es) failed; the graph came out incomplete`)
         }
       } else {
         setError(res.error.message)
@@ -145,80 +147,60 @@ function App(): React.JSX.Element {
     }
   }
 
+  const refreshCli = (): void => {
+    setRefreshingCli(true)
+    void window.api.refreshCliProviders().then((res) => {
+      if (res.ok) setProviders(res.data)
+      else setError(res.error.message)
+      setRefreshingCli(false)
+    })
+  }
+
   return (
     <div className="app-container">
-      <LeftPanel
-        processing={processing}
-        providers={providers}
+      <Rail
+        view={view}
+        onView={setView}
         providerId={providerId}
         modelId={modelId}
-        refreshingCli={refreshingCli}
-        loadingCli={loadingCli}
-        onCliChange={(p, m) => {
-          setProviderId(p)
-          setModelId(m)
-        }}
-        onRefreshCli={() => {
-          setRefreshingCli(true)
-          void window.api.refreshCliProviders().then((res) => {
-            if (res.ok) setProviders(res.data)
-            else setError(res.error.message)
-            setRefreshingCli(false)
-          })
-        }}
-        progress={progress}
         total={rows.length}
-        onProcess={processBatch}
-        onReprocess={reprocessAll}
       />
-      <main className="panel-right">
-        <nav className="tabs">
-          <button
-            type="button"
-            className={`pick ${tab === 'agents' ? 'pick-on' : ''}`}
-            onClick={() => setTab('agents')}
-          >
-            agentes
-          </button>
-          <span className="pick-sep">·</span>
-          <button
-            type="button"
-            className={`pick ${tab === 'tasks' ? 'pick-on' : ''}`}
-            onClick={() => setTab('tasks')}
-          >
-            pendientes
-          </button>
-          <span className="pick-sep">·</span>
-          <button
-            type="button"
-            className={`pick ${tab === 'feed' ? 'pick-on' : ''}`}
-            onClick={() => setTab('feed')}
-          >
-            extracciones
-          </button>
-          <span className="pick-sep">·</span>
-          <button
-            type="button"
-            className={`pick ${tab === 'graph' ? 'pick-on' : ''}`}
-            onClick={() => setTab('graph')}
-          >
-            grafo
-          </button>
-        </nav>
 
+      <main className="panel-right">
         {error !== null && <ErrorBanner message={error} />}
 
-        {tab === 'agents' ? (
+        {view === 'chat' ? (
           <AgentsPanel
             providers={providers}
             providerId={providerId}
             modelId={modelId}
             onError={setError}
           />
-        ) : tab === 'tasks' ? (
+        ) : view === 'tasks' ? (
           <ChatPanel onError={setError} />
-        ) : tab === 'feed' ? (
-          <ResultsFeed rows={rows} inProgress={inProgress} processing={processing} />
+        ) : view === 'extractions' ? (
+          <ResultsFeed
+            rows={rows}
+            inProgress={inProgress}
+            processing={processing}
+            progress={progress}
+            onProcess={processBatch}
+            onReprocess={reprocessAll}
+          />
+        ) : view === 'settings' ? (
+          <SettingsPanel
+            providers={providers}
+            providerId={providerId}
+            modelId={modelId}
+            refreshing={refreshingCli}
+            loading={loadingCli}
+            onCliChange={(p, m) => {
+              setProviderId(p)
+              setModelId(m)
+            }}
+            onRefreshCli={refreshCli}
+            onError={setError}
+          />
         ) : (
           <GraphView
             graph={graph}

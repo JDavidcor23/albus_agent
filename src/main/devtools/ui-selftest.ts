@@ -34,14 +34,16 @@ function wait(ms: number): Promise<void> {
 /**
  * Corre en la página y devuelve JSON. Nada de esto se arma con datos externos.
  *
- * Los selectores y los textos esperados quedan en castellano a propósito: son
- * el DOM y la copy del renderer, que no se traducen.
+ * Los nombres de clase siguen en castellano (`.agente-*`, `.conexion-*`) aunque
+ * la copy pasó a inglés: renombrarlos es un diff enorme que el usuario no ve y
+ * donde un typo rompe un estilo sin que nada avise. Los TEXTOS esperados, en
+ * cambio, son lo que el usuario lee y van en inglés.
  */
 const READ_UI = `JSON.stringify((() => {
   const texts = (sel) => [...document.querySelectorAll(sel)].map((e) => (e.textContent || '').trim())
-  const active = document.querySelector('.tabs .pick-on')
+  const active = document.querySelector('.rail-item-on')
   return {
-    tabs: texts('.tabs .pick'),
+    tabs: texts('.rail-nav .rail-item'),
     activeTab: active ? (active.textContent || '').trim() : null,
     agents: texts('.agente-nombre'),
     reasons: texts('.agente-motivo'),
@@ -102,10 +104,10 @@ export async function runUiSelfTest(): Promise<boolean> {
       pipelineButton: string
     }
 
-    console.log('── assert 10 · la pestaña existe y lista el registro')
-    check('hay una pestaña "agentes"', ui.tabs.includes('agentes'), true)
-    check('las otras pestañas siguen', ui.tabs, ['agentes', 'pendientes', 'extracciones', 'grafo'])
-    check('abre en agentes', ui.activeTab, 'agentes')
+    console.log('── assert 10 · el rail existe y la conversación abre primero')
+    check('el rail tiene la conversación', ui.tabs.includes('Chat'), true)
+    check('y los destinos secundarios', ui.tabs, ['Chat', 'Extractions', 'Graph', 'Tasks'])
+    check('abre en Chat', ui.activeTab, 'Chat')
     check('el registro llegó por IPC', ui.agents, ['Búsqueda de trabajo'])
 
     console.log('\n── assert 12 · al agente se le HABLA, no se le llenan campos')
