@@ -246,6 +246,10 @@ absolute paths, no environment variables to set.
 
 ## Architecture, briefly
 
+<p align="center">
+  <img src="docs/architecture.png" alt="Albus architecture" width="100%">
+</p>
+
 ```
 src/main/core/     pure domain: extraction · jobs · graph · tasks — imports no Electron
 src/main/          adapters: agents · browser · connections · jobs · supabase ·
