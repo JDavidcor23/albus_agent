@@ -2825,13 +2825,16 @@ body::before {
   gap: 12px;
 }
 
+/* No `border-left` here. `.rail-item` already declares it, and re-declaring it
+   with the shorthand AFTER `.rail-item-on` in this sheet resets the color back
+   to transparent at the same specificity — the active mark on Settings just
+   silently stops appearing. */
 .rail-status {
   display: flex;
   flex-direction: column;
   gap: 1px;
   padding: 8px 0 8px 12px;
   border-top: 1px solid var(--line);
-  border-left: 2px solid transparent;
 }
 
 .rail-status-line {

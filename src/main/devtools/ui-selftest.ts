@@ -173,6 +173,19 @@ export async function runUiSelfTest(): Promise<boolean> {
       texts: [...document.querySelectorAll('.conexion-para')].map((n) => n.textContent.trim())
     }))()`)) as { cards: number; names: string[]; texts: string[] }
 
+    /*
+     * Un solo item marcado.
+     *
+     * `.rail-status` declaraba `border-left` con el shorthand DESPUÉS de
+     * `.rail-item-on` en la hoja: misma especificidad, ganaba el último, y el
+     * resaltado de Settings desaparecía sin que nada fallara. Este assert es
+     * barato y es el único que lo habría cachado.
+     */
+    const marked = (await win.webContents.executeJavaScript(
+      `[...document.querySelectorAll('.rail-item-on')].map((e) => (e.textContent || '').trim())`
+    )) as string[]
+    check('un solo item del rail queda marcado, y es Settings', marked.length, 1)
+
     check('hay tarjetas de conexión', connections.cards >= 1, true)
     check(
       'Google aparece UNA vez como cuenta, no dos como servicios',
