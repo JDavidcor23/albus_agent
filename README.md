@@ -175,6 +175,54 @@ On first run, Albus creates `Documents/albus_agent/` and plants the job-search
 agent there. Open the **agents** tab, hit *edit rules*, and tell it what you
 want. Then connect Notion and Google from the same screen.
 
+### What you need to bring
+
+Being straight with you, because "clone and run" is only half true today. The app
+boots and the agents tab works, but the job agent needs three things that are
+**yours** and that nothing in this repo can invent for you:
+
+**1. Your profile — required.** A JSON with the answers every application form
+asks for. There is no screen for it yet: you write the file.
+
+```
+Documents/albus_agent/agents/job-search/albus-profile.json
+```
+
+It's validated on load, so a missing or malformed key fails loudly with the exact
+path instead of guessing. Until it exists, the job agent shows up disabled with
+the reason. Copy the shape from
+[`resources/albus-profile.fixture.json`](resources/albus-profile.fixture.json) —
+that's the fictional profile the browser self-test uses, and it has every key.
+
+**2. Your CV and cover letters, already compiled.** Albus **reads** PDFs; it does
+not typeset them. It expects this layout, and the `<slug>` is the company name
+normalized (`BC Tecnología` → `bc_tecnologia`):
+
+```
+agents/job-search/cv/main_<slug>.pdf
+agents/job-search/cover_letters/cover_<slug>*.pdf
+```
+
+The LaTeX pipeline that generates them lives in a separate project and is **not
+included here**. If you don't have one, drop your own PDFs following that naming
+and the agent will attach them — it renames the copy to something a recruiter
+should see, and never touches your original.
+
+**3. A Supabase project — only for the notes side.** The *Notes → data* features
+(extraction, graph, open loops) read from Supabase and need `SUPABASE_URL` and
+`SUPABASE_SERVICE_ROLE_KEY` in `.env`, plus the SQL in
+[`supabase/migrations/`](supabase/migrations/) applied by hand. The connection is
+created lazily, so **the job agent works without any of this** — you'll just see
+an error banner on the notes tabs.
+
+> That service role key is why the capture side is a *separate* web app and not
+> part of this one: the key bypasses row-level security completely, and a desktop
+> process is the only place it can live without one bad import exposing the whole
+> database.
+
+If any of those three is missing, Albus tells you which one and where it goes. It
+won't pretend it worked.
+
 ---
 
 ## Commands
@@ -226,6 +274,12 @@ end-to-end for most postings. Applications that live behind a third-party ATS
 with custom multiple-choice widgets are still where it struggles — that path is
 under active work, and the trace it prints tells you exactly where it stopped
 instead of claiming success.
+
+Two gaps worth naming, since they're the difference between "runs on my machine"
+and "runs on yours": there is **no onboarding screen** for the profile yet (you
+write the JSON), and **CV generation isn't part of this repo** (Albus reads
+compiled PDFs). Both are listed under [what you need to
+bring](#what-you-need-to-bring), and both are the next things to close.
 
 This is a personal project built in the open. If the thesis resonates — one
 orchestrator instead of forty scripts — the interesting part isn't the job agent.
