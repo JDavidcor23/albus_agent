@@ -3,39 +3,49 @@ interface ErrorBannerProps {
 }
 
 /**
- * Componente para mostrar errores de ejecución de IPC.
- * Si detecta falta de variables de entorno de Supabase, despliega ayuda guiada.
+ * Shows IPC execution errors.
+ *
+ * When the failure is a missing Supabase env var it unfolds guided help — that
+ * one is not a bug, it is setup the user has not done yet, and the message
+ * alone does not say where to go.
  */
 export function ErrorBanner({ message }: ErrorBannerProps): React.JSX.Element {
-  // Detecta si el error corresponde a la falta de variables de entorno
+  /*
+   * The variable NAMES are what identify this failure, and those are never
+   * translated. The prose checks are a fallback and cover both languages,
+   * because a message written before the switch can still be on screen.
+   */
+  const lower = message.toLowerCase()
   const isEnvError =
     message.includes('SUPABASE_URL') ||
     message.includes('SUPABASE_SERVICE_ROLE_KEY') ||
-    message.toLowerCase().includes('variables de entorno') ||
-    message.toLowerCase().includes('missing env')
+    lower.includes('environment variable') ||
+    lower.includes('variables de entorno') ||
+    lower.includes('missing env')
 
   return (
     <div className="error-banner">
       <div className="error-title">
-        <span>⚠</span> error al procesar el lote
+        <span>⚠</span> the batch failed
       </div>
       <div className="error-message">{message}</div>
 
       {isEnvError && (
         <div className="env-help-box">
-          <div className="env-help-header">Configuración inicial requerida (.env):</div>
+          <div className="env-help-header">One-time setup required (.env):</div>
           <ol className="env-help-list">
             <li>
-              Copiá el archivo <code>.env.example</code> a <code>.env</code> en la raíz de este proyecto.
+              Copy <code>.env.example</code> to <code>.env</code> at the root of this project.
             </li>
             <li>
-              Abrí el dashboard de Supabase de tu proyecto <strong>My Notes</strong>.
+              Open the Supabase dashboard for your <strong>My Notes</strong> project.
             </li>
             <li>
-              Navegá a <strong>Project Settings &gt; API Keys</strong>.
+              Go to <strong>Project Settings &gt; API Keys</strong>.
             </li>
             <li>
-              Copiá la clave <code>service_role</code> (Secret Key) y asignala a <code>SUPABASE_SERVICE_ROLE_KEY</code>.
+              Copy the <code>service_role</code> key (Secret Key) into{' '}
+              <code>SUPABASE_SERVICE_ROLE_KEY</code>.
             </li>
           </ol>
         </div>

@@ -109,7 +109,7 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
       // corra. Con `say` salía duplicado por el doble montaje de StrictMode.
       place(BACKLOG_MESSAGE, {
         author: 'agente',
-        text: `Tenés ${res.data.length} sin resolver de antes. Decime qué hago con ellas.`,
+        text: `You have ${res.data.length} unresolved from before. Tell me what to do with them.`,
         jobs: res.data
       })
     })
@@ -243,10 +243,10 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
       // información, "3 vacantes" es la mitad. Y lo que quedó SIN mirar es la
       // otra mitad: "califican 2 de 12" con 25 sin puntuar se lee como "solo
       // hay 2", que es exactamente lo contrario de lo que pasó.
-      const parts = [`Encontré ${d.found}`]
-      if (d.duplicates > 0) parts.push(`${d.duplicates} ya las conocías`)
-      parts.push(`puntué ${d.ranked}`, `califican ${d.qualified.length}`)
-      if (d.skipped > 0) parts.push(`${d.skipped} quedaron sin mirar`)
+      const parts = [`found ${d.found}`]
+      if (d.duplicates > 0) parts.push(`${d.duplicates} you already knew`)
+      parts.push(`scored ${d.ranked}`, `${d.qualified.length} qualify`)
+      if (d.skipped > 0) parts.push(`${d.skipped} left unlooked-at`)
 
       update(id, {
         text: `${parts.join(' · ')}.`,
@@ -300,7 +300,7 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
         }
       }
 
-      update(id, { text: `llenando el formulario de ${job.company}…`, working: true })
+      update(id, { text: `filling in the ${job.company} form…`, working: true })
 
       const res = await window.api.jobsApply({
         url: job.url,
@@ -329,29 +329,29 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
       const attachments: Attachment[] = []
       const last = [...r.steps].reverse().find((s) => s.screenshot !== null)
       if (last?.screenshot != null) {
-        attachments.push({ label: 'ver la captura', target: last.screenshot, type: 'screenshot' })
+        attachments.push({ label: 'see the screenshot', target: last.screenshot, type: 'screenshot' })
       }
       if (r.cvFound !== null) {
-        attachments.push({ label: 'abrir el CV', target: r.cvFound, type: 'file' })
+        attachments.push({ label: 'open the CV', target: r.cvFound, type: 'file' })
       }
       if (r.notionPageId !== null) {
         attachments.push({
-          label: 'ver en Notion',
+          label: 'see in Notion',
           target: `https://www.notion.so/${r.notionPageId.replace(/-/g, '')}`,
           type: 'link'
         })
       }
 
       const fields = r.steps.reduce((n, s) => n + s.filled, 0)
-      const attached = r.uploadedAs.length > 0 ? ` y adjunté ${r.uploadedAs.join(', ')}` : ''
+      const attached = r.uploadedAs.length > 0 ? ` and attached ${r.uploadedAs.join(', ')}` : ''
 
       const detail =
         r.status === 'filled'
-          ? `Llené ${fields} campos${attached}. Frené antes de enviar — decime "mandala" si va.`
+          ? `Filled ${fields} fields${attached}. Stopped before sending — say "send it" if it looks right.`
           : r.status === 'submitted'
-            ? `Enviada. ${fields} campos${attached}.`
+            ? `Sent. ${fields} fields${attached}.`
             : r.status === 'needs-login'
-              ? 'Me falta tu sesión en ese sitio. Conectala y volvemos.'
+              ? 'I am missing your session on that site. Connect it and we try again.'
               : `${r.message} (${r.status})`
 
       update(id, { text: detail, working: false, attachments })
@@ -359,7 +359,7 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
       if (r.unresolved.length > 0) {
         say({
           author: 'agente',
-          text: `Dejé vacíos ${r.unresolved.length} campos que no supe contestar sin inventar: ${r.unresolved.join(', ')}.`
+          text: `I left ${r.unresolved.length} fields empty that I could not answer without making things up: ${r.unresolved.join(', ')}.`
         })
       }
     } catch (error: unknown) {
@@ -429,7 +429,7 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
         say({
           author: 'agente',
           // Con texto: un mensaje vacío con tarjetas adentro no dice por qué apareció.
-          text: 'Esto es lo que quedó en pantalla:',
+          text: 'This is what is on screen now:',
           jobs: res.data.screen
         })
       }
@@ -473,8 +473,8 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
       */}
       {missing.length > 0 && (
         <div className="jobchat-barra">
-          <span className="job-setup-falta" title={`sin conectar: ${missing.join(' · ')}`}>
-            {missing.length} sin conectar ({missing.join(' · ')}) — se resuelve en Settings
+          <span className="job-setup-falta" title={`not connected: ${missing.join(' · ')}`}>
+            {missing.length} not connected ({missing.join(' · ')}) — fix it in Settings
           </span>
         </div>
       )}
@@ -501,11 +501,11 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
               onClick={() => void runPipeline()}
               disabled={busy}
             >
-              buscar trabajo
+              find work
             </button>
             <p className="jobchat-vacio-nota">
-              Busco los roles de <strong>tus reglas</strong> y descarto lo que pusiste ahí. No hace
-              falta escribir nada — el chat es para lo que venga después.
+              I look for the roles in <strong>your rules</strong> and drop what you ruled out. You
+              do not have to type anything — the chat is for whatever comes next.
             </p>
           </div>
         )}
@@ -530,10 +530,10 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
                     {v.reason !== '' && <div className="vac-razon">{v.reason}</div>}
                     <div className="vac-acciones">
                       <button type="button" onClick={() => void apply(v)} disabled={busy}>
-                        postular
+                        apply
                       </button>
                       <button type="button" onClick={() => void window.api.openExternal(v.url)}>
-                        abrir ↗
+                        open ↗
                       </button>
                     </div>
                   </div>
@@ -552,7 +552,7 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
             */}
             {m.rejected !== undefined && m.rejected.length > 0 && (
               <details className="msg-descartadas">
-                <summary>{m.rejected.length} no pasaron el piso de 65 — ver por qué</summary>
+                <summary>{m.rejected.length} did not clear the floor of 65 — see why</summary>
                 <ul>
                   {m.rejected.map((v) => (
                     <li key={v.id}>
@@ -596,18 +596,24 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
           justo lo que este panel viene arrastrando.
         */}
         {onScreen.length > 0 && !busy && (
+          /*
+            Estos chips ESCRIBEN en el campo, y lo que se escribe viaja al
+            agente del main. Ahí el prompt del sistema está en español, pero lo
+            interpreta un modelo: entiende inglés igual. Distinto es el chat de
+            pendientes, que lo parsea una regex española — ver `core/tasks/ask.ts`.
+          */
           <div className="jobchat-sugerencias">
-            <button type="button" onClick={() => setInput('postulate a la 1')}>
-              postulate a la 1
+            <button type="button" onClick={() => setInput('apply to 1')}>
+              apply to 1
             </button>
-            <button type="button" onClick={() => setInput('mostrame cómo quedó la 1')}>
-              mostrame cómo quedó la 1
+            <button type="button" onClick={() => setInput('show me how 1 turned out')}>
+              show me how 1 turned out
             </button>
-            <button type="button" onClick={() => setInput('descartá la 1')}>
-              descartá la 1
+            <button type="button" onClick={() => setInput('drop 1')}>
+              drop 1
             </button>
             <button type="button" onClick={() => void runPipeline()}>
-              buscar de nuevo
+              search again
             </button>
           </div>
         )}
@@ -618,7 +624,7 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
       <div className="jobchat-entrada">
         <input
           value={input}
-          placeholder="escribile al agente…"
+          placeholder="write to the agent…"
           disabled={busy}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {

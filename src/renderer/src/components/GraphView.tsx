@@ -38,8 +38,8 @@ export function GraphView({
       <div className="graph-empty">
         <span className="feed-spinner" />
         <p className="idle-text">
-          El CLI está leyendo las extracciones y armando el grafo.
-          {progress !== null && ` Lote ${progress.done} de ${progress.total}.`}
+          The CLI is reading the extractions and assembling the graph.
+          {progress !== null && ` Batch ${progress.done} of ${progress.total}.`}
         </p>
       </div>
     )
@@ -50,12 +50,12 @@ export function GraphView({
       <div className="graph-empty">
         <div className="idle-icon">◇</div>
         <p className="idle-text">
-          Todavía no hay grafo. Se construye con el CLI a partir de lo extraído y queda
-          guardado como archivo tuyo, fuera de la app.
+          No graph yet. The CLI builds it from what was extracted, and it is saved as a file
+          of yours, outside the app.
         </p>
         <code className="graph-path">{path}</code>
         <button type="button" className="btn-brass" onClick={onBuild}>
-          construir grafo
+          build graph
         </button>
       </div>
     )
@@ -65,15 +65,15 @@ export function GraphView({
     <div className="graph-wrap">
       <div className="graph-bar">
         <span className="graph-stat">
-          {graph.stats.nodes} nodos · {graph.stats.edges} relaciones
+          {graph.stats.nodes} nodes · {graph.stats.edges} relations
         </span>
         <span className="graph-actions">
           <button type="button" className="pick" onClick={onOpenFolder}>
-            abrir carpeta
+            open folder
           </button>
           <span className="pick-sep">·</span>
           <button type="button" className="pick" onClick={onBuild}>
-            reconstruir
+            rebuild
           </button>
         </span>
       </div>
@@ -85,7 +85,8 @@ export function GraphView({
           <div className="graph-detail-head">
             <span className="feed-label">{node.label}</span>
             <span className="feed-kind">
-              {node.type} · {node.provenance === 'EXTRACTED' ? 'dato duro' : 'inferido'}
+              {/* 'EXTRACTED' is a stored value, not copy — only the label changes. */}
+              {node.type} · {node.provenance === 'EXTRACTED' ? 'hard data' : 'inferred'}
             </span>
           </div>
 

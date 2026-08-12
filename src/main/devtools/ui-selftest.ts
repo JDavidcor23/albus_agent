@@ -113,7 +113,7 @@ export async function runUiSelfTest(): Promise<boolean> {
     console.log('\n── assert 12 · al agente se le HABLA, no se le llenan campos')
     check('hay chat', ui.hasChat, true)
     check('con su campo para escribir', ui.hasInput, true)
-    check('que invita a escribir, no a completar', /escribile/i.test(ui.chatPlaceholder), true)
+    check('que invita a escribir, no a completar', /write to/i.test(ui.chatPlaceholder), true)
     /*
      * El barrido es UNA acción, así que se dispara con un botón.
      *

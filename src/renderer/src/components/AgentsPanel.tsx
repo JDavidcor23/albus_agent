@@ -103,14 +103,14 @@ export function AgentsPanel({ providerId, modelId, onError, providers }: Props):
   }
 
   if (loading) {
-    return <div className="idle-state"><span className="idle-text">buscando agentes…</span></div>
+    return <div className="idle-state"><span className="idle-text">looking for agents…</span></div>
   }
 
   if (agents.length === 0) {
     return (
       <div className="empty-state">
-        <div className="empty-title">no hay agentes registrados</div>
-        <div className="empty-subtitle">se agregan en src/main/agents/registry.ts</div>
+        <div className="empty-title">no agents registered</div>
+        <div className="empty-subtitle">they are added in src/main/agents/registry.ts</div>
       </div>
     )
   }
@@ -153,11 +153,11 @@ export function AgentsPanel({ providerId, modelId, onError, providers }: Props):
         <section className="preguntas">
           <header className="preguntas-head">
             <h3 className="preguntas-titulo">
-              El agente te preguntó
+              The agent asked you
               <span className="preguntas-cuantas">{selected.rules.questions.length}</span>
             </h3>
             <p className="preguntas-sub">
-              tu respuesta queda escrita en las reglas — no vuelve a preguntar
+              your answer is written into the rules — it will not ask again
             </p>
           </header>
 
@@ -186,7 +186,7 @@ export function AgentsPanel({ providerId, modelId, onError, providers }: Props):
               <div className="pregunta-responder">
                 <input
                   className="pregunta-input"
-                  placeholder="escribí tu respuesta…"
+                  placeholder="type your answer…"
                   value={drafts[q.id] ?? ''}
                   disabled={answering === q.id}
                   onChange={(e) => setDrafts((p) => ({ ...p, [q.id]: e.target.value }))}
@@ -202,7 +202,7 @@ export function AgentsPanel({ providerId, modelId, onError, providers }: Props):
                   disabled={answering === q.id || (drafts[q.id] ?? '').trim() === ''}
                   onClick={() => void answer(selected.id, q.id, drafts[q.id] ?? '')}
                 >
-                  {answering === q.id ? 'guardando…' : 'responder'}
+                  {answering === q.id ? 'saving…' : 'answer'}
                 </button>
               </div>
             </article>
@@ -214,9 +214,9 @@ export function AgentsPanel({ providerId, modelId, onError, providers }: Props):
         <section className="reglas">
           <header className="reglas-head">
             <div>
-              <h3 className="reglas-titulo">Tus reglas</h3>
+              <h3 className="reglas-titulo">Your rules</h3>
               <p className="reglas-sub">
-                lo que escribas acá lo respeta el agente, aunque nadie lo haya programado
+                whatever you write here the agent respects, even if nobody programmed it
               </p>
             </div>
             <button
@@ -224,7 +224,7 @@ export function AgentsPanel({ providerId, modelId, onError, providers }: Props):
               className="reglas-editar"
               onClick={() => void openRules(selected.id)}
             >
-              {selected.rules.exists ? 'editar' : 'escribir las primeras'}
+              {selected.rules.exists ? 'edit' : 'write the first ones'}
             </button>
           </header>
 
@@ -235,12 +235,12 @@ export function AgentsPanel({ providerId, modelId, onError, providers }: Props):
               para conectar servicios. Son para decirle qué hacer.
             */
             <div className="reglas-vacio">
-              <p>Todavía no le dijiste nada. Podés escribir cosas como:</p>
+              <p>You have not told it anything yet. You can write things like:</p>
               <ul>
-                <li>cuando me postule a una empresa, guardá el CV en esta carpeta de Drive: …</li>
-                <li>nada con Java ni con turnos de noche</li>
-                <li>registrá las postulaciones en esta base: …</li>
-                <li>si el sueldo no está publicado, igual postulate</li>
+                <li>when I apply to a company, save the CV in this Drive folder: …</li>
+                <li>nothing with Java and no night shifts</li>
+                <li>log applications in this database: …</li>
+                <li>if the salary is not posted, apply anyway</li>
               </ul>
             </div>
           ) : (
@@ -256,12 +256,12 @@ export function AgentsPanel({ providerId, modelId, onError, providers }: Props):
             <footer className="reglas-pie">
               {selected.rules.notion.length > 0 && (
                 <span>
-                  escribe en <strong>{selected.rules.notion[0].label || 'Notion'}</strong>
+                  writes to <strong>{selected.rules.notion[0].label || 'Notion'}</strong>
                 </span>
               )}
               {selected.rules.drive.length > 0 && (
                 <span>
-                  archiva en <strong>{selected.rules.drive[0].label || 'Drive'}</strong>
+                  files into <strong>{selected.rules.drive[0].label || 'Drive'}</strong>
                 </span>
               )}
             </footer>
@@ -275,14 +275,14 @@ export function AgentsPanel({ providerId, modelId, onError, providers }: Props):
         </div>
       ) : selected !== null ? (
         <div className="empty-state">
-          <div className="empty-title">{selected.name} no tiene pantalla todavía</div>
-          <div className="empty-subtitle">está en el registro pero le falta el componente</div>
+          <div className="empty-title">{selected.name} has no screen yet</div>
+          <div className="empty-subtitle">it is in the registry but its component is missing</div>
         </div>
       ) : null}
 
       {providers.length === 0 && (
         <p className="cli-hint">
-          no hay ningún CLI detectado — el triage necesita uno para puntuar las vacantes
+          no CLI detected — triage needs one to score the openings
         </p>
       )}
     </div>

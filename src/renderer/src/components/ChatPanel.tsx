@@ -11,13 +11,13 @@ import { calendarUrl } from '../../../shared/google-calendar'
  * usuario como si fuera contenido.
  */
 const SOURCE_NAME: Record<string, string> = {
-  qr: 'código QR',
-  receipt: 'comprobante',
-  profile: 'perfil',
-  document: 'documento',
-  text: 'captura',
-  none: 'sin contenido',
-  failed: 'falló'
+  qr: 'QR code',
+  receipt: 'receipt',
+  profile: 'profile',
+  document: 'document',
+  text: 'screenshot',
+  none: 'no content',
+  failed: 'failed'
 }
 
 /** Arriba de esto, una nota sin resumen se muestra recortada con "ver todo". */
@@ -85,10 +85,10 @@ function NoteLink({ url, onOpen }: { url: string; onOpen: (u: string) => void })
       <button
         type="button"
         className="task-copiar"
-        title="Copiar el link completo"
+        title="Copy the full link"
         onClick={copy}
       >
-        {copied ? 'copiado' : 'copiar'}
+        {copied ? 'copied' : 'copy'}
       </button>
     </span>
   )
@@ -170,15 +170,17 @@ function OriginBadge({
   source: string
   confidence: number
 }): React.JSX.Element | null {
+  // `source` is a value the main produces, not copy. It stays in Spanish and so
+  // does this comparison — translating one side breaks the badge in silence.
   if (source.startsWith('regla')) return null
   if (confidence >= DOUBTFUL_CONFIDENCE) return null
 
   return (
     <span
       className="task-src task-src-dudoso"
-      title="La IA dedujo este pendiente de lo que guardaste, no de algo que escribiste. Revisalo."
+      title="The AI inferred this from what you saved, not from something you wrote. Check it."
     >
-      deducido
+      inferred
     </span>
   )
 }
@@ -212,14 +214,14 @@ function Note({
   return (
     <div className="task-block">
       <span className="task-block-label">
-        {summarized && !open ? 'lo que escribiste, en corto' : 'lo que escribiste'}
+        {summarized && !open ? 'what you wrote, in short' : 'what you wrote'}
       </span>
       <p className="task-note">
         <WithLinks text={visible} onOpen={onOpen} />
       </p>
       {hasMore && (
         <button type="button" className="task-toggle" onClick={() => setOpen(!open)}>
-          {open ? 'ver en corto ▴' : `ver la nota completa (${body.length} caracteres) ▾`}
+          {open ? 'show the short version ▴' : `show the full note (${body.length} characters) ▾`}
         </button>
       )}
     </div>
@@ -245,10 +247,10 @@ function SourceBlock({
         {SOURCE_NAME[source.kind] ?? source.kind}
         {source.captures > 1 &&
           (source.photos === source.captures
-            ? ` · ${plural(source.captures, 'foto', 'fotos')}`
+            ? ` · ${plural(source.captures, 'photo', 'photos')}`
             : source.photos > 0
-              ? ` · ${source.captures} archivos (${source.photos} fotos)`
-              : ` · ${plural(source.captures, 'captura', 'capturas')}`)}
+              ? ` · ${source.captures} files (${source.photos} photos)`
+              : ` · ${plural(source.captures, 'screenshot', 'screenshots')}`)}
       </span>
 
       {source.text !== null ? (
@@ -256,13 +258,13 @@ function SourceBlock({
       ) : (
         <p className="task-vacio">
           {source.kind === 'qr'
-            ? 'El código no se puede mostrar: está cifrado.'
+            ? 'The code cannot be shown: it is encrypted.'
             : source.photos > 0
-              ? // Nombra la causa en vez de decir "no se pudo": una foto de un
-                // cartel no es un OCR que falló, es un OCR que no aplica.
-                `${plural(source.photos, 'es una foto', 'son fotos')}, no capturas de pantalla. ` +
-                'El OCR de una foto no es confiable, así que no lo mostramos. Abrilas para ver qué hay.'
-              : 'El texto de esta captura no se pudo leer. Abrí la imagen original.'}
+              ? // Name the cause instead of saying "could not": a photo of a sign
+                // is not a failed OCR, it is an OCR that does not apply.
+                `${plural(source.photos, 'this is a photo', 'these are photos')}, not screenshots. ` +
+                'OCR on a photo is not reliable, so we do not show it. Open them to see what is there.'
+              : 'The text in this capture could not be read. Open the original image.'}
         </p>
       )}
 
@@ -273,14 +275,14 @@ function SourceBlock({
       {source.driveLinks.length > 2 ? (
         <div className="task-links-fila">
           <span className="task-vacio">
-            {plural(source.driveLinks.length, 'archivo', 'archivos')} en Drive:
+            {plural(source.driveLinks.length, 'file', 'files')} in Drive:
           </span>
           {source.driveLinks.map((link, i) => (
             <button
               key={link}
               type="button"
               className="task-link-num"
-              title="Abrir en Drive"
+              title="Open in Drive"
               onClick={() => onOpen(link)}
             >
               {i + 1}
@@ -291,7 +293,7 @@ function SourceBlock({
         <div className="task-links">
           {source.driveLinks.map((link, i) => (
             <button key={link} type="button" className="task-link" onClick={() => onOpen(link)}>
-              {source.driveLinks.length > 1 ? `abrir la captura ${i + 1} ↗` : 'abrir la original ↗'}
+              {source.driveLinks.length > 1 ? `open capture ${i + 1} ↗` : 'open the original ↗'}
             </button>
           ))}
         </div>
@@ -303,7 +305,7 @@ function SourceBlock({
       {source.rawText !== null && source.rawText !== source.text && (
         <>
           <button type="button" className="task-toggle" onClick={() => setShowRaw(!showRaw)}>
-            {showRaw ? 'ocultar el texto crudo ▴' : 'ver el texto crudo del OCR ▾'}
+            {showRaw ? 'hide the raw text ▴' : 'show the raw OCR text ▾'}
           </button>
           {showRaw && <pre className="task-ocr task-ocr-crudo">{source.rawText}</pre>}
         </>
@@ -332,7 +334,7 @@ function Detail({
           {/* No dice "cómo contactar": el main ya sacó el email del propio dueño,
               pero entre lo que queda puede haber cualquier dirección que apareció
               en una captura. Nombrar las cosas por lo que son. */}
-          <span className="task-block-label">emails y links en las capturas</span>
+          <span className="task-block-label">emails and links in the captures</span>
           <div className="task-links">
             {emails.map((e) => (
               <span key={e} className="task-contact">
@@ -361,7 +363,7 @@ function Detail({
       ))}
 
       {detail.sources.length === 0 && (
-        <p className="task-vacio">Esta nota no tenía capturas: el pendiente salió solo del texto.</p>
+        <p className="task-vacio">This note had no captures: the task came from the text alone.</p>
       )}
     </div>
   )
@@ -410,7 +412,7 @@ function Card({
           <button
             type="button"
             className="task-btn task-btn-ghost"
-            title="Abre Google Calendar con el evento precargado. Vos apretás Guardar."
+            title="Opens Google Calendar with the event prefilled. You hit Save."
             onClick={() =>
               onOpen(
                 calendarUrl({
@@ -427,19 +429,19 @@ function Card({
           </button>
 
           <button type="button" className="task-btn" onClick={() => onClose(task.id, 'done')}>
-            hecho
+            done
           </button>
           <button
             type="button"
             className="task-btn task-btn-ghost"
             onClick={() => onClose(task.id, 'dismissed')}
           >
-            no va
+            drop it
           </button>
         </div>
       </div>
 
-      {open && loading && <p className="task-vacio task-expand">buscando el origen…</p>}
+      {open && loading && <p className="task-vacio task-expand">looking for the source…</p>}
       {open && detail !== null && <Detail detail={detail} onOpen={onOpen} />}
     </li>
   )
@@ -471,8 +473,8 @@ export function ChatPanel({ onError }: Props): React.JSX.Element {
       add(
         'albus',
         res.data.length === 0
-          ? 'No te queda nada pendiente.'
-          : `Tenés ${res.data.length} ${res.data.length === 1 ? 'cosa' : 'cosas'} pendientes:`,
+          ? 'Nothing pending.'
+          : `You have ${res.data.length} ${res.data.length === 1 ? 'thing' : 'things'} pending:`,
         res.data
       )
     })
@@ -545,8 +547,8 @@ export function ChatPanel({ onError }: Props): React.JSX.Element {
     const left = res.data.length
     add(
       'albus',
-      `${status === 'done' ? 'Tachado' : 'Descartado'}. ` +
-        (left === 0 ? 'No te queda nada pendiente.' : `Te quedan ${left}.`)
+      `${status === 'done' ? 'Crossed off' : 'Dropped'}. ` +
+        (left === 0 ? 'Nothing pending.' : `${left} left.`)
     )
   }
 
@@ -592,12 +594,12 @@ export function ChatPanel({ onError }: Props): React.JSX.Element {
         <input
           type="text"
           value={text}
-          placeholder="¿qué tengo pendiente?"
+          placeholder="what do I have pending?"
           onChange={(e) => setText(e.target.value)}
           disabled={thinking}
         />
         <button type="submit" disabled={thinking || text.trim().length === 0}>
-          preguntar
+          ask
         </button>
       </form>
     </div>

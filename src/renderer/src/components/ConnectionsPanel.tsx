@@ -71,7 +71,7 @@ export function ConnectionsPanel({ onChange, onError }: Props): React.JSX.Elemen
   const saveToken = async (c: ConnectionInfo): Promise<void> => {
     const token = (drafts[c.id] ?? '').trim()
     if (token.length < 8) {
-      onError('ese token es muy corto')
+      onError('that token is too short')
       return
     }
 
@@ -97,14 +97,14 @@ export function ConnectionsPanel({ onChange, onError }: Props): React.JSX.Elemen
     setBusy(c.id)
     try {
       const res = await window.api.disconnect(c.id)
-      if (res.ok) apply(res.data.connections, `${c.name} desconectado`)
+      if (res.ok) apply(res.data.connections, `${c.name} disconnected`)
       else onError(res.error.message)
     } finally {
       setBusy(null)
     }
   }
 
-  if (loading) return <p className="cli-hint">cargando conexiones…</p>
+  if (loading) return <p className="cli-hint">loading connections…</p>
 
   /*
     Una tarjeta por CUENTA, no por mecanismo.
@@ -134,7 +134,7 @@ export function ConnectionsPanel({ onChange, onError }: Props): React.JSX.Elemen
               />
               <span className="conexion-nombre">{g.name}</span>
               <span className="conexion-grupo-cuenta">
-                {g.members.filter((m) => m.connected).length}/{g.members.length} permisos
+                {g.members.filter((m) => m.connected).length}/{g.members.length} permissions
               </span>
             </div>
           )}
@@ -160,7 +160,7 @@ export function ConnectionsPanel({ onChange, onError }: Props): React.JSX.Elemen
             */}
             {c.connected && c.source !== 'none' && (
               <span className="conexion-origen">
-                {c.source === 'yml' ? 'albus.yml' : c.source === 'env' ? 'desde .env' : 'guardado'}
+                {c.source === 'yml' ? 'albus.yml' : c.source === 'env' ? 'from .env' : 'saved'}
               </span>
             )}
             {c.connected && (
@@ -168,10 +168,10 @@ export function ConnectionsPanel({ onChange, onError }: Props): React.JSX.Elemen
                 type="button"
                 className="conexion-quitar"
                 disabled={busy === c.id || c.source === 'env'}
-                title={c.source === 'env' ? 'está en el .env: sacalo de ahí' : ''}
+                title={c.source === 'env' ? 'it lives in .env: remove it from there' : ''}
                 onClick={() => void disconnect(c)}
               >
-                desconectar
+                disconnect
               </button>
             )}
           </div>
@@ -196,10 +196,10 @@ export function ConnectionsPanel({ onChange, onError }: Props): React.JSX.Elemen
                     disabled={busy === c.id}
                     onClick={() => void connectViaBrowser(c)}
                   >
-                    {busy === c.id ? 'abriendo el navegador…' : `conectar ${c.name}`}
+                    {busy === c.id ? 'opening the browser…' : `connect ${c.name}`}
                   </button>
                   <span className="conexion-como">
-                    se abre una ventana · entrás vos · el resto lo hace Albus
+                    a window opens · you sign in · Albus does the rest
                   </span>
                 </div>
               )}
@@ -208,8 +208,8 @@ export function ConnectionsPanel({ onChange, onError }: Props): React.JSX.Elemen
                 <details className="conexion-manual">
                   <summary>
                     {c.methods.includes('browser')
-                      ? 'o pegá el token a mano'
-                      : 'pegá el token'}
+                      ? 'or paste the token by hand'
+                      : 'paste the token'}
                   </summary>
                   <div className="conexion-acciones">
                     <button
@@ -217,12 +217,12 @@ export function ConnectionsPanel({ onChange, onError }: Props): React.JSX.Elemen
                       className="btn-ghost conexion-donde"
                       onClick={() => void window.api.openTokenPage(c.id)}
                     >
-                      abrir dónde está ↗
+                      open where it is ↗
                     </button>
                     <input
                       className="job-input conexion-input"
                       type="password"
-                      placeholder="pegá el token acá"
+                      placeholder="paste the token here"
                       value={drafts[c.id] ?? ''}
                       onChange={(e) => setDrafts((p) => ({ ...p, [c.id]: e.target.value }))}
                       onKeyDown={(e) => {
@@ -235,7 +235,7 @@ export function ConnectionsPanel({ onChange, onError }: Props): React.JSX.Elemen
                       disabled={busy === c.id || (drafts[c.id] ?? '').trim().length < 8}
                       onClick={() => void saveToken(c)}
                     >
-                      guardar
+                      save
                     </button>
                   </div>
                 </details>
@@ -262,7 +262,7 @@ export function ConnectionsPanel({ onChange, onError }: Props): React.JSX.Elemen
                       bloquea sin decir por qué.
                     */}
                     {p.screenshot !== undefined && (
-                      <img className="paso-captura" src={p.screenshot} alt={`pantalla: ${p.step}`} />
+                      <img className="paso-captura" src={p.screenshot} alt={`screen: ${p.step}`} />
                     )}
                   </div>
                 </li>
@@ -271,7 +271,7 @@ export function ConnectionsPanel({ onChange, onError }: Props): React.JSX.Elemen
                 <li className="paso-corriendo">
                   <span className="paso-marca">·</span>
                   <div className="paso-cuerpo">
-                    <span className="paso-nombre">trabajando…</span>
+                    <span className="paso-nombre">working…</span>
                   </div>
                 </li>
               )}
@@ -280,7 +280,7 @@ export function ConnectionsPanel({ onChange, onError }: Props): React.JSX.Elemen
 
           {!c.encryptionAvailable && c.methods.includes('token') && (
             <p className="conexion-detalle">
-              este sistema no ofrece cifrado: el token queda en texto plano en albus.yml
+              this system offers no encryption: the token stays in plain text in albus.yml
             </p>
           )}
         </div>
