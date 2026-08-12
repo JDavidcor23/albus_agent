@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AgentStep, HuntProgress, JobsStatus, RankedJobRow } from '../../../shared/ipc'
-import { ConnectionsPanel } from './ConnectionsPanel'
 
 /**
  * El agente de trabajo como CONVERSACIÓN, no como formulario.
@@ -80,7 +79,6 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
-  const [showConnections, setShowConnections] = useState(false)
   /** Lo que el usuario está VIENDO. "la primera" se resuelve contra esto. */
   const [onScreen, setOnScreen] = useState<RankedJobRow[]>([])
 
@@ -468,19 +466,18 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
 
   return (
     <div className="jobchat">
-      <div className="jobchat-barra">
-        <button
-          type="button"
-          className={`job-conexiones-btn ${missing.length > 0 ? 'job-conexiones-falta' : ''}`}
-          onClick={() => setShowConnections(!showConnections)}
-          title={missing.length > 0 ? `sin conectar: ${missing.join(' · ')}` : 'todo conectado'}
-        >
-          conexiones
-          <span className="job-conexiones-estado">{missing.length > 0 ? missing.length : '✓'}</span>
-        </button>
-      </div>
-
-      {showConnections && <ConnectionsPanel onChange={refreshStatus} onError={onError} />}
+      {/*
+        Solo el aviso, sin botón. Conectar se hace en Settings: es de la app y
+        no de este agente. Un segundo lugar para hacerlo garantiza que uno de
+        los dos quede desactualizado.
+      */}
+      {missing.length > 0 && (
+        <div className="jobchat-barra">
+          <span className="job-setup-falta" title={`sin conectar: ${missing.join(' · ')}`}>
+            {missing.length} sin conectar ({missing.join(' · ')}) — se resuelve en Settings
+          </span>
+        </div>
+      )}
 
       <div className="jobchat-hilo">
         {messages.length === 0 && (

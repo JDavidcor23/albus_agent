@@ -655,10 +655,12 @@ body::before {
    del sistema operativo en una pantalla que no tiene nada nativo.
    ---------------------------------------------------------------------- */
 
+/* Sin borde ni margen propios: antes vivía en el panel izquierdo y necesitaba
+   separarse de la marca. Ahora es un bloque de Settings, que ya trae su aire. */
 .cli-picker {
-  margin: 1.75rem 0;
-  padding-top: 1.5rem;
-  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .cli-label {
@@ -1970,7 +1972,7 @@ body::before {
 
 .jobchat-barra {
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
 
 .jobchat-hilo {
@@ -2718,3 +2720,62 @@ body::before {
 
 .conexion-manual[open] > summary::before { content: '− '; }
 .conexion-manual > summary:hover { color: var(--ink); }
+
+/* ── settings ────────────────────────────────────────────────────────────
+   App-level configuration. One column, generous spacing: this screen is read
+   once in a while, not scanned every day.
+   ---------------------------------------------------------------------- */
+
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  padding: 4px 2px 24px;
+  /* Its own scroll: the live step log of a connection gets long. */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.settings-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-title {
+  font-family: var(--font-serif);
+  font-size: 1.4rem;
+  font-weight: 400;
+  color: var(--ink);
+}
+
+.settings-sub {
+  margin-top: -6px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* Each row of the picker carries its own label. Without them it was two lines
+   of dot-separated words and you could not tell the CLI from the model. */
+.cli-field {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 5px 0;
+}
+
+.cli-field-label {
+  flex: 0 0 4.5rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.cli-field-value {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  min-width: 0;
+}

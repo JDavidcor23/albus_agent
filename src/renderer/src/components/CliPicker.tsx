@@ -4,121 +4,101 @@ interface Props {
   providers: CliProviderInfo[]
   providerId: string | null
   modelId: string | null
-  disabled: boolean
   refreshing: boolean
   loading: boolean
   onChange: (providerId: string | null, modelId: string | null) => void
   onRefresh: () => void
 }
 
+/** How the CLI reported its models. Shown so a stale list is explainable. */
 const HOW: Record<string, string> = {
-  seed: 'candidatos sin verificar',
-  listed: 'el cli los enumera',
-  probed: 'probados uno por uno',
-  cached: 'de cache'
-}
-
-interface Option {
-  value: string | null
-  text: string
-}
-
-function Row({
-  options,
-  active,
-  disabled,
-  onPick
-}: {
-  options: Option[]
-  active: string | null
-  disabled: boolean
-  onPick: (value: string | null) => void
-}): React.JSX.Element {
-  return (
-    <div className="pick-row" role="radiogroup">
-      {options.map((o, i) => (
-        <span key={o.value ?? 'none'} className="pick-item">
-          {i > 0 && <span className="pick-sep">·</span>}
-          <button
-            type="button"
-            role="radio"
-            aria-checked={active === o.value}
-            className={`pick ${active === o.value ? 'pick-on' : ''}`}
-            disabled={disabled}
-            onClick={() => onPick(o.value)}
-          >
-            {o.text}
-          </button>
-        </span>
-      ))}
-    </div>
-  )
+  seed: 'unverified candidates',
+  listed: 'listed by the CLI',
+  probed: 'probed one by one',
+  cached: 'from cache'
 }
 
 /**
- * Muestra qué CLI hay instalados y con cuál correr el escalón 4.
- * Se dibuja como texto y no con controles nativos: un <select> de Windows mete
- * su tipografía y su chevron en una pantalla que no tiene nada nativo.
+ * Which CLI runs step 4 of the cascade, and with which model.
+ *
+ * Drawn as text and not with native controls: a Windows <select> drags its own
+ * typeface and chevron into a screen that has nothing native in it.
+ *
+ * The provider list is NOT hardcoded — it is whatever `listCliProviders` found
+ * on the PATH. Today that shows one entry because one CLI is installed.
+ *
+ * Each row carries its own label. Without them this was two lines of
+ * dot-separated words and you could not tell the CLI from the model.
  */
 export function CliPicker({
   providers,
   providerId,
   modelId,
-  disabled,
   refreshing,
   loading,
   onChange,
   onRefresh
 }: Props): React.JSX.Element {
-  const current = providers.find((p) => p.id === providerId) ?? null
+  if (loading) return <p className="cli-hint">looking for CLIs…</p>
 
-  const providerOptions: Option[] = providers.map((p) => ({ value: p.id, text: p.id }))
+  if (providers.length === 0) {
+    return <p className="cli-hint">no CLI on the PATH — step 4 of the cascade is off</p>
+  }
+
+  const current = providers.find((p) => p.id === providerId) ?? null
+  const activeModel = modelId ?? current?.models[0]?.id ?? null
 
   return (
     <div className="cli-picker">
-      <div className="cli-label">cli detectado</div>
-
-      <Row
-        options={providerOptions}
-        active={providerId}
-        disabled={disabled}
-        onPick={(v) => {
-          const p = providers.find((x) => x.id === v) ?? null
-          onChange(v, p?.models[0]?.id ?? null)
-        }}
-      />
+      <div className="cli-field">
+        <span className="cli-field-label">CLI</span>
+        <div className="cli-field-value" role="radiogroup" aria-label="CLI">
+          {providers.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              role="radio"
+              aria-checked={providerId === p.id}
+              className={`pick ${providerId === p.id ? 'pick-on' : ''}`}
+              onClick={() => onChange(p.id, p.models[0]?.id ?? null)}
+            >
+              {p.id}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {current !== null && current.models.length > 0 && (
-        <Row
-          options={current.models.map((m) => ({ value: m.id, text: m.id }))}
-          active={modelId ?? current.models[0].id}
-          disabled={disabled}
-          onPick={(v) => onChange(current.id, v)}
-        />
+        <div className="cli-field">
+          <span className="cli-field-label">Model</span>
+          <div className="cli-field-value" role="radiogroup" aria-label="Model">
+            {current.models.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                role="radio"
+                aria-checked={activeModel === m.id}
+                className={`pick ${activeModel === m.id ? 'pick-on' : ''}`}
+                onClick={() => onChange(current.id, m.id)}
+              >
+                {m.id}
+              </button>
+            ))}
+          </div>
+        </div>
       )}
 
       {current !== null && (
         <p className="cli-hint">
-          {current.models.length} modelos · {HOW[current.method] ?? current.method} ·{' '}
+          {current.models.length} models · {HOW[current.method] ?? current.method} ·{' '}
           {current.cliVersion}
         </p>
       )}
 
-      <p className="cli-hint">
-        {loading
-          ? 'buscando cli…'
-          : providers.length === 0
-            ? 'ningún CLI en el PATH'
-            : 'se usa solo en lo que QR, OCR y patrones no resolvieron'}
-      </p>
+      <p className="cli-hint">only used for what QR, OCR and patterns could not resolve</p>
 
-      <button
-        type="button"
-        className="pick cli-refresh"
-        disabled={disabled || refreshing}
-        onClick={onRefresh}
-      >
-        {refreshing ? 'probando cada modelo…' : 'verificar modelos'}
+      <button type="button" className="pick cli-refresh" disabled={refreshing} onClick={onRefresh}>
+        {refreshing ? 'probing every model…' : 'verify models'}
       </button>
     </div>
   )

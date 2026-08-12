@@ -60,11 +60,6 @@ const READ_UI = `JSON.stringify((() => {
     pipelineButton: (() => {
       const b = document.querySelector('.jobchat-pipeline')
       return b ? (b.textContent || '').trim() : ''
-    })(),
-    hasConnections: !!document.querySelector('.job-conexiones-btn'),
-    connectionsText: (() => {
-      const b = document.querySelector('.job-conexiones-btn')
-      return b ? (b.textContent || '').trim() : ''
     })()
   }
 })())`
@@ -105,8 +100,6 @@ export async function runUiSelfTest(): Promise<boolean> {
       chatPlaceholder: string
       examples: string[]
       pipelineButton: string
-      hasConnections: boolean
-      connectionsText: string
     }
 
     console.log('── assert 10 · la pestaña existe y lista el registro')
@@ -137,15 +130,6 @@ export async function runUiSelfTest(): Promise<boolean> {
     check('ya no hay perillas de dry-run/review/auto', ui.modes, [])
     check('tampoco el campo de "últimos días"', ui.hasModeBar, false)
 
-    console.log('\n── conexiones: se conectan desde acá, no desde la terminal')
-    check('hay botón de conexiones', ui.hasConnections, true)
-    check(
-      'el botón dice qué falta, no manda a correr un comando',
-      /npm run/.test(ui.connectionsText),
-      false
-    )
-    console.log(`          botón: "${ui.connectionsText}"`)
-
     console.log('\n── lo que falta se muestra, no se esconde')
     // El agente reporta sus credenciales faltantes en la tarjeta. Hoy faltan
     // Notion y Gmail, así que el motivo TIENE que estar visible.
@@ -164,10 +148,11 @@ export async function runUiSelfTest(): Promise<boolean> {
 
     // ── el panel de conexiones ─────────────────────────────────────────────
     // Se abre y se mira: es donde estaban los dos "Google" que no se entendían.
+    // Vive en Settings, al que se llega por el rail.
     console.log('\n── conexiones: una tarjeta por CUENTA, no por mecanismo')
 
     await win.webContents.executeJavaScript(
-      `(() => { const b = document.querySelector('.job-conexiones-btn'); if (b) b.click(); return true })()`
+      `(() => { const b = document.querySelector('.rail-item[data-view="settings"]'); if (b) b.click(); return true })()`
     )
     await wait(1200)
 

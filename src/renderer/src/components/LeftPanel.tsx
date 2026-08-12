@@ -48,7 +48,6 @@ export function LeftPanel({
           providers={providers}
           providerId={providerId}
           modelId={modelId}
-          disabled={processing}
           refreshing={refreshingCli}
           loading={loadingCli}
           onChange={onCliChange}
