@@ -98,11 +98,21 @@ export function parseCsv(text: string): string[][] {
   return rows
 }
 
-export function createCsvTracker(): TrackerSink {
+/**
+ * `csvPath` entra por parámetro para que el verificador pueda apuntar a una copia
+ * temporal, igual que `stagingDir` en `workspace.ts`. Antes se aislaba pisando
+ * `JOB_WORKSPACE_DIR`, y ese día que el orden de precedencia quedó al revés el
+ * test le agregó dos filas de prueba al CSV real del usuario. Un parámetro no se
+ * puede ignorar.
+ */
+export function createCsvTracker(csvPath?: string): TrackerSink {
+  // Se resuelve UNA vez, para las dos operaciones. Con `trackerPath()` repetido
+  // adentro de cada método, `seenUrls` leía el CSV real mientras `append` escribía
+  // en la copia temporal — dos archivos distintos en el mismo tracker.
+  const path = csvPath ?? trackerPath()
+
   return {
     async append(row: TrackerRow): Promise<void> {
-      const path = trackerPath()
-
       // Si el archivo no termina en salto, la fila nueva se pega a la anterior.
       const current = await readFile(path, 'utf8').catch(() => '')
       const prefix = current === '' || current.endsWith('\n') ? '' : '\n'
@@ -111,7 +121,7 @@ export function createCsvTracker(): TrackerSink {
     },
 
     async seenUrls(): Promise<Set<string>> {
-      const raw = await readFile(trackerPath(), 'utf8').catch(() => '')
+      const raw = await readFile(path, 'utf8').catch(() => '')
       if (raw === '') return new Set()
 
       const rows = parseCsv(raw)

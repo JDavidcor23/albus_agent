@@ -2,8 +2,8 @@ import type { LlmTier } from '../core/jobs/answers-llm'
 import { applyFloor, rankJobs, type JobCandidate, type RankedJob } from '../core/jobs/rank'
 import { notionStatus, scrubPii, type NotionRow } from '../core/jobs/notion-map'
 import { isNotionConfigured } from '../notion/client'
-import { knownPostLinks, upsertApplication } from '../notion/applications'
-import { search, withDetail, dedupe, type SearchQuery } from './search'
+import { trackedApplications, upsertApplication, type BacklogRow } from '../notion/applications'
+import { search, withDetail, dedupe, dedupeKey, type SearchQuery } from './search'
 import { loadProfile } from './workspace'
 
 /**
@@ -42,8 +42,16 @@ const DAY_LADDER = [7, 14, 30]
 const TARGET_BATCH = 3
 
 export interface HuntRequest {
+  /**
+   * Ya resueltas por el llamador: chat → reglas del `.md` → `DEFAULT_QUERIES`.
+   * Acá NO se decide qué buscar, y no es un detalle: el `.md` vive en
+   * `userData` y llegar hasta él arrastra `electron`, que dejaría este módulo
+   * fuera de `npm run jobs:check`.
+   */
   queries: string[]
   location: string
+  /** Lo de `## Qué NO quiero`. Viaja hasta el prompt del ranking. */
+  avoid: string[]
   /** Cuántas se rankean como mucho. Cada una cuesta un detalle + tokens. */
   maxRank: number
   llm: LlmTier
@@ -56,6 +64,14 @@ export interface HuntReport {
   found: number
   duplicates: number
   ranked: number
+  /**
+   * Encontradas y NO puntuadas por el techo de seguridad.
+   *
+   * Viaja hasta la UI a propósito. Vivía solo en el log, y el usuario leía
+   * "califican 2 de 12" con 25 vacantes sin evaluar y entendía —bien, dado lo
+   * que le mostrábamos— que el mercado solo tenía dos.
+   */
+  skipped: number
   qualified: RankedJob[]
   rejected: RankedJob[]
   notion: { writes: number; error: string | null }
@@ -71,15 +87,31 @@ export async function hunt(req: HuntRequest): Promise<HuntReport> {
 
   const profile = await loadProfile()
 
-  // ── 1. sacar lo ya visto (una sola vez, antes de scrapear) ───────────────
+  // ── 1. qué está cerrado y qué sigue esperando (una sola vez) ─────────────
+  //
+  // Cerrado = postulada, en proceso o descartada a mano. Eso NO vuelve.
+  // El backlog sí vuelve, y sin re-puntuarse: ya tiene su nota en la base, y
+  // pagar el detalle y los tokens de nuevo para llegar al mismo número es
+  // tirar plata. Esta distinción no existía y costaba vacantes buenas: una de
+  // 82 puntos se escribía como Backlog y al día siguiente el dedupe la sacaba.
   let inNotion = new Set<string>()
+  let backlog: BacklogRow[] = []
+
   if (req.saveToNotion && isNotionConfigured()) {
     try {
-      inNotion = await knownPostLinks()
+      const tracked = await trackedApplications()
+      inNotion = tracked.closed
+      backlog = tracked.backlog
+      if (backlog.length > 0) {
+        step('backlog', `${backlog.length} de antes que todavía no resolviste`)
+      }
     } catch (error: unknown) {
       step('notion', `no pude leer la base para deduplicar: ${String(error)}`)
     }
   }
+
+  // Las del backlog tampoco se re-scrapean: ya están.
+  for (const row of backlog) inNotion.add(row.url)
 
   // ── 2. buscar y puntuar, ampliando hasta juntar un lote ──────────────────
   //
@@ -93,7 +125,17 @@ export async function hunt(req: HuntRequest): Promise<HuntReport> {
   const alreadyScored = new Set<string>()
   let duplicates = 0
   let daysUsed = DAY_LADDER[0]
-  let skippedByCap = 0
+
+  /*
+   * Las que se vieron sin puntuar, por URL y no por suma.
+   *
+   * Era un contador que se incrementaba en cada vuelta del ladder, y las
+   * pendientes de una vuelta volvían a aparecer en la siguiente: con 38
+   * encontradas y 12 puntuadas informaba "31 quedaron sin mirar" cuando eran
+   * 25. Un número inventado en el renglón que existe justamente para no
+   * ocultar lo que quedó afuera.
+   */
+  const skipped = new Set<string>()
 
   for (const days of DAY_LADDER) {
     daysUsed = days
@@ -126,20 +168,27 @@ export async function hunt(req: HuntRequest): Promise<HuntReport> {
     const budget = req.maxRank - ranked.length
 
     if (budget <= 0) {
-      skippedByCap += pending.length
+      for (const c of pending) skipped.add(c.url)
       step('tope', `llegué al tope de ${req.maxRank} vacantes puntuadas`)
       break
     }
 
     const toRank = pending.slice(0, budget)
-    skippedByCap += pending.length - toRank.length
+    for (const c of pending.slice(budget)) skipped.add(c.url)
 
     if (toRank.length > 0) {
       step('leyendo', `${toRank.length} vacantes nuevas`)
       const withText = await withDetail(toRank)
 
       step('puntuando', `${withText.length} contra tu perfil`)
-      ranked.push(...(await rankJobs(withText, profile, req.llm)))
+      ranked.push(
+        ...(await rankJobs(withText, profile, req.llm, req.avoid, (done, total) => {
+          // El ranking pasó a ir en lotes y cada uno es una llamada al modelo:
+          // sin esto, "puntuando 38" se queda quieto varios minutos y parece
+          // colgado.
+          if (total > 1) step('puntuando', `lote ${done} de ${total}`)
+        }))
+      )
       for (const c of toRank) alreadyScored.add(c.url)
     }
 
@@ -155,16 +204,42 @@ export async function hunt(req: HuntRequest): Promise<HuntReport> {
   const unique = [...byUrl.values()]
   step('encontradas', `${unique.length} únicas en los últimos ${daysUsed} días`)
 
-  if (skippedByCap > 0) {
+  // Una que quedó afuera en la vuelta de 7 días puede haberse puntuado en la
+  // de 14: sin descontarlas, el número vuelve a mentir por otro camino.
+  for (const url of alreadyScored) skipped.delete(url)
+
+  if (skipped.size > 0) {
     // Un tope silencioso se lee como "no había más". Se dice.
-    step('tope', `${skippedByCap} quedaron sin mirar por el tope de ${req.maxRank}`)
+    step('tope', `${skipped.size} quedaron sin mirar por el tope de ${req.maxRank}`)
   }
 
-  if (ranked.length === 0) {
+  /**
+   * Las del backlog vuelven al lote con la nota que ya tenían.
+   *
+   * Se reconstruyen desde Notion y NO se re-puntúan: la base guarda el
+   * `Fit Score` y el ángulo de cuando se evaluaron. Van con `gates: []` porque
+   * si están en backlog es que en su momento pasaron el piso.
+   */
+  const fromBacklog: RankedJob[] = backlog.map((row) => ({
+    id: dedupeKey(row.url),
+    title: row.role,
+    company: row.company,
+    location: '',
+    date: row.date,
+    url: row.url,
+    description: row.description,
+    score: row.score,
+    gates: [],
+    reason: row.note !== '' ? row.note : 'ya estaba en tu backlog',
+    angle: row.note
+  }))
+
+  if (ranked.length === 0 && fromBacklog.length === 0) {
     return {
       found: unique.length,
       duplicates,
       ranked: 0,
+      skipped: skipped.size,
       qualified: [],
       rejected: [],
       notion: { writes: 0, error: null },
@@ -172,7 +247,12 @@ export async function hunt(req: HuntRequest): Promise<HuntReport> {
     }
   }
 
-  const { qualified, rejected } = applyFloor(ranked)
+  const sieve = applyFloor(ranked)
+  const rejected = sieve.rejected
+
+  // El backlog va PRIMERO solo por orden de puntaje, como el resto: lo viejo no
+  // tiene prioridad por ser viejo, pero tampoco se esconde.
+  const qualified = [...sieve.qualified, ...fromBacklog].sort((a, b) => b.score - a.score)
 
   // ── 4. espejo en Notion ──────────────────────────────────────────────────
   let writes = 0
@@ -198,6 +278,7 @@ export async function hunt(req: HuntRequest): Promise<HuntReport> {
     found: unique.length,
     duplicates,
     ranked: ranked.length,
+    skipped: skipped.size,
     qualified,
     rejected,
     notion: { writes, error: notionError },

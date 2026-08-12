@@ -5,7 +5,8 @@ import { z } from 'zod'
 import type { BrowserPort, Inventory } from '../core/jobs/ports'
 import type { FormModel } from '../core/jobs/types'
 import { classifyButton } from '../core/jobs/submit-guard'
-import { CLICK_TIMEOUT_MS, PARTITION, SETTLE_MS } from './session'
+import { isApplicableUrl, unwrapLinkedInRedirect } from '../../shared/ipc'
+import { CLICK_TIMEOUT_MS, NAVIGATION_TIMEOUT_MS, PARTITION, SETTLE_MS } from './session'
 import {
   clickByIdScript,
   clickScript,
@@ -52,6 +53,9 @@ const FieldSchema = z.object({
 const FormSchema = z.object({
   url: z.string(),
   title: z.string(),
+  // `default` y no requerido: el script vive en un template literal que el
+  // typecheck no puede verificar, así que un desajuste no puede tumbar la lectura.
+  inModal: z.boolean().default(false),
   fields: z.array(FieldSchema),
   buttons: z.array(z.object({ selector: z.string(), label: z.string() }))
 })
@@ -106,12 +110,23 @@ function wait(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
 }
 
+/** Para los mensajes. Una URL que no parsea se muestra entera antes que perderla. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname
+  } catch {
+    return url
+  }
+}
+
 export interface PageOptions {
   /** Mostrar la ventana. En `review` conviene: el usuario tiene que mirar. */
   visible: boolean
 }
 
-export function createBrowserPage(options: PageOptions): BrowserPort & { window: BrowserWindow } {
+export function createBrowserPage(
+  options: PageOptions
+): BrowserPort & { window: BrowserWindow; blockedPopups: () => string[] } {
   const win = new BrowserWindow({
     width: 1280,
     height: 900,
@@ -127,6 +142,105 @@ export function createBrowserPage(options: PageOptions): BrowserPort & { window:
       nodeIntegration: false,
       webSecurity: true
     }
+  })
+
+  /** Hosts que la página quiso abrir y no estaban permitidos. Se reportan. */
+  const blockedPopups: string[] = []
+
+  /**
+   * Las postulaciones EXTERNAS se siguen en ESTA ventana.
+   *
+   * La mayoría de las vacantes no son "Easy Apply": LinkedIn muestra un botón
+   * que abre el ATS de la empresa —Greenhouse, Lever, Workable, Ashby— con
+   * `target="_blank"`. Sin este handler, Electron abría una ventana nueva que
+   * este código NO controla, `win` se quedaba en LinkedIn, y `readForm()`
+   * devolvía la misma página sin campos. El bucle la veía estancada y terminaba
+   * en `filled` —"campos llenados"— sin haber llenado uno solo.
+   *
+   * Ese es el modo de falla más caro que hay: no tira, no loguea, y reporta
+   * éxito. El usuario recibía "listo, están todos los formularios llenos" con
+   * nueve pestañas vacías abiertas y cero postulaciones hechas.
+   *
+   * Se navega en la misma ventana en vez de dejar abrir la nueva porque la
+   * sesión, el debugger y `readForm()` viven acá.
+   */
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    /*
+     * Primero se DESENVUELVE el interstitial de LinkedIn.
+     *
+     * `linkedin.com/safety/go?url=<destino>` pasaba la allowlist por ser
+     * linkedin.com, se cargaba con `loadURL`, y LinkedIn lo rechazaba comiéndose
+     * el parámetro: quedaba `/safety/go/?_l=es_ES` — "Página no encontrada". El
+     * destino real viajaba adentro todo el tiempo.
+     */
+    const unwrapped = unwrapLinkedInRedirect(url)
+
+    /*
+     * Y acá se mueve una frontera, a conciencia.
+     *
+     * Un destino que sale del interstitial de LinkedIn se sigue AUNQUE su host no
+     * esté en `APPLICABLE_HOSTS`. El motivo: cada empresa hospeda su formulario
+     * donde quiere —Monks lo tiene en `www.monks.com`— y una allowlist de hosts no
+     * puede cubrir "la página de carreras de cualquier empresa del mundo". Mantener
+     * esa lista es la automatización a mano que este proyecto viene sacando.
+     *
+     * Lo que autoriza no es la lista: es que el usuario apretó "postular" sobre ESA
+     * vacante, y el link salió de ESA publicación. La provenance es el permiso.
+     *
+     * Lo que sigue bloqueado es todo lo demás: los popups que la página abre sola
+     * —trackers, ads, lo que sea— no tienen esa provenance y no pasan.
+     */
+    if (unwrapped !== null) {
+      console.log(`[browser] LinkedIn redirige a ${hostOf(unwrapped)} — sigo el destino real`)
+      void win.loadURL(unwrapped)
+      return { action: 'deny' }
+    }
+
+    if (isApplicableUrl(url)) {
+      console.log(`[browser] la postulación sigue en ${new URL(url).hostname}`)
+      void win.loadURL(url)
+    } else {
+      // No se abre y no se calla: un popup a un host desconocido con la sesión
+      // del usuario adentro no es inocente, y su ausencia explica por qué el
+      // formulario nunca apareció.
+      //
+      // El HOST va aparte de la URL porque es el dato accionable: si ese host
+      // es el ATS de la empresa, el arreglo es agregarlo a `APPLICABLE_HOSTS`.
+      // Decir solo "fuera de la allowlist" obligaba a ir a leer el código para
+      // entender qué hacer con eso.
+      blockedPopups.push(url)
+      console.warn(
+        `[browser] popup BLOQUEADO: "${hostOf(url)}" no está en la allowlist de postulación`
+      )
+      console.warn(`[browser]   url completa: ${url}`)
+      console.warn('[browser]   si ese host es el ATS de la empresa, falta en')
+      console.warn('[browser]   APPLICABLE_HOSTS (src/shared/ipc.ts) — la postulación se queda acá')
+    }
+    return { action: 'deny' }
+  })
+
+  /*
+   * Cada navegación queda registrada.
+   *
+   * Es lo que separa "la IA no encontró el botón" de "el click nos llevó al ATS
+   * y el formulario está en otro lado". Sin esto las dos se ven idénticas desde
+   * afuera: la ventana quieta y un `blocked` al final. Con esto, la ausencia de
+   * una línea después del click ES el diagnóstico.
+   */
+  win.webContents.on('did-navigate', (_event, url) => {
+    console.log(`[browser] navegó a ${url}`)
+  })
+
+  win.webContents.on('did-navigate-in-page', (_event, url, isMainFrame) => {
+    // Las SPA navegan sin recargar: Greenhouse embebido cambia de paso así.
+    if (isMainFrame) console.log(`[browser] navegó dentro de la página a ${url}`)
+  })
+
+  win.webContents.on('did-fail-load', (_event, code, description, url) => {
+    // `-3` es ABORTED, y pasa en toda navegación que otra reemplaza. No es un
+    // error: reportarlo como tal manda a diagnosticar algo que no está roto.
+    if (code === -3) return
+    console.warn(`[browser] NO cargó ${url} — ${description} (${code})`)
   })
 
   let debuggerAttached = false
@@ -172,6 +286,16 @@ export function createBrowserPage(options: PageOptions): BrowserPort & { window:
   return {
     window: win,
 
+    /**
+     * Los popups que se denegaron, para quien tenga que explicar el resultado.
+     *
+     * La lista se juntaba desde siempre y no salía a ningún lado: el comentario
+     * decía "se reportan" y nadie las leía nunca. Un `blocked` cuyo motivo real
+     * fue un host fuera de la allowlist terminaba contado como "no encontré
+     * formulario en esa página", que culpa a la página de una decisión nuestra.
+     */
+    blockedPopups: (): string[] => [...blockedPopups],
+
     async open(url: string): Promise<void> {
       await win.loadURL(url)
       // El HTML llegó, pero LinkedIn pinta el modal desde JavaScript. Sin este
@@ -190,6 +314,7 @@ export function createBrowserPage(options: PageOptions): BrowserPort & { window:
       return {
         url: parsed.url,
         title: parsed.title,
+        inModal: parsed.inModal,
         fields: parsed.fields.map((f) => ({
           ...f,
           kind: (KINDS.has(f.kind) ? f.kind : 'unknown') as FormModel['fields'][number]['kind']
@@ -231,8 +356,49 @@ export function createBrowserPage(options: PageOptions): BrowserPort & { window:
     },
 
     async click(selector: string): Promise<void> {
+      const before = win.webContents.getURL()
+      console.log(`[browser] click en ${selector}`)
       await runAction(clickScript(selector), 'clickear')
       await wait(CLICK_TIMEOUT_MS)
+
+      /*
+       * Si el click nos mandó a otra página, hay que ESPERAR a que cargue.
+       *
+       * "Apply" en una vacante externa navega al ATS de la empresa, y un ATS
+       * tarda bastante más que un modal de LinkedIn. Sin esta espera,
+       * `readForm()` corría sobre la página vieja o sobre una a medio pintar,
+       * devolvía cero campos, y el bucle lo leía como "no queda nada por
+       * llenar" — terminando en éxito sin haber tocado el formulario.
+       */
+      if (win.webContents.getURL() !== before || win.webContents.isLoading()) {
+        try {
+          if (win.webContents.isLoading()) {
+            await new Promise<void>((done) => {
+              const finish = (): void => {
+                clearTimeout(timer)
+                win.webContents.off('did-stop-loading', finish)
+                done()
+              }
+              const timer = setTimeout(finish, NAVIGATION_TIMEOUT_MS)
+              win.webContents.once('did-stop-loading', finish)
+            })
+          }
+          // El HTML llegó pero Greenhouse y Lever pintan el formulario desde
+          // JavaScript, igual que el modal de LinkedIn.
+          await wait(SETTLE_MS)
+        } catch {
+          // Una navegación que no termina no puede colgar la postulación: se
+          // sigue y `readForm()` dirá qué hay.
+        }
+      } else {
+        /*
+         * El click no movió la página. Se dice, porque es la mitad silenciosa
+         * del diagnóstico: cuando la postulación es externa y el popup quedó
+         * denegado, esto es lo ÚNICO que pasa — y sin esta línea el log muestra
+         * un click y después nada, que se lee como si el click hubiera fallado.
+         */
+        console.log(`[browser] el click no navegó — seguimos en ${hostOf(before)}`)
+      }
     },
 
     async screenshot(destPath: string): Promise<string> {
@@ -345,8 +511,10 @@ export function createBrowserPage(options: PageOptions): BrowserPort & { window:
     },
 
     async visibleText(): Promise<string> {
+      // `document.body` es null mientras el documento navega. Ver el comentario
+      // de INVENTORY en `page-scripts.ts`: ya tiró un TypeError en producción.
       return (await evaluate(
-        `(document.body.innerText || '').replace(/\\n{3,}/g, '\\n\\n').slice(0, 4000)`
+        `((document.body && document.body.innerText) || '').replace(/\\n{3,}/g, '\\n\\n').slice(0, 4000)`
       )) as string
     },
 

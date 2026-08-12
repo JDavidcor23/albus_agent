@@ -11,6 +11,9 @@ import {
   type GraphState,
   type AgentInfo,
   type ChatIntent,
+  type AgentResult,
+  type AgentStep,
+  type RankedJobRow,
   type ChatJob,
   type ConnectionInfo,
   type ConnectionStepRow,
@@ -158,10 +161,13 @@ const api = {
   jobsStatus: (): Promise<IpcResult<JobsStatus>> => ipcRenderer.invoke(IpcChannels.JOBS_STATUS),
 
   jobsHunt: (req: {
+    /** Vacío es VÁLIDO y significa "usá mis reglas". Lo resuelve el main. */
     queries: string[]
+    /** Vacío = la de las reglas, y si tampoco está, Colombia. */
     location: string
     /** No hay `jobAgeDays`: el rango lo decide y lo amplía el main. */
-    maxRank: number
+    /** Opcional: sin esto manda el techo del main. No es una cuota a repartir. */
+    maxRank?: number
     saveToNotion: boolean
     providerId: string
     modelId: string | null
@@ -188,6 +194,30 @@ const api = {
   },
 
   /** Interpretar lo que el usuario le escribió al agente. Puro, sin cuota. */
+  /** Lo que quedó pendiente en Notion. No busca ni puntúa: solo lee. */
+  jobsBacklog: (): Promise<IpcResult<RankedJobRow[]>> =>
+    ipcRenderer.invoke(IpcChannels.JOBS_BACKLOG),
+
+  /**
+   * Hablarle al agente. Él decide qué hacer y lo hace.
+   *
+   * `jobs.screen` va COMPLETO —con url y descripción— porque las herramientas
+   * postulan de verdad. Las claves de acá tienen que coincidir con `AgentSchema`
+   * del main: `typecheck` no cruza el IPC, y un `{jobs:[...]}` contra un schema
+   * que espera `{jobs:{screen:[...]}}` compila limpio y falla recién al enviar.
+   */
+  jobsAgent: (req: {
+    text: string
+    jobs: { screen: RankedJobRow[]; providerId: string; modelId: string | null }
+  }): Promise<IpcResult<AgentResult>> => ipcRenderer.invoke(IpcChannels.JOBS_AGENT, req),
+
+  /** Lo que el agente dice y hace mientras trabaja. Devuelve el `off`. */
+  onAgentStep: (cb: (step: AgentStep) => void): (() => void) => {
+    const listener = (_e: unknown, step: AgentStep): void => cb(step)
+    ipcRenderer.on(IpcEvents.JOBS_AGENT_STEP, listener)
+    return () => ipcRenderer.removeListener(IpcEvents.JOBS_AGENT_STEP, listener)
+  },
+
   jobsChat: (req: { text: string; jobs: ChatJob[] }): Promise<IpcResult<ChatIntent>> =>
     ipcRenderer.invoke(IpcChannels.JOBS_CHAT, req),
 

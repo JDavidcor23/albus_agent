@@ -16,6 +16,15 @@ export const SETTLE_MS = 2500
 /** Después de un click hay transición y validación antes del próximo paso. */
 export const CLICK_TIMEOUT_MS = 1800
 
+/**
+ * Techo para una navegación entera, no para un click.
+ *
+ * "Apply" en una vacante externa sale de LinkedIn al ATS de la empresa —
+ * Greenhouse, Lever, Workday— que carga bastante más lento que un modal. Es un
+ * techo, no una espera: si la página termina antes, se sigue enseguida.
+ */
+export const NAVIGATION_TIMEOUT_MS = 20_000
+
 export const LINKEDIN_COOKIE = { domain: '.linkedin.com', name: 'li_at' }
 
 /**

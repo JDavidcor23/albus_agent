@@ -95,19 +95,66 @@ export const READ_FORM = `(() => {
 
   document.querySelectorAll('[data-albus-fid]').forEach((el) => el.removeAttribute('data-albus-fid'))
 
-  /**
+  /*
    * Si hay un modal abierto, el formulario es ESE. Sin esto, en LinkedIn el
-   * buscador del header entra como campo del formulario y se lleva un turno
-   * del modelo para nada.
+   * buscador del header entra como campo del formulario y se lleva un turno del
+   * modelo para nada.
+   *
+   * Pero el modal tiene que ser uno DE VERDAD, y esto costó una corrida entera.
+   *
+   * Acá había un querySelector pelado que tomaba el PRIMER [role=dialog] del
+   * documento, sin mirar si era visible, si tenía tamaño ni si tenía algo adentro.
+   * En la página de carreras de Monks el agente cerró el modal de idioma y el
+   * banner de cookies; sus contenedores siguen en el DOM, vacíos y sin
+   * aria-hidden. root pasó a ser uno de esos, y READ_FORM devolvió CERO campos y
+   * CERO botones sobre una página que tenía el formulario de Greenhouse completo:
+   * first_name, last_name, email, phone y Submit. El agente los veía en su
+   * inventario y este lector no veía nada.
+   *
+   * Tres filtros, y ninguno es cosmético:
+   *   1. visible y con tamaño — un contenedor de 0x0 no es un modal
+   *   2. que CONTENGA algún control — un diálogo sin un input ni un botón no es
+   *      el formulario, es un cascarón que quedó
+   *   3. el ÚLTIMO del DOM entre los que quedan, que es el que se pintó encima
+   *
+   * INVENTORY, en este mismo archivo, ya hacía todo esto desde que Notion enseñó
+   * la lección. Este lector nunca la recibió.
    */
-  const modal = document.querySelector('[role=dialog]:not([aria-hidden=true]), dialog[open]')
+  const dialogs = [...document.querySelectorAll('[role=dialog]:not([aria-hidden=true]), dialog[open]')]
+    .filter((el) => {
+      const r = el.getBoundingClientRect()
+      if (r.width < 40 || r.height < 40) return false
+      const s = getComputedStyle(el)
+      if (s.visibility === 'hidden' || s.display === 'none' || s.opacity === '0') return false
+      return el.querySelector('input, select, textarea, button') !== null
+    })
+
+  const modal = dialogs.length > 0 ? dialogs[dialogs.length - 1] : null
   const root = modal || document
 
   const noise = (el) => !!el.closest('header, nav, [role=navigation], [role=search], [role=banner]')
 
+  /*
+   * El PIE tiene sus propios formularios, y llenarlos hace daño de verdad.
+   *
+   * En la página de Monks el bucle escribió el nombre, el apellido y el mail del
+   * candidato en el widget de NEWSLETTER del pie, y apretó su "Continue to the next
+   * step." dos veces avanzando ese wizard. Se veía en la traza: el campo 8 cambiaba
+   * en cada vuelta —"First name*", "Last name*", "Work Email*"— junto a un botón
+   * "Subscribe". Y como la firma del formulario cambiaba, la detección de
+   * estancamiento nunca se disparó: tres vueltas, tres llamadas al modelo, y los
+   * datos del usuario en una lista de marketing.
+   *
+   * Se aplica SOLO a los campos, no a los botones: un campo de formulario en el pie
+   * del sitio nunca es parte de una postulación, pero un botón sí puede estarlo —
+   * hay ATS que dejan el submit en una barra pegada abajo. La asimetría es
+   * deliberada.
+   */
+  const inFooter = (el) => !!el.closest('footer, [role=contentinfo]')
+
   const controls = [...root.querySelectorAll('input, select, textarea')]
     .filter(visible)
-    .filter((el) => modal || !noise(el))
+    .filter((el) => modal || (!noise(el) && !inFooter(el)))
     .filter((el) => (el.type || '').toLowerCase() !== 'search')
 
   const fields = []
@@ -163,14 +210,38 @@ export const READ_FORM = `(() => {
     })
   }
 
-  const candidates = [...root.querySelectorAll('button, input[type=submit], [role=button]')]
+  /*
+   * Los <a> cuentan como botones. Esta línea es la razón por la que no se podía
+   * postular a una vacante externa.
+   *
+   * LinkedIn resuelve "Solicitar ahora" con un ANCHOR y target="_blank" hacia el
+   * ATS de la empresa — es exactamente el caso para el que existe el
+   * setWindowOpenHandler de browser/page.ts. Pero acá se juntaban solo button,
+   * input[type=submit] y [role=button], así que el bucle NUNCA veía ese link,
+   * nunca lo clickeaba, y el handler que sabe seguirlo no llegaba a dispararse
+   * jamás: las dos mitades de la misma función nunca se encontraron. El síntoma
+   * era una ventana abierta y quieta, y un "no encontré el botón para avanzar"
+   * sobre una página que tenía el botón a la vista.
+   *
+   * INVENTORY, en este mismo archivo, incluye a[href] desde siempre y explica en
+   * su comentario por qué enumerar selectores no termina nunca. Este extractor
+   * se quedó con tres.
+   *
+   * Acá NO se filtra por texto: el que clasifica es el main (classifyButton), y
+   * lo que no caiga en next/submit/apply no se aprieta jamás. Un link de más
+   * cuesta un renglón de log; un link de menos cuesta la postulación entera.
+   */
+  const candidates = [...root.querySelectorAll('button, a[href], input[type=submit], [role=button]')]
     .filter(visible)
     .filter((el) => modal || !noise(el))
 
   const buttons = []
   let b = 0
   for (const el of candidates) {
-    const lbl = text(el) || el.value || el.getAttribute('aria-label') || ''
+    // Recortado: un <a> puede envolver una tarjeta entera de empleo y traer un
+    // párrafo. classifyButton ancla sus regex al principio, así que el arranque
+    // es todo lo que decide — y el resto solo ensucia el log y el payload.
+    const lbl = (text(el) || el.value || el.getAttribute('aria-label') || '').slice(0, 120)
     if (!lbl) continue
     const bid = 'b' + b++
     el.setAttribute('data-albus-fid', bid)
@@ -180,6 +251,10 @@ export const READ_FORM = `(() => {
   return JSON.stringify({
     url: location.href,
     title: document.title,
+    // Si se leyó un modal o el documento entero. Va en la traza: "cero campos y
+    // cero botones" es incontestable sin saber DÓNDE se miró, y ya costó una
+    // corrida creer que la página estaba vacía cuando el root estaba mal.
+    inModal: !!modal,
     fields: fields,
     buttons: buttons
   })
@@ -260,13 +335,72 @@ export function fillScript(selector: string, value: string): string {
   })()`
 }
 
+/**
+ * Un click COMO EL DE UNA PERSONA: la secuencia completa de eventos.
+ *
+ * `el.click()` dispara UN evento: `click`. Y eso alcanza para un `<button>` de
+ * toda la vida, pero no para los componentes con los que está hecha la web hoy —
+ * Radix, Headless UI, react-select, MUI— que seleccionan en `pointerdown` o
+ * `mousedown` y ni escuchan `click`.
+ *
+ * El síntoma es el peor posible: el click "funciona" —no tira error, el elemento
+ * existía— y la página no hace nada. Pasó con las preguntas de opción múltiple del
+ * formulario de Monks: el agente eligió la opción D, la vio seguir ahí, la volvió a
+ * clickear pensando que le había pegado al `<li>` en vez de al `<button
+ * role=option>`, y a la tercera se rindió pidiéndole al usuario que cerrara el
+ * modal a mano. Estaba haciendo todo bien; el click era el que mentía.
+ *
+ * También explica los "el click no navegó" del bucle determinista.
+ *
+ * (Sin backticks: esto vive DENTRO de un template literal.)
+ */
+const REAL_CLICK = `
+  const realClick = (el) => {
+    el.scrollIntoView({ block: 'center' })
+
+    const r = el.getBoundingClientRect()
+    const opts = {
+      bubbles: true,
+      cancelable: true,
+      view: window,
+      button: 0,
+      clientX: r.left + r.width / 2,
+      clientY: r.top + r.height / 2
+    }
+
+    // PointerEvent no existe en todos los contextos; si falta, los de mouse solos
+    // ya cubren a la mayoría de las librerías.
+    const pointer = (type) => {
+      try {
+        el.dispatchEvent(new PointerEvent(type, Object.assign({}, opts, {
+          pointerId: 1, pointerType: 'mouse', isPrimary: true
+        })))
+      } catch (e) { /* seguimos con los de mouse */ }
+    }
+
+    try { if (el.focus) el.focus() } catch (e) { /* un elemento no enfocable no es un error */ }
+
+    pointer('pointerover')
+    el.dispatchEvent(new MouseEvent('mouseover', opts))
+    pointer('pointerdown')
+    el.dispatchEvent(new MouseEvent('mousedown', opts))
+    pointer('pointerup')
+    el.dispatchEvent(new MouseEvent('mouseup', opts))
+
+    // El 'click' sintético SÍ ejecuta la acción por defecto —navega un <a>, tilda
+    // un checkbox—, así que NO se llama además a el.click(): duplicar el evento
+    // hace que un dropdown se abra y se cierre en el mismo gesto.
+    el.dispatchEvent(new MouseEvent('click', opts))
+  }
+`
+
 export function clickScript(selector: string): string {
   const sel = JSON.stringify(selector)
   return `(() => {
+    ${REAL_CLICK}
     const el = document.querySelector(${sel})
     if (!el) return JSON.stringify({ ok: false, error: 'no existe el botón' })
-    el.scrollIntoView({ block: 'center' })
-    el.click()
+    realClick(el)
     return JSON.stringify({ ok: true })
   })()`
 }
@@ -586,7 +720,18 @@ export const INVENTORY = `(() => {
     url: location.href,
     title: document.title,
     inModal: !!modal,
-    text: (document.body.innerText || '').replace(/\\n{3,}/g, '\\n\\n').slice(0, 2500),
+    /*
+     * document.body puede ser NULL. No es defensivo de más: pasó.
+     *
+     * Entre que se clickea un link y que el documento nuevo tiene body hay un
+     * hueco. El agente clickeó "Solicitar", el navegador arrancó hacia monks.com,
+     * y el inventario siguiente corrió justo ahí: TypeError leyendo innerText de
+     * null. El paso del agente se contó como fallido y la postulación murió con la
+     * página nueva ya cargada en la ventana.
+     *
+     * (Sin backticks: este comentario vive DENTRO de un template literal.)
+     */
+    text: ((document.body && document.body.innerText) || '').replace(/\\n{3,}/g, '\\n\\n').slice(0, 2500),
     truncated: sorted.length > 150,
     items: sorted.slice(0, 150)
   })
@@ -602,6 +747,7 @@ export const INVENTORY = `(() => {
 export function clickByIdScript(cid: string): string {
   const id = JSON.stringify(cid)
   return `(() => {
+    ${REAL_CLICK}
     const el = document.querySelector('[data-albus-cid=' + JSON.stringify(${id}) + ']')
     if (!el) return JSON.stringify({ ok: false, error: 'ese id ya no está en la página' })
 
@@ -611,8 +757,7 @@ export function clickByIdScript(cid: string): string {
     const raw = el.innerText !== undefined && el.innerText !== null ? el.innerText : el.textContent
     const seen = (raw || '').split('\\n').map((l) => l.trim()).filter(Boolean).join(' · ')
 
-    el.scrollIntoView({ block: 'center' })
-    el.click()
+    realClick(el)
     return JSON.stringify({ ok: true, text: seen.slice(0, 80) })
   })()`
 }
@@ -652,7 +797,9 @@ export function typeByIdScript(cid: string, value: string): string {
 export function hasTextScript(texts: string[]): string {
   const list = JSON.stringify(texts.map((t) => t.toLowerCase()))
   return `(() => {
-    const body = (document.body.innerText || '').toLowerCase()
+    // document.body es null mientras el documento navega, y esto justamente se
+    // llama en bucle esperando que una página cargue. Ver el comentario en INVENTORY.
+    const body = ((document.body && document.body.innerText) || '').toLowerCase()
     const which = ${list}.find((t) => body.includes(t)) || ''
     return JSON.stringify({ ok: which !== '', which: which })
   })()`
@@ -677,7 +824,8 @@ export function extractPatternScript(pattern: string, flags = ''): string {
       if (m) return JSON.stringify({ ok: true, value: m[0], where: 'input' })
     }
 
-    const text = document.body.innerText || ''
+    // Null mientras navega. Ver el comentario en INVENTORY.
+    const text = (document.body && document.body.innerText) || ''
     const m = text.match(re)
     return m
       ? JSON.stringify({ ok: true, value: m[0], where: 'text' })

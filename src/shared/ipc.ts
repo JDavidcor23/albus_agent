@@ -36,6 +36,17 @@ export const IpcChannels = {
   CONNECTIONS_CLEAR: 'connections:clear',
   JOBS_STATUS: 'jobs:status',
   JOBS_CHAT: 'jobs:chat',
+  /** Le hablás al agente y él decide qué herramientas usar. Reemplaza a JOBS_CHAT. */
+  JOBS_AGENT: 'jobs:agent',
+  /**
+   * Lo que quedó pendiente, sin buscar nada.
+   *
+   * Las vacantes que calificaron y todavía no resolviste viven en Notion. Sin
+   * esto, la única forma de volver a verlas era disparar un barrido entero —
+   * seis minutos de scraping y tokens para recuperar una lista que ya estaba
+   * escrita.
+   */
+  JOBS_BACKLOG: 'jobs:backlog',
   JOBS_LOGIN: 'jobs:login',
   JOBS_HUNT: 'jobs:hunt',
   JOBS_KIT: 'jobs:kit',
@@ -52,6 +63,15 @@ export const IpcEvents = {
   JOBS_STEP: 'jobs:step',
   JOBS_HUNT_PROGRESS: 'jobs:hunt-progress',
   JOBS_KIT_PROGRESS: 'jobs:kit-progress',
+  /**
+   * Lo que el agente va diciendo y haciendo, EN VIVO.
+   *
+   * `jobs:agent` es un `invoke` y no contesta hasta terminar el pedido entero.
+   * "Postulate a todas" son varias vacantes y varios minutos: sin este canal el
+   * usuario mira una pantalla quieta sin saber si murió. Mismo motivo por el
+   * que existe `connections:step`.
+   */
+  JOBS_AGENT_STEP: 'jobs:agent-step',
   /**
    * Cada paso de una conexión por navegador, EN VIVO.
    *
@@ -297,7 +317,7 @@ function hostUnderDomain(host: string, domain: string): boolean {
 export type JobApplyMode = 'dry-run' | 'review' | 'auto'
 
 export interface JobsStatus {
-  /** ¿Está configurado `JOB_WORKSPACE_DIR` y existe el perfil? */
+  /** ¿Existe el perfil en la carpeta del agente? No hay nada que configurar. */
   workspaceReady: boolean
   workspaceError: string | null
   /** ¿Hay cookie de LinkedIn guardada en la partición de Albus? */
@@ -313,6 +333,25 @@ export interface JobsStatus {
 }
 
 // ── búsqueda y triage ──────────────────────────────────────────────────────
+
+/**
+ * Un paso del agente, en vivo.
+ *
+ * `say` es para el usuario y va como mensaje del agente. `tool` es qué está
+ * haciendo ahora mismo — se pinta como progreso y se reemplaza, no se acumula:
+ * doce postulaciones dejarían el hilo ilegible.
+ */
+export interface AgentStep {
+  kind: 'say' | 'tool' | 'progress'
+  text: string
+}
+
+export interface AgentResult {
+  /** La pantalla como quedó: el agente pudo buscar, descartar o postular. */
+  screen: RankedJobRow[]
+  /** Cuántas herramientas ejecutó. 0 = solo habló. */
+  turns: number
+}
 
 export interface RankedJobRow {
   id: string
@@ -350,6 +389,8 @@ export interface ChatJob {
 export type ChatIntent =
   | { kind: 'search'; queries: string[]; location: string | null }
   | { kind: 'apply'; id: string }
+  /** "postulame a todas": prepara los kits en lote, no abre trece navegadores. */
+  | { kind: 'apply-all' }
   | { kind: 'show'; id: string }
   | { kind: 'send'; id: string }
   | { kind: 'discard'; id: string }
@@ -361,6 +402,8 @@ export interface HuntResult {
   found: number
   duplicates: number
   ranked: number
+  /** Encontradas y no puntuadas por el techo. Se MUESTRA: callarlo engaña. */
+  skipped: number
   qualified: RankedJobRow[]
   rejected: RankedJobRow[]
   notionWrites: number
@@ -554,6 +597,49 @@ export function isApplicableUrl(url: string): boolean {
     return APPLICABLE_DOMAINS.some((d) => hostUnderDomain(host, d))
   } catch {
     return false
+  }
+}
+
+/**
+ * Saca el destino REAL de un link de postulación de LinkedIn.
+ *
+ * ## Por qué existe
+ *
+ * LinkedIn no linkea al ATS de la empresa: linkea a su propio interstitial
+ * `linkedin.com/safety/go?url=<destino>&urlhash=…&mt=…`. Ese wrapper depende del
+ * referrer y del contexto de la sesión, así que abrirlo directo con `loadURL`
+ * hace que LinkedIn lo rechace, **se coma el parámetro `url=`** y deje
+ * `/safety/go/?_l=es_ES`: la pantalla de "Página no encontrada".
+ *
+ * Pasó tal cual con una vacante de Monks. El agente había hecho todo bien
+ * —encontró y clickeó "Solicitar", y hasta diagnosticó el fallo— y el destino
+ * viajaba ahí adentro: `www.monks.com/careers/…?gh_src=…`. Sin desenvolverlo,
+ * NINGUNA postulación externa de LinkedIn puede funcionar nunca.
+ *
+ * ## Devuelve `null` si no es uno de esos links
+ *
+ * Y ahí el llamador sigue con su lógica normal. Esto no decide si se puede
+ * navegar: solo traduce. Quién puede seguirlo lo decide el llamador.
+ */
+export function unwrapLinkedInRedirect(url: string): string | null {
+  try {
+    const parsed = new URL(url)
+    if (!hostUnderDomain(parsed.hostname.toLowerCase(), 'linkedin.com')) return null
+    if (!parsed.pathname.startsWith('/safety/go')) return null
+
+    // `searchParams` ya decodifica: LinkedIn escapa hasta los puntos
+    // (`www%2Emonks%2Ecom`), así que leerlo a mano sería pedir un bug.
+    const target = parsed.searchParams.get('url')
+    if (target === null || target.trim() === '') return null
+
+    const inner = new URL(target)
+    // Solo https. Un `javascript:` o un `file:` metido en ese parámetro sería
+    // exactamente el ataque que la allowlist viene a evitar.
+    if (inner.protocol !== 'https:') return null
+
+    return inner.toString()
+  } catch {
+    return null
   }
 }
 

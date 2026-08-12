@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { HuntProgress, JobsStatus, RankedJobRow } from '../../../shared/ipc'
+import type { AgentStep, HuntProgress, JobsStatus, RankedJobRow } from '../../../shared/ipc'
 import { ConnectionsPanel } from './ConnectionsPanel'
 
 /**
@@ -21,9 +21,12 @@ import { ConnectionsPanel } from './ConnectionsPanel'
  * que se adjuntó, el link a Notion. Eso es lo que contesta "mostrame cómo se
  * hizo" sin que haya que ir a buscar nada a otra pantalla.
  *
- * Lo que se escribe lo interpreta `core/jobs/chat.ts`, que es puro: un comando
- * como "postulate a la primera" se resuelve con reglas, gratis y al instante.
- * Solo lo que una regla no puede contestar va al modelo.
+ * **3. Lo que escribís lo resuelve un AGENTE, no un router.** Antes pasaba por
+ * `core/jobs/chat.ts` —ocho expresiones regulares— y lo que no encajaba moría
+ * en "eso todavía no lo sé contestar": "postulame a todas" falló porque
+ * `\bpostula\b` no matchea "postulame". Ahora va a `jobs:agent`, que le da al
+ * modelo tus reglas enteras, las herramientas y lo que hay en pantalla, y él
+ * decide. Sumar una capacidad es agregar una herramienta, no una frase.
  */
 
 interface Props {
@@ -48,6 +51,15 @@ interface Message {
   text: string
   /** Vacantes que se muestran como tarjetas dentro del mensaje. */
   jobs?: RankedJobRow[]
+  /**
+   * Las que se puntuaron y NO pasaron, con su nota y su motivo.
+   *
+   * Llegaban por IPC desde siempre y el renderer las tiraba. Sin ellas, "0 de
+   * 12" es un veredicto sin apelación: no se puede saber si el filtro está
+   * fino o si el buscador trajo cualquier cosa. Con ellas, tres días de
+   * diagnóstico se vuelven un vistazo.
+   */
+  rejected?: RankedJobRow[]
   /** Evidencia: captura, PDF, link a Notion. */
   attachments?: Attachment[]
   /** `true` mientras el agente está trabajando en esto. */
@@ -56,6 +68,12 @@ interface Message {
 
 let counter = 0
 const newId = (): string => `m${++counter}`
+
+/**
+ * Identidad fija del mensaje de apertura. A propósito no sale de `newId`:
+ * ver `place`.
+ */
+const BACKLOG_MESSAGE = 'backlog'
 
 export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Element {
   const [status, setStatus] = useState<JobsStatus | null>(null)
@@ -76,6 +94,29 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
 
   useEffect(refreshStatus, [refreshStatus])
 
+  /*
+   * Al abrir, lo pendiente. Sin buscar nada.
+   *
+   * Antes la app arrancaba vacía y la única forma de volver a ver lo que ya
+   * había encontrado era disparar un barrido de seis minutos — scraping y
+   * tokens para recuperar una lista que ya estaba escrita en Notion. Pedido
+   * textual: *"ya no quiero volver a darle buscar trabajo, quiero que las que
+   * no he postulado ahí aparezcan"*.
+   */
+  useEffect(() => {
+    void window.api.jobsBacklog().then((res) => {
+      if (!res.ok || res.data.length === 0) return
+      setOnScreen(res.data)
+      // `place` y no `say`: este mensaje es UNO, corra el efecto las veces que
+      // corra. Con `say` salía duplicado por el doble montaje de StrictMode.
+      place(BACKLOG_MESSAGE, {
+        author: 'agente',
+        text: `Tenés ${res.data.length} sin resolver de antes. Decime qué hago con ellas.`,
+        jobs: res.data
+      })
+    })
+  }, [])
+
   // Siempre al pie: en un chat, lo último es lo que importa.
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
@@ -89,6 +130,31 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
 
   const update = (id: string, changes: Partial<Message>): void => {
     setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, ...changes } : m)))
+  }
+
+  /**
+   * Un mensaje con identidad PROPIA: escribirlo dos veces lo pisa en su lugar
+   * en vez de dejar dos.
+   *
+   * Existe por el mensaje de apertura, que se escribe desde un efecto de
+   * montaje. React monta dos veces en StrictMode (`main.tsx`), y `say`
+   * appendea: el usuario abría la app y leía "Tenés 12 sin resolver de antes"
+   * DOS veces, con las mismas doce tarjetas debajo. Se verificó que no venían
+   * repetidas de Notion — 12 filas, 12 URLs distintas.
+   *
+   * Un `useRef` de "ya lo hice" también lo tapaba, pero es un flag: se cae con
+   * el próximo remonte, con HMR o con quien mueva el efecto. Acá la
+   * idempotencia es del mensaje, no de la corrida que lo escribió — la misma
+   * regla que el unique de `extractions` en el main.
+   */
+  const place = (id: string, m: Omit<Message, 'id'>): void => {
+    setMessages((prev) => {
+      const at = prev.findIndex((x) => x.id === id)
+      if (at === -1) return [...prev, { ...m, id }]
+      const next = [...prev]
+      next[at] = { ...m, id }
+      return next
+    })
   }
 
   /*
@@ -107,17 +173,51 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
     return off
   }, [])
 
+  /*
+   * Lo que el agente dice y hace, mientras lo hace.
+   *
+   * `say` es un mensaje suyo y se queda en el hilo: es lo que te contó. `tool`
+   * y `progress` son ruido de trabajo y se pisan sobre el mismo renglón — doce
+   * postulaciones dejarían cien líneas de "armando el CV…" y el resultado
+   * enterrado arriba. Es la misma regla que ya usa el barrido.
+   */
+  useEffect(() => {
+    const off = window.api.onAgentStep((step: AgentStep) => {
+      if (step.kind === 'say') {
+        progressRef.current = null
+        if (step.text.trim() !== '') say({ author: 'agente', text: step.text })
+        return
+      }
+
+      const detail = step.kind === 'tool' ? `${step.text}…` : step.text
+      if (progressRef.current === null) {
+        progressRef.current = say({ author: 'agente', text: detail, working: true })
+      } else {
+        update(progressRef.current, { text: detail, working: true })
+      }
+    })
+    return off
+  }, [])
+
   const search = async (queries: string[], location: string | null): Promise<void> => {
     const id = say({ author: 'agente', text: 'buscando…', working: true })
     progressRef.current = id
 
     try {
       const res = await window.api.jobsHunt({
-        // Vacío = lo que digan las reglas. El default de acá es la red de
-        // contención para quien todavía no escribió ninguna.
-        queries: queries.length > 0 ? queries : ['frontend developer', 'react developer'],
-        location: location ?? 'Colombia',
-        maxRank: 12,
+        /*
+         * Vacío = lo que digan las reglas. Y ahora se manda vacío de verdad.
+         *
+         * El comentario decía esto mismo mientras la línea de abajo mandaba dos
+         * roles fijos, así que el `## Qué buscar` del `.md` no se leyó nunca:
+         * quien escribía "backend developer" o "AI engineer" en sus reglas
+         * seguía recibiendo búsquedas de React. El default vive en el main
+         * (`DEFAULT_QUERIES`), que es donde vive el dominio.
+         */
+        queries,
+        location: location ?? '',
+        // Sin `maxRank`: el techo lo pone el main. Mandaba 12 fijo y dejaba
+        // afuera todo lo que pasara de ahí, sin decirlo.
         saveToNotion: true,
         /*
          * Vacío = que elija el main.
@@ -142,23 +242,36 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
       setOnScreen(d.qualified)
 
       // El resumen dice qué NO pasó, no solo qué pasó: "3 de 12" es la
-      // información, "3 vacantes" es la mitad.
+      // información, "3 vacantes" es la mitad. Y lo que quedó SIN mirar es la
+      // otra mitad: "califican 2 de 12" con 25 sin puntuar se lee como "solo
+      // hay 2", que es exactamente lo contrario de lo que pasó.
       const parts = [`Encontré ${d.found}`]
       if (d.duplicates > 0) parts.push(`${d.duplicates} ya las conocías`)
-      parts.push(`califican ${d.qualified.length} de ${d.ranked}`)
+      parts.push(`puntué ${d.ranked}`, `califican ${d.qualified.length}`)
+      if (d.skipped > 0) parts.push(`${d.skipped} quedaron sin mirar`)
 
       update(id, {
         text: `${parts.join(' · ')}.`,
         working: false,
-        jobs: d.qualified
+        jobs: d.qualified,
+        rejected: d.rejected
       })
 
       if (d.qualified.length === 0) {
-        say({
-          author: 'agente',
-          text:
-            'Ninguna llegó al piso de 65. No relleno el lote con fits flojos: es lo que hace que mandes veinte postulaciones y no te contesten ninguna.'
-        })
+        /*
+         * El texto lo escribe el MAIN, no acá.
+         *
+         * Acá había un literal: "Ninguna llegó al piso de 65". Se disparaba con
+         * `qualified.length === 0` y nada más, así que afirmaba una causa que
+         * el renderer no puede conocer — el cero también sale de un corte duro,
+         * de un modelo que falló o de uno que no devolvió esas vacantes. Con la
+         * búsqueda rota por "hacé un barrido" el mensaje era técnicamente
+         * cierto y perfectamente engañoso, y costó tres días.
+         *
+         * `report.summary` viaja por IPC desde siempre y sabe cuántos días se
+         * miraron y cuántas se descartaron.
+         */
+        say({ author: 'agente', text: d.summary })
       }
     } catch (error: unknown) {
       progressRef.current = null
@@ -256,35 +369,14 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
     }
   }
 
-  const show = (job: RankedJobRow): void => {
-    say({
-      author: 'agente',
-      text: `${job.company} · ${job.title} — puntaje ${job.score}. ${job.reason}`,
-      attachments: [{ label: 'abrir la vacante', target: job.url, type: 'link' }]
-    })
-  }
-
-  /**
-   * Confirmar lo que quedó frenado.
+  /*
+   * `show` y `sendJob` vivían acá y se fueron con el `switch`.
    *
-   * Esto es lo que registra la postulación en el tracker — el envío real lo
-   * hace el modo `auto` del apply. Se pide explícitamente y no se encadena
-   * solo: `review` frena a propósito, y saltearlo desde acá sería devolverle
-   * el gatillo automático al agente por la puerta de atrás.
+   * No se perdió nada: mostrar una vacante es lo que el agente ya hace al
+   * contestar, la tarjeta tiene su "abrir ↗", y registrar la postulación pasó
+   * a ser la herramienta `confirmar_envio`. La diferencia es que ahora no
+   * dependen de que el usuario diga la frase exacta que alguien previó.
    */
-  const sendJob = async (job: RankedJobRow): Promise<void> => {
-    const id = say({ author: 'agente', text: `registrando ${job.company}…`, working: true })
-    const res = await window.api.jobsConfirm({
-      url: job.url,
-      company: job.company,
-      role: job.title,
-      fitRating: String(job.score)
-    })
-    update(id, {
-      text: res.ok ? `Listo, quedó registrada: ${job.company}.` : res.error.message,
-      working: false
-    })
-  }
 
   const submit = async (): Promise<void> => {
     const text = input.trim()
@@ -295,15 +387,20 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
     setBusy(true)
     onError(null)
 
+    /*
+     * Acá había un `switch` sobre lo que devolvía `interpret()`: ocho ramas,
+     * una por comando previsto, y un `default` que pedía disculpas. Cada forma
+     * nueva de decir lo mismo era una línea más de regex, y lo que no encajaba
+     * moría en "eso todavía no lo sé contestar".
+     *
+     * Ahora hay una sola llamada. El agente lee tus reglas enteras, ve las
+     * herramientas y la pantalla, y decide. Lo que dice mientras trabaja llega
+     * por `onAgentStep`, porque un pedido puede tardar minutos.
+     */
     try {
-      const res = await window.api.jobsChat({
+      const res = await window.api.jobsAgent({
         text,
-        jobs: onScreen.map((v) => ({
-          id: v.id,
-          company: v.company,
-          title: v.title,
-          score: v.score
-        }))
+        jobs: { screen: onScreen, providerId: providerId ?? '', modelId }
       })
 
       if (!res.ok) {
@@ -311,56 +408,52 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
         return
       }
 
-      const intent = res.data
-      const findJob = (id: string): RankedJobRow | undefined => onScreen.find((v) => v.id === id)
+      /*
+       * La lista se re-pinta SOLO si cambió.
+       *
+       * Acá se appendeaba un mensaje con `text: ''` y las vacantes en CADA vuelta.
+       * Consecuencia: el agente contestaba "necesito tu nivel de inglés" y esa
+       * pregunta quedaba enterrada bajo doce tarjetas repetidas. Reclamo textual:
+       * *"pero el agente solo me sigue mostrando las postulaciones"*. Estaba
+       * contestando; no se veía.
+       *
+       * Si la lista es la misma, lo último que el usuario lee es lo que el agente
+       * dijo — que es lo que necesita para poder responderle.
+       */
+      const before = onScreen.map((j) => j.id).join('|')
+      const after = res.data.screen.map((j) => j.id).join('|')
 
-      switch (intent.kind) {
-        case 'search':
-          await search(intent.queries, intent.location)
-          break
-        case 'apply': {
-          const j = findJob(intent.id)
-          if (j !== undefined) await apply(j)
-          break
-        }
-        case 'show': {
-          const j = findJob(intent.id)
-          if (j !== undefined) show(j)
-          break
-        }
-        case 'send': {
-          const j = findJob(intent.id)
-          if (j !== undefined) await sendJob(j)
-          break
-        }
-        case 'discard': {
-          const j = findJob(intent.id)
-          setOnScreen((prev) => prev.filter((v) => v.id !== intent.id))
-          say({ author: 'agente', text: `Listo, saqué ${j?.company ?? 'esa'} de la lista.` })
-          break
-        }
-        case 'ambiguous':
-          // No adivinar: postularse a la equivocada no se deshace.
-          say({
-            author: 'agente',
-            text: '¿A cuál? Decime el número o la empresa:',
-            jobs: onScreen.filter((v) => intent.candidates.some((c) => c.id === v.id))
-          })
-          break
-        case 'chat':
-          say({
-            author: 'agente',
-            text:
-              'Eso todavía no lo sé contestar — me falta la parte que le pregunta al modelo. Por ahora probá: "buscame trabajo", "postulate a la 1", "mostrame la 2".'
-          })
-          break
-        default:
-          say({
-            author: 'agente',
-            text:
-              'Puedo: buscar vacantes, postularme a una, mostrarte cómo quedó, enviarla o descartarla. Escribilo como lo dirías.'
-          })
+      // El agente pudo buscar, descartar o postular: la pantalla vuelve como
+      // quedó. Es la única fuente de verdad; el renderer no la recalcula.
+      setOnScreen(res.data.screen)
+
+      if (res.data.screen.length > 0 && after !== before) {
+        say({
+          author: 'agente',
+          // Con texto: un mensaje vacío con tarjetas adentro no dice por qué apareció.
+          text: 'Esto es lo que quedó en pantalla:',
+          jobs: res.data.screen
+        })
       }
+    } finally {
+      progressRef.current = null
+      setBusy(false)
+    }
+  }
+
+  /**
+   * El pipeline, sin frase de por medio.
+   *
+   * No pasa por `jobsChat`: no hay nada que interpretar. El renderer manda
+   * `queries: []` y el main resuelve con las reglas del `.md` — que es
+   * exactamente lo que el botón promete.
+   */
+  const runPipeline = async (): Promise<void> => {
+    if (busy) return
+    setBusy(true)
+    onError(null)
+    try {
+      await search([], null)
     } finally {
       setBusy(false)
     }
@@ -392,17 +485,30 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
       <div className="jobchat-hilo">
         {messages.length === 0 && (
           <div className="jobchat-vacio">
-            <p>Decime qué necesitás. Por ejemplo:</p>
-            <ul>
-              <li onClick={() => setInput('buscame trabajo, hacé un barrido')}>
-                buscame trabajo, hacé un barrido
-              </li>
-              <li onClick={() => setInput('buscame frontend developer en Colombia')}>
-                buscame frontend developer en Colombia
-              </li>
-            </ul>
+            {/*
+              Un botón, no frases de ejemplo.
+
+              Acá había dos sugerencias clickeables —"buscame trabajo, hacé un
+              barrido"— arriba de una nota que decía que los criterios salen de
+              las reglas. Se contradecían: la nota es cierta, así que pedirle al
+              usuario que escriba el rol y la ciudad es pedirle que repita lo
+              que ya escribió en su `.md`. Peor: "hacé un barrido" viajaba tal
+              cual como término de búsqueda a LinkedIn.
+
+              Lo que se ejecuta acá no cambia según cómo lo escribas. Es un
+              botón.
+            */}
+            <button
+              type="button"
+              className="jobchat-pipeline"
+              onClick={() => void runPipeline()}
+              disabled={busy}
+            >
+              buscar trabajo
+            </button>
             <p className="jobchat-vacio-nota">
-              Lo que busco y lo que descarto sale de tus reglas — no hace falta repetirlo acá.
+              Busco los roles de <strong>tus reglas</strong> y descarto lo que pusiste ahí. No hace
+              falta escribir nada — el chat es para lo que venga después.
             </p>
           </div>
         )}
@@ -438,6 +544,34 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
               </div>
             )}
 
+            {/*
+              Las descartadas, con su nota y su motivo.
+
+              Plegadas y no ocultas: son muchas y no son la acción del día, pero
+              esconderlas es lo que hacía imposible distinguir "el filtro está
+              fino" de "el buscador trajo cualquier cosa". Con esta lista a la
+              vista, que la búsqueda estuviera preguntando por "hacé un barrido"
+              se veía en el primer renglón.
+            */}
+            {m.rejected !== undefined && m.rejected.length > 0 && (
+              <details className="msg-descartadas">
+                <summary>{m.rejected.length} no pasaron el piso de 65 — ver por qué</summary>
+                <ul>
+                  {m.rejected.map((v) => (
+                    <li key={v.id}>
+                      <span className="desc-score">{v.score}</span>
+                      <span className="desc-empresa">{v.company}</span>
+                      <span className="desc-titulo">{v.title}</span>
+                      <span className="desc-razon">
+                        {v.gates.length > 0 && <em>{v.gates.join(' · ')} — </em>}
+                        {v.reason}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+
             {m.attachments !== undefined && m.attachments.length > 0 && (
               <div className="msg-adjuntos">
                 {m.attachments.map((a) => (
@@ -454,6 +588,32 @@ export function JobChat({ providerId, modelId, onError }: Props): React.JSX.Elem
             )}
           </article>
         ))}
+
+        {/*
+          Las sugerencias van DESPUÉS del resultado, no antes.
+
+          Antes de buscar no hay nada que sugerir: el pipeline es un botón. Con
+          vacantes en pantalla sí, porque recién ahí existe algo sobre lo que
+          actuar — y son las acciones que el agente sabe hacer HOY, no las que
+          nos gustaría. Un chip que no ejecuta nada es una promesa rota, que es
+          justo lo que este panel viene arrastrando.
+        */}
+        {onScreen.length > 0 && !busy && (
+          <div className="jobchat-sugerencias">
+            <button type="button" onClick={() => setInput('postulate a la 1')}>
+              postulate a la 1
+            </button>
+            <button type="button" onClick={() => setInput('mostrame cómo quedó la 1')}>
+              mostrame cómo quedó la 1
+            </button>
+            <button type="button" onClick={() => setInput('descartá la 1')}>
+              descartá la 1
+            </button>
+            <button type="button" onClick={() => void runPipeline()}>
+              buscar de nuevo
+            </button>
+          </div>
+        )}
 
         <div ref={endRef} />
       </div>

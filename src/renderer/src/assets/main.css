@@ -1979,30 +1979,118 @@ body::before {
   color: var(--muted);
 }
 
-.jobchat-vacio ul {
-  margin: 10px 0;
+/* El pipeline es UNA acción, así que es un botón y no una frase de ejemplo.
+   Acá había chips que cargaban "buscame trabajo, hacé un barrido" en el campo:
+   fricción para escribir algo que las reglas ya dicen, y encima esa frase
+   terminaba viajando a LinkedIn como término de búsqueda. */
+.jobchat-pipeline {
+  margin: 12px 0 10px;
+  padding: 10px 22px;
+  font-size: 0.9rem;
+  color: var(--text);
+  background: rgba(201, 151, 63, 0.1);
+  border: 1px solid var(--line-brass);
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    background 0.16s ease,
+    border-color 0.16s ease;
+}
+
+.jobchat-pipeline:hover:not(:disabled) {
+  background: rgba(201, 151, 63, 0.18);
+}
+
+.jobchat-pipeline:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Las descartadas: plegadas, densas y legibles de un vistazo. No compiten con
+   las tarjetas de las que sí califican — son la explicación, no la acción. */
+.msg-descartadas {
+  margin-top: 8px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.msg-descartadas summary {
+  cursor: pointer;
+  padding: 4px 0;
+  color: var(--none);
+}
+
+.msg-descartadas summary:hover {
+  color: var(--muted);
+}
+
+.msg-descartadas ul {
+  margin: 6px 0 0;
   padding: 0;
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
 }
 
-/* Los ejemplos se clickean y se cargan en el campo: leerlos y tener que
-   tipearlos es fricción que nadie pidió. */
-.jobchat-vacio li {
-  padding: 7px 13px;
-  font-size: 0.84rem;
+.msg-descartadas li {
+  display: grid;
+  grid-template-columns: 28px minmax(90px, 1fr) minmax(120px, 1.4fr) 2fr;
+  gap: 8px;
+  align-items: baseline;
+  padding: 5px 8px;
+  border-left: 2px solid var(--line);
+  background: rgba(255, 255, 255, 0.012);
+}
+
+/* La nota primero y tabular: la columna es lo que deja ver de un vistazo si
+   quedaron todas en 40 o si hubo alguna en 63 rozando el piso. */
+.desc-score {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
   color: var(--text);
+}
+
+.desc-empresa {
+  color: var(--text);
+}
+
+.desc-titulo,
+.desc-razon {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desc-razon em {
+  font-style: normal;
+  color: var(--line-brass);
+}
+
+/* Sugerencias de lo que sigue, con las vacantes ya en pantalla. En fila y
+   chicas: son atajos para no tipear, no la acción principal. */
+.jobchat-sugerencias {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.jobchat-sugerencias button {
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  color: var(--muted);
   background: rgba(201, 151, 63, 0.05);
   border: 1px solid var(--line);
   border-radius: 999px;
   cursor: pointer;
-  align-self: flex-start;
-  transition: border-color 0.16s ease;
+  transition:
+    border-color 0.16s ease,
+    color 0.16s ease;
 }
 
-.jobchat-vacio li:hover {
+.jobchat-sugerencias button:hover {
+  color: var(--text);
   border-color: var(--line-brass);
 }
 

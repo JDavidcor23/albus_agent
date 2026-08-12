@@ -30,6 +30,17 @@ export type JobIntent =
   | { kind: 'search'; queries: string[]; location: string | null }
   /** Postularse a una concreta: ya se resolvió a cuál se refiere. */
   | { kind: 'apply'; id: string }
+  /**
+   * "postulame a todas las que pasaron".
+   *
+   * Es un comando aparte y no un `apply` repetido, porque postularse en serie
+   * NO es postularse trece veces: cada `apply` en modo `review` deja el
+   * navegador abierto y al frente para que el usuario revise antes de enviar
+   * (`apply-runner.ts` → `browser.reveal()`), así que trece serían trece
+   * ventanas peleándose el foco. Lo que sí se puede hacer en lote es lo lento:
+   * armar los CV y las cartas a medida.
+   */
+  | { kind: 'apply-all' }
   /** Mostrar la evidencia de lo último que se hizo con esa vacante. */
   | { kind: 'show'; id: string }
   /** Mandar de verdad lo que quedó frenado en `review`. */
@@ -52,7 +63,22 @@ function normalize(text: string): string {
 const WANTS_SEARCH =
   /\b(busca|buscame|buscar|barrido|barre|rastrea|rastrear|vacantes?|trabajos?|ofertas?)\b/
 
-const WANTS_APPLY = /\b(postula|postulate|postularme|aplica|aplicar|aplicame|manda el cv)\b/
+/*
+ * `postul\w*` y no la lista de formas.
+ *
+ * Estaba enumerado —`postula|postulate|postularme`— y "postulame" no estaba:
+ * `\bpostula\b` no matchea "postulame" porque después viene otra letra. El
+ * usuario escribió "postulame tu a todas las que pasaron" y el router lo mandó
+ * a `chat`, que contestó "eso todavía no lo sé contestar". No hay palabra en
+ * castellano que empiece con "postul" y quiera decir otra cosa.
+ *
+ * `aplic\w*` NO: "aplicación" es lo que uno dice para pedir la evidencia
+ * ("mostrame la aplicación"), y ahí sí hay ambigüedad real.
+ */
+const WANTS_APPLY = /\b(postul\w*|aplica|aplicar|aplicame|manda el cv)\b/
+
+/** "a todas", "todas las que pasaron". Convierte el comando en masivo. */
+const WANTS_ALL = /\b(todas|todos)\b/
 
 const WANTS_SHOW =
   /\b(mostra|mostrame|muestra|muestrame|ver|veamos|pasame|dame|abri|abrime|captura|evidencia|como quedo|como se hizo)\b/
@@ -81,13 +107,32 @@ function locationOf(text: string): string | null {
  * Devolver vacío NO es un fallo: las reglas del agente ya dicen qué roles
  * busca. Inventar un default acá sería pisar lo que el usuario escribió en su
  * `.md`, que es justo lo que ese archivo viene a evitar.
+ *
+ * ## El verbo NO introduce un rol
+ *
+ * `busca(?:me)?` estaba en la lista de conectores, y con eso *todo* lo que
+ * viniera después del verbo se trataba como un puesto. "buscame trabajo, hacé
+ * un barrido" salía como `['hacé un barrido']` y eso viajaba tal cual al CLI
+ * de LinkedIn: veintiún resultados que no tenían nada que ver con el perfil,
+ * cero calificadas, y un mensaje diciendo que ninguna llegaba al piso de 65.
+ * Tres días así.
+ *
+ * Solo `de`, `como` y `para` presentan un rol. El verbo presenta la ACCIÓN, y
+ * "buscame trabajo" a secas no nombra ningún puesto: devolver vacío ahí es la
+ * respuesta correcta, porque abajo están las reglas del usuario esperando.
  */
 function queriesOf(text: string): string[] {
-  const m = /\b(?:de|como|para|busca(?:me)?)\s+(.+)$/i.exec(text.trim())
+  // La ubicación se corta ANTES de buscar el rol: `para` presenta las dos
+  // cosas, y sin esto "buscame trabajo para Colombia" termina preguntándole a
+  // LinkedIn por el puesto "Colombia".
+  const withoutPlace = text
+    .trim()
+    .replace(/\b(?:en|para|desde)\s+[a-záéíóúñ][\wáéíóúñ\s]{2,24}$/i, '')
+
+  const m = /\b(?:de|como|para)\s+(.+)$/i.exec(withoutPlace)
   if (m === null) return []
 
   const raw = m[1]
-    .replace(/\b(?:en|para|desde)\s+[a-záéíóúñ][\wáéíóúñ\s]*$/i, '')
     .replace(/\b(trabajo|trabajos|vacante|vacantes|oferta|ofertas|empleo)\b/gi, '')
     .trim()
 
@@ -175,7 +220,12 @@ export function interpret(text: string, jobs: JobOnScreen[]): JobIntent {
 
   // El orden importa: "mandá el CV a la 1" es postular, no enviar un correo
   // suelto. Lo más específico primero.
-  if (WANTS_APPLY.test(t)) return withJob('apply')
+  // "a todas" no apunta a UNA vacante, así que no pasa por `resolveJob`: sin
+  // esto caía en `ambiguous` y contestaba "¿a cuál?" a alguien que ya dijo
+  // que a todas.
+  if (WANTS_APPLY.test(t)) {
+    return WANTS_ALL.test(t) ? { kind: 'apply-all' } : withJob('apply')
+  }
   if (WANTS_DISCARD.test(t)) return withJob('discard')
   if (WANTS_SEND.test(t)) return withJob('send')
   if (WANTS_SHOW.test(t)) return withJob('show')

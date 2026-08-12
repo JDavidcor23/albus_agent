@@ -83,7 +83,19 @@ export interface FormField {
   maxLength: number | null
 }
 
-export type ButtonKind = 'submit' | 'next' | 'apply' | 'other'
+/**
+ * No existe `'apply'`, y su ausencia es la decisión.
+ *
+ * Había uno: el botón que abre la postulación, reconocido por su texto. Se fue
+ * junto con la regex `OPEN` de `submit-guard.ts` —el porqué completo está ahí—
+ * porque decidir "esto abre el formulario" leyendo palabras es apostar a que el
+ * sitio no las cambie, y porque lo que caía en esa categoría se apretaba en modo
+ * `review` sin que nadie mirara.
+ *
+ * Llegar al formulario ahora es trabajo del agente (`ApplyDeps.navigate`). Estos
+ * tres tipos existen solo para el FRENO: qué se puede apretar y qué no.
+ */
+export type ButtonKind = 'submit' | 'next' | 'other'
 
 export interface FormButton {
   selector: string
@@ -94,6 +106,15 @@ export interface FormButton {
 export interface FormModel {
   url: string
   title: string
+  /**
+   * `true` si lo de abajo salió de un modal y no del documento entero.
+   *
+   * Es para la traza, no para decidir. "Cero campos y cero botones" es
+   * incontestable sin saber DÓNDE se miró: ya pasó que un diálogo vacío que quedó
+   * en el DOM se eligiera como raíz y el lector reportara una página vacía que
+   * tenía el formulario completo.
+   */
+  inModal: boolean
   fields: FormField[]
   buttons: FormButton[]
 }

@@ -6,6 +6,8 @@ import {
   IpcEvents,
   isApplicableUrl,
   type AgentInfo,
+  type AgentResult,
+  type AgentStep,
   type HuntResult,
   type EmailApplyResult,
   type JobApplyResult,
@@ -19,10 +21,17 @@ import type { RankedJob } from '../core/jobs/rank'
 import { hasLinkedInSession, openLoginWindow } from '../browser/session'
 import { hasGmailScope } from '../gmail/send'
 import { isNotionConfigured } from '../notion/client'
-import { listAgents } from '../agents/registry'
+import { agentRules, enabledTools, listAgents } from '../agents/registry'
+import { parseSearchPrefs, EMPTY_PREFS } from '../core/jobs/search-prefs'
+import { runAgent } from '../core/jobs/agent'
+import { JOB_TOOLS, runTool, toView, type ToolDeps } from '../jobs/agent-tools'
+import { openApplicationForAgent } from '../jobs/open-application'
+import { appWindow } from '../app-window'
 import { confirmApplied, runApplication } from '../jobs/apply-runner'
 import { applyByEmail } from '../jobs/email-runner'
 import { hunt, DEFAULT_QUERIES } from '../jobs/hunt'
+import { trackedApplications } from '../notion/applications'
+import { dedupeKey } from '../jobs/search'
 import { createWorkspaceKitSource, loadProfile, slugify } from '../jobs/workspace'
 import { uploadStagingDir } from '../jobs/apply-runner'
 import { getProvider } from '../providers/registry'
@@ -56,10 +65,82 @@ const KitSchema = z.object({
   slug: z.string().max(80).default('')
 })
 
+/**
+ * `queries` vacío es un valor VÁLIDO y significa "usá mis reglas".
+ *
+ * Tenía `.min(1)`, y eso convertía en inexpresable justo lo que el dominio
+ * define como el caso normal (`chat.ts` → *"`queries` vacío = usar lo que digan
+ * las reglas"*). El renderer, que no podía mandar vacío, mandaba dos roles
+ * hardcodeados. Resultado: `DEFAULT_QUERIES` nunca se usó y el `.md` del
+ * usuario tampoco — `.default()` solo dispara con `undefined`, que nadie manda.
+ *
+ * Lo mismo con `location`: vacío = lo que diga el `.md`, y recién si tampoco
+ * está ahí, Colombia.
+ */
+/**
+ * Lo que el usuario está viendo, tal cual.
+ *
+ * Viaja entero —con `url` y `description`— y no en la versión recortada de
+ * `JOBS_CHAT`, porque las herramientas postulan y arman CV de verdad: sin la
+ * URL no hay a dónde ir. La pantalla la manda el renderer y no la guarda el
+ * main a propósito: dos copias del mismo estado es cómo se llega a "acá dice
+ * una cosa y allá otra".
+ */
+const AgentJobSchema = z.object({
+  id: z.string().max(80),
+  title: z.string().max(200).default(''),
+  company: z.string().max(200).default(''),
+  location: z.string().max(200).default(''),
+  date: z.string().max(40).default(''),
+  url: z.string().max(600).default(''),
+  score: z.number().min(0).max(100).default(0),
+  gates: z.array(z.string().max(40)).max(10).default([]),
+  reason: z.string().max(2000).default(''),
+  angle: z.string().max(2000).default(''),
+  description: z.string().max(8000).default(''),
+  kitReady: z.boolean().default(false),
+  slug: z.string().max(80).default('')
+})
+
+const AgentSchema = z.object({
+  text: z.string().min(1).max(2000),
+  jobs: z.object({
+    screen: z.array(AgentJobSchema).max(60).default([]),
+    providerId: z.string().max(40).default(''),
+    modelId: z.string().max(60).nullable().default(null)
+  })
+})
+
+/** La fila del renderer de vuelta a la del dominio. `kitReady` va aparte. */
+function toRankedJob(row: z.infer<typeof AgentJobSchema>): RankedJob {
+  return {
+    id: row.id,
+    title: row.title,
+    company: row.company,
+    location: row.location,
+    date: row.date,
+    url: row.url,
+    description: row.description,
+    score: row.score,
+    gates: row.gates as RankedJob['gates'],
+    reason: row.reason,
+    angle: row.angle
+  }
+}
+
 const HuntSchema = z.object({
-  queries: z.array(z.string().min(2).max(80)).min(1).max(8).default(DEFAULT_QUERIES),
-  location: z.string().min(2).max(80).default('Colombia'),
-  maxRank: z.number().int().min(1).max(25).default(12),
+  queries: z.array(z.string().min(2).max(80)).max(8).default([]),
+  location: z.string().max(80).default(''),
+  /*
+   * Techo de SEGURIDAD, no una cuota de trabajo.
+   *
+   * Era 12 y lo mandaba el renderer fijo: con 38 encontradas se puntuaban 12 y
+   * 25 quedaban afuera sin que el usuario se enterara. El pedido fue claro —
+   * "puntuar todas y cada una y mostrarlas"—, así que el default alcanza para
+   * un barrido entero y esto queda solo como freno: cada vacante es una
+   * request a LinkedIn y tokens, y un ladder sin tope puede irse a cientos.
+   */
+  maxRank: z.number().int().min(1).max(120).default(60),
   saveToNotion: z.boolean().default(true),
   providerId: z.string().max(40),
   modelId: z.string().max(60).nullable().default(null)
@@ -120,12 +201,71 @@ async function resolveLlm(
   return provider === null ? null : { provider, model: modelId ?? auto.model }
 }
 
+/** El agente dueño del `.md` con las reglas de búsqueda. Sale del registro. */
+const JOB_SEARCH = 'job-search'
+
+/**
+ * Qué buscar, cuando el renderer no lo dijo.
+ *
+ * Mismo criterio que `resolveLlm`: **el dominio vive en el main**, así que si
+ * el renderer no sabe, decide acá. La cadena es una escalera de lo más
+ * específico a lo más genérico, y el orden es todo el punto:
+ *
+ *   1. lo que el usuario acaba de pedir por chat ("buscame trabajo de Go")
+ *   2. lo que escribió en `## Qué buscar` de su `.md`
+ *   3. `DEFAULT_QUERIES`, la red para quien todavía no escribió reglas
+ *
+ * El escalón 2 no existía. La plantilla le pedía al usuario que escribiera sus
+ * roles, él los escribía, y no los leía nadie: el renderer mandaba dos roles
+ * fijos y el `.md` quedaba de adorno. Encontrar el archivo lleno y el buscador
+ * ignorándolo es peor que no tener el archivo.
+ */
+interface ResolvedSearch {
+  queries: string[]
+  /** Ya resuelta: acá no queda `null` para que lo maneje el de abajo. */
+  location: string
+  avoid: string[]
+}
+
+function resolveSearch(queries: string[], location: string): ResolvedSearch {
+  let prefs = EMPTY_PREFS
+  try {
+    prefs = parseSearchPrefs(agentRules(JOB_SEARCH))
+  } catch (error: unknown) {
+    // Un `.md` ilegible no puede tumbar la búsqueda: se cae al default y se
+    // dice por qué, que es distinto de buscar mal en silencio.
+    console.warn(`[jobs] no pude leer las reglas de ${JOB_SEARCH}: ${String(error)}`)
+  }
+
+  const resolved =
+    queries.length > 0 ? queries : prefs.roles.length > 0 ? prefs.roles : DEFAULT_QUERIES
+
+  const from =
+    queries.length > 0 ? 'el chat' : prefs.roles.length > 0 ? 'tus reglas' : 'el default'
+  console.log(`[jobs] busco ${resolved.join(' · ')} (de ${from})`)
+
+  return {
+    queries: resolved,
+    location: location !== '' ? location : (prefs.location ?? 'Colombia'),
+    avoid: prefs.avoid
+  }
+}
+
 /** El mensaje que se le muestra al usuario cuando de verdad no hay ningún CLI. */
 const NO_CLI =
   'No encontré ningún CLI de IA instalado (claude o agy). El triage los necesita para puntuar las vacantes contra tu perfil.'
 
+/**
+ * La ventana de la APP, registrada por quien la crea.
+ *
+ * Acá había `BrowserWindow.getAllWindows()[0]`. Durante una postulación hay dos
+ * ventanas y la segunda —la del navegador que llena el formulario, que en `review`
+ * queda abierta— NO tiene preload: un `send` hacia ella se descarta en silencio.
+ * El agente preguntaba, la pregunta se iba a la página de la empresa, y el usuario
+ * miraba un chat vacío sin saber que le habían preguntado algo.
+ */
 function mainWindow(): BrowserWindow | null {
-  return BrowserWindow.getAllWindows()[0] ?? null
+  return appWindow()
 }
 
 /** ¿Hay PDF compilado para esta empresa? Decide si el botón "postular" sirve. */
@@ -221,6 +361,103 @@ export function registerJobHandlers(): void {
     return interpret(text, jobs)
   })
 
+  /**
+   * Lo pendiente, sin barrer.
+   *
+   * Se lee de Notion y no se re-puntúa: la base ya tiene el `Fit Score` y el
+   * ángulo de cuando se evaluaron. Es la lista con la que el usuario abre la
+   * app — "acá está lo que te falta resolver" — en vez de una pantalla vacía
+   * que obliga a un barrido de seis minutos para recuperar lo que ya sabíamos.
+   */
+  registerHandler(IpcChannels.JOBS_BACKLOG, async (): Promise<RankedJobRow[]> => {
+    if (!isNotionConfigured()) return []
+
+    const { backlog } = await trackedApplications()
+    const rows = backlog.map((row) => ({
+      id: dedupeKey(row.url),
+      title: row.role,
+      company: row.company,
+      location: '',
+      date: row.date,
+      url: row.url,
+      description: row.description,
+      score: row.score,
+      gates: [] as string[],
+      reason: row.note !== '' ? row.note : 'quedó pendiente de una búsqueda anterior',
+      angle: row.note
+    }))
+
+    rows.sort((a, b) => b.score - a.score)
+    return withKit(rows as RankedJob[])
+  })
+
+  /**
+   * El agente. Le hablás y él decide qué herramientas usar.
+   *
+   * Reemplaza a `JOBS_CHAT` + `interpret()`: ahí una frase que nadie previó
+   * moría en "no lo sé contestar", y cada forma nueva de pedir lo mismo era una
+   * línea de código más. Acá el modelo lee las reglas del usuario ENTERAS, ve
+   * las herramientas y la pantalla, y elige. "Postulame a todas", "tirale un CV
+   * a los de INDI" y "descartá las de Java" son el mismo camino.
+   */
+  registerHandler(IpcChannels.JOBS_AGENT, async (payload: unknown): Promise<AgentResult> => {
+    const { text, jobs } = AgentSchema.parse(payload)
+
+    const llm = await resolveLlm(jobs.providerId, jobs.modelId)
+    if (llm === null) throw new Error(NO_CLI)
+
+    const win = mainWindow()
+    const emit = (kind: AgentStep['kind'], detail: string): void => {
+      // También a la consola: cuando algo tarda veinte minutos, el log de la
+      // terminal es lo que el usuario mira para saber si sigue vivo, y ahí no
+      // aparecía NADA del agente — solo ruido SSL de trackers ajenos.
+      console.log(`[agente] ${kind}: ${detail}`)
+      win?.webContents.send(IpcEvents.JOBS_AGENT_STEP, { kind, text: detail })
+    }
+
+    // El estado del pedido vive acá y las herramientas lo mutan: `buscar`
+    // reemplaza la pantalla, `descartar` saca una. El renderer manda la suya al
+    // empezar porque es lo que el usuario está VIENDO — la fuente de verdad de
+    // "esa", "la primera", "la de BairesDev".
+    const deps: ToolDeps = {
+      llm,
+      screen: jobs.screen.map(toRankedJob),
+      kitReady: new Set(jobs.screen.filter((j) => j.kitReady).map((j) => j.id)),
+      onProgress: (phase, detail) => emit('progress', `${phase}: ${detail}`)
+    }
+
+    const turns = await runAgent(
+      {
+        // ENTERAS y sin parsear. Es el punto del archivo de reglas: que valga
+        // lo que el usuario escribió aunque nadie haya programado ese campo.
+        rules: agentRules(JOB_SEARCH),
+        // Recortadas por el manifiesto del agente: qué puede hacer es dato del
+        // usuario (`tools` en `<id>.agente.json`), no una constante de acá.
+        tools: enabledTools(JOB_SEARCH, JOB_TOOLS),
+        screen: toView(deps.screen, deps.kitReady),
+        // La que quedó abierta esperando al usuario. Sin esto el agente preguntaba
+        // "¿de cuál vacante me hablás?" con una sola abierta. Ver `open-application.ts`.
+        openApplication: openApplicationForAgent(),
+        /*
+         * El perfil. Sin esto preguntaba el nivel de inglés teniéndolo en el JSON.
+         *
+         * `null` si el workspace no está listo: el agente puede seguir buscando y
+         * puntuando sin perfil, solo que no puede contestar campos por su cuenta.
+         */
+        profile: await loadProfile().catch(() => null),
+        message: text
+      },
+      (prompt) => llm.provider.run(prompt, llm.model),
+      (tool, args) => runTool(tool, args, deps),
+      {
+        onSay: (t) => emit('say', t),
+        onTool: (tool) => emit('tool', tool)
+      }
+    )
+
+    return { screen: await withKit(deps.screen), turns: turns.length }
+  })
+
   registerHandler(IpcChannels.JOBS_STATUS, async (): Promise<JobsStatus> => {
     const linkedInSession = await hasLinkedInSession()
     const notionReady = isNotionConfigured()
@@ -257,7 +494,9 @@ export function registerJobHandlers(): void {
         cvUploadName: '',
         notionReady,
         gmailReady,
-        missing: ['JOB_WORKSPACE_DIR + albus-profile.json', ...missing]
+        // Se nombra la CARPETA, no una variable de entorno: ya no hay ninguna que
+        // configurar, y mandar a editar un `.env` era mandar a tocar el repo.
+        missing: ['el perfil del agente (albus-profile.json)', ...missing]
       }
     }
   })
@@ -273,10 +512,13 @@ export function registerJobHandlers(): void {
     const llm = await resolveLlm(req.providerId, req.modelId)
     if (llm === null) throw new Error(NO_CLI)
 
+    const search = resolveSearch(req.queries, req.location)
+
     const win = mainWindow()
     const report = await hunt({
-      queries: req.queries,
-      location: req.location,
+      queries: search.queries,
+      location: search.location,
+      avoid: search.avoid,
       maxRank: req.maxRank,
       saveToNotion: req.saveToNotion,
       llm,
@@ -288,6 +530,7 @@ export function registerJobHandlers(): void {
       found: report.found,
       duplicates: report.duplicates,
       ranked: report.ranked,
+      skipped: report.skipped,
       qualified: await withKit(report.qualified),
       rejected: await withKit(report.rejected),
       notionWrites: report.notion.writes,
