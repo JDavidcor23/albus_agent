@@ -44,7 +44,7 @@ import type { LlmTier } from '../core/jobs/answers-llm'
  */
 
 const ApplySchema = z.object({
-  url: z.string().url().refine(isApplicableUrl, 'ese host no está en la allowlist de postulación'),
+  url: z.string().url().refine(isApplicableUrl, 'that host is not on the apply allowlist'),
   company: z.string().min(1).max(120),
   role: z.string().min(1).max(160),
   slug: z.string().max(80).default(''),
@@ -59,7 +59,7 @@ const ApplySchema = z.object({
 const KitSchema = z.object({
   /** Id de la vacante en la lista, para que el progreso vaya a su tarjeta. */
   id: z.string().max(40).default(''),
-  url: z.string().url().refine(isApplicableUrl, 'ese host no está en la allowlist'),
+  url: z.string().url().refine(isApplicableUrl, 'that host is not on the allowlist'),
   company: z.string().min(1).max(120),
   role: z.string().min(1).max(160),
   slug: z.string().max(80).default('')
@@ -253,7 +253,7 @@ function resolveSearch(queries: string[], location: string): ResolvedSearch {
 
 /** El mensaje que se le muestra al usuario cuando de verdad no hay ningún CLI. */
 const NO_CLI =
-  'No encontré ningún CLI de IA instalado (claude o agy). El triage los necesita para puntuar las vacantes contra tu perfil.'
+  'No AI CLI installed (claude or agy). Triage needs one to score the openings against your profile.'
 
 /**
  * La ventana de la APP, registrada por quien la crea.
@@ -383,7 +383,7 @@ export function registerJobHandlers(): void {
       description: row.description,
       score: row.score,
       gates: [] as string[],
-      reason: row.note !== '' ? row.note : 'quedó pendiente de una búsqueda anterior',
+      reason: row.note !== '' ? row.note : 'left pending from an earlier search',
       angle: row.note
     }))
 

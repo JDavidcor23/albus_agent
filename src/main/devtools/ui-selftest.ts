@@ -108,7 +108,16 @@ export async function runUiSelfTest(): Promise<boolean> {
     check('el rail tiene la conversación', ui.tabs.includes('Chat'), true)
     check('y los destinos secundarios', ui.tabs, ['Chat', 'Extractions', 'Graph', 'Tasks'])
     check('abre en Chat', ui.activeTab, 'Chat')
-    check('el registro llegó por IPC', ui.agents, ['Búsqueda de trabajo'])
+    /*
+     * Un agente, con nombre — pero SIN fijar cuál.
+     *
+     * El nombre no sale de `seeds.ts`: sale del `<id>.agente.json` del usuario,
+     * y la semilla no lo reescribe si el archivo ya está. Un perfil viejo sigue
+     * diciendo "Búsqueda de trabajo" y uno nuevo dice "Job search"; las dos
+     * cosas son correctas. Atar el assert a un literal era atarlo a un archivo
+     * que es del usuario, no del repo.
+     */
+    check('el registro llegó por IPC', ui.agents.length === 1 && ui.agents[0] !== '', true)
 
     console.log('\n── assert 12 · al agente se le HABLA, no se le llenan campos')
     check('hay chat', ui.hasChat, true)

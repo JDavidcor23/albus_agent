@@ -1,6 +1,7 @@
 # Rediseño del shell de Albus
 
-Fecha: 2026-08-12 · Estado: aprobado en conversación, sin implementar
+Fecha: 2026-08-12 · Estado: **implementado** en `feat/shell-redesign` — con dos
+huecos conocidos, abajo en "Lo que quedó afuera"
 
 ## Qué es esto
 
@@ -164,6 +165,40 @@ verificación del proyecto.
 3. **Vistas huérfanas.** Si Extractions o Graph pierden su entrada del rail antes
    de que B las ofrezca, dejan de ser alcanzables. Mitigación: la desviación
    deliberada de más arriba.
+
+## Lo que quedó afuera — descubierto al implementar
+
+Dos cosas que el spec no previó, encontradas contra el código real. Ninguna se
+resolvió a medias: quedan escritas.
+
+### 1. El chat de pendientes sigue esperando español
+
+`src/main/core/tasks/ask.ts` no traduce strings: **parsea** los del usuario, con
+heurísticas de español. `SAYS_DONE` está construida sobre la observación de que
+en español el marcador de "ya está hecho" es la palabra *ya* — no un verbo. Hay
+además `WANTS_TASKS`, `SAYS_DROP`, `NEGATED` y una lista `FILLER` de partículas
+españolas.
+
+Traducir eso no es cambiar strings: es rediseñar un parser heurístico para otro
+idioma, y hacerlo mal cierra pendientes que el usuario no cerró — el propio
+archivo dice que ese es *"el peor error posible acá"*. Se dejó en español y se
+documenta: **la pantalla de Tasks se lee en inglés y se le habla en español.**
+
+El agente de trabajo no tiene este problema: su entrada la interpreta un modelo
+—con prompt en español, pero entiende inglés igual—, así que sus chips sí se
+tradujeron.
+
+### 2. El nombre del agente vive en el archivo del usuario
+
+Traducir `agents/seeds.ts` solo afecta instalaciones **nuevas**. `seedManifest`
+no reescribe `<id>.agente.json` si ya existe —a propósito: es un archivo del
+usuario y un contrato congelado—, así que un perfil ya instalado va a seguir
+mostrando *Búsqueda de trabajo*. Se arregla borrando ese `.json`: la próxima vez
+que se abra la pestaña, se replanta.
+
+Por eso el assert de `ui-selftest` dejó de fijar el nombre y ahora solo verifica
+que llegó un agente con nombre: atarlo a un literal era atarlo a un archivo que
+no es del repo.
 
 ## Conflicto con el roadmap — registrado, no resuelto
 

@@ -36,12 +36,12 @@ export function registerGraphHandlers(): void {
     const provider = getProvider(providerId)
     if (provider === null) throw new Error(`proveedor desconocido: ${providerId}`)
     if (!(await provider.isAvailable())) {
-      throw new Error(`${providerId} no está en el PATH`)
+      throw new Error(`${providerId} is not on the PATH`)
     }
 
     const rows = await listResults(500)
     if (rows.length === 0) {
-      throw new Error('no hay extracciones todavía: corré un lote primero')
+      throw new Error('no extractions yet: run a batch first')
     }
 
     // El análisis lo hace el CLI. Acá solo se orquesta y se guarda.

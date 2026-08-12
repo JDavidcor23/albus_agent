@@ -84,8 +84,8 @@ export const JOB_SEARCH_SEED: AgentSeed = {
   id: 'job-search',
   rulesTemplate: JOB_SEARCH_RULES,
   manifest: {
-    name: 'Búsqueda de trabajo',
-    description: 'Busca vacantes, las puntúa contra tu perfil, se postula y actualiza Notion.',
+    name: 'Job search',
+    description: 'Finds openings, scores them against your profile, applies and updates Notion.',
     needs: ['workspace', 'linkedin', 'notion', 'google'],
     /*
      * Vacío = todas las capacidades que la app tenga.

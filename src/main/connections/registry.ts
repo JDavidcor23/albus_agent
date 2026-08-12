@@ -79,7 +79,7 @@ export const SERVICES: ServiceDefinition[] = [
   {
     id: 'notion',
     name: 'Notion',
-    purpose: 'Leer y escribir en las páginas y bases que le compartas.',
+    purpose: 'Read and write the pages and databases you share with it.',
     // Las DOS: la de arriba es que lo haga Albus; pegar el token queda como
     // red de contención para cuando Notion cambie su pantalla.
     methods: ['browser', 'token'],
@@ -96,8 +96,8 @@ export const SERVICES: ServiceDefinition[] = [
           connected: false,
           source,
           detail: withGoogle
-            ? 'Un click: entra con tu Google y crea la integración solo.'
-            : 'Conectá primero la sesión del navegador de Google y esto pasa a ser un click. Si no, Notion te va a pedir un código por mail.'
+            ? 'One click: it signs in with your Google and creates the integration by itself.'
+            : 'Connect the Google browser session first and this becomes one click. Otherwise Notion will email you a code.'
         }
       }
 
@@ -107,7 +107,7 @@ export const SERVICES: ServiceDefinition[] = [
       return {
         connected: v.ok,
         source,
-        detail: v.ok ? v.detail : `token guardado pero la base no responde: ${v.detail}`
+        detail: v.ok ? v.detail : `token saved but the database does not respond: ${v.detail}`
       }
     },
     // Sin implementación propia: la genérica de abajo lo resuelve. Notion no
@@ -123,14 +123,14 @@ export const SERVICES: ServiceDefinition[] = [
     id: 'google',
     name: 'Google',
     group: 'google',
-    capability: 'correo y archivos',
-    purpose: 'Mandar correos desde tu cuenta y guardar archivos en tu Drive.',
+    capability: 'mail and files',
+    purpose: 'Send email from your account and save files to your Drive.',
     methods: ['browser'],
     credentialUrl: '',
     async status() {
       const source = secretSource(KEYS.googleRefreshToken, 'GOOGLE_REFRESH_TOKEN')
       if (source === 'none') {
-        return { connected: false, source, detail: 'Un click y listo, no hay que buscar nada.' }
+        return { connected: false, source, detail: 'One click and done — nothing to look up.' }
       }
 
       // Tener token no alcanza: el viejo era solo de Drive y no manda correos.
@@ -140,16 +140,16 @@ export const SERVICES: ServiceDefinition[] = [
         return {
           connected: ok,
           source,
-          detail: ok ? '' : 'Conectado pero sin permiso de correo. Volvé a conectar.'
+          detail: ok ? '' : 'Connected, but without mail permission. Connect again.'
         }
       } catch {
-        return { connected: false, source, detail: 'No pude verificar los permisos.' }
+        return { connected: false, source, detail: 'Could not verify the permissions.' }
       }
     },
     async connectBrowser(onStep) {
-      onStep?.({ step: 'abrir el consentimiento de Google', ok: true, detail: '' })
+      onStep?.({ step: 'open the Google consent screen', ok: true, detail: '' })
       const r = await connectGoogle()
-      onStep?.({ step: 'volver con el permiso', ok: r.ok, detail: r.message })
+      onStep?.({ step: 'come back with the permission', ok: r.ok, detail: r.message })
       return { ok: r.ok, message: r.message }
     },
     disconnect() {
@@ -171,9 +171,9 @@ export const SERVICES: ServiceDefinition[] = [
     id: 'google-browser',
     name: 'Google',
     group: 'google',
-    capability: 'sesión del navegador',
+    capability: 'browser session',
     purpose:
-      'Entrar a sitios con "Continuar con Google" sin escribir nada ni esperar códigos por mail.',
+      'Sign in to sites with "Continue with Google" without typing anything or waiting for a code.',
     methods: ['browser'],
     credentialUrl: '',
     async status() {
@@ -182,30 +182,30 @@ export const SERVICES: ServiceDefinition[] = [
       return {
         connected: has,
         source: has ? 'app' : 'none',
-        detail: has ? 'los SSO de Google se resuelven solos' : 'esta es la que desbloquea el resto'
+        detail: has ? 'Google SSO resolves on its own' : 'this is the one that unlocks the rest'
       }
     },
     async connectBrowser(onStep) {
       const { openGoogleLoginWindow } = await import('../browser/session')
       onStep?.({
-        step: 'abrir Google en el navegador de Albus',
+        step: 'open Google in the Albus browser',
         ok: true,
-        detail: 'entrá con tu cuenta en la ventana que se abrió'
+        detail: 'sign in with your account in the window that opened'
       })
       const ok = await openGoogleLoginWindow()
-      onStep?.({ step: 'guardar la sesión', ok, detail: ok ? 'la cookie quedó en el perfil' : '' })
+      onStep?.({ step: 'save the session', ok, detail: ok ? 'the cookie is in the profile' : '' })
       return {
         ok,
         message: ok
-          ? 'Google conectado en el navegador. Ahora "conectar Notion" es un click.'
-          : 'No se guardó la sesión'
+          ? 'Google connected in the browser. "Connect Notion" is one click now.'
+          : 'The session was not saved'
       }
     }
   },
   {
     id: 'linkedin',
     name: 'LinkedIn',
-    purpose: 'Navegar el sitio con tu sesión, sin volver a entrar cada vez.',
+    purpose: 'Browse the site with your session, without signing in every time.',
     methods: ['browser'],
     credentialUrl: '',
     async status() {
@@ -213,18 +213,18 @@ export const SERVICES: ServiceDefinition[] = [
       return {
         connected: has,
         source: has ? 'app' : 'none',
-        detail: has ? '' : 'Entrás una vez y la sesión queda guardada dentro de Albus.'
+        detail: has ? '' : 'You sign in once and the session stays inside Albus.'
       }
     },
     async connectBrowser(onStep) {
       onStep?.({
-        step: 'abrir LinkedIn',
+        step: 'open LinkedIn',
         ok: true,
-        detail: 'entrá a mano: el login no se automatiza, su antifraude lo marca'
+        detail: 'sign in by hand: the login is not automated, their antifraud flags it'
       })
       const ok = await openLoginWindow()
-      onStep?.({ step: 'guardar la sesión', ok, detail: '' })
-      return { ok, message: ok ? 'LinkedIn conectado' : 'No se guardó la sesión' }
+      onStep?.({ step: 'save the session', ok, detail: '' })
+      return { ok, message: ok ? 'LinkedIn connected' : 'The session was not saved' }
     }
   }
 ]
@@ -314,7 +314,7 @@ export async function verifyNotion(): Promise<{ ok: boolean; detail: string }> {
   try {
     const { knownPostLinks } = await import('../notion/applications')
     const urls = await knownPostLinks()
-    return { ok: true, detail: `la base responde: ${urls.size} postulación(es) registradas` }
+    return { ok: true, detail: `the database responds: ${urls.size} application(s) logged` }
   } catch (error: unknown) {
     return { ok: false, detail: error instanceof Error ? error.message : String(error) }
   }

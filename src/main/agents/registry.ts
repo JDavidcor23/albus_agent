@@ -100,7 +100,7 @@ async function checkNeeds(needs: AgentNeed[]): Promise<{ available: boolean; rea
 
   return {
     available: true,
-    reason: missing.length > 0 ? `sin conectar: ${missing.join(' · ')}` : ''
+    reason: missing.length > 0 ? `not connected: ${missing.join(' · ')}` : ''
   }
 }
 

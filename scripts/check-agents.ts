@@ -380,7 +380,7 @@ async function main(): Promise<void> {
   )
   check(
     'y si no hay sesión de Google, LO DICE en vez de prometer un click',
-    registryTs.includes('te va a pedir un código por mail'),
+    registryTs.includes('will email you a code'),
     true
   )
   check(
@@ -684,7 +684,7 @@ async function main(): Promise<void> {
   )
   check(
     'el mensaje nombra los binarios que hay que instalar',
-    /claude o agy/.test(jobsIpcTs),
+    /claude or agy/.test(jobsIpcTs),
     true
   )
 
