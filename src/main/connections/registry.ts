@@ -250,10 +250,15 @@ export function applyConnections(): void {
    */
   setNotionDatabaseIdResolver(() => {
     try {
-      const { AGENTS } = require('../agents/registry') as typeof import('../agents/registry')
+      /*
+       * `listManifests` y no `installedAgents`: esto corre en CADA llamada a la
+       * API de Notion, y `installedAgents` planta semillas —o sea, escribe en
+       * disco—. Un resolver de solo lectura no puede tener efectos.
+       */
+      const { listManifests } = require('../agents/manifest') as typeof import('../agents/manifest')
       const { readRules } = require('../agents/rules') as typeof import('../agents/rules')
 
-      for (const a of AGENTS) {
+      for (const a of listManifests()) {
         const r = readRules(a.id, '')
         if (r.exists && r.notion.length > 0) return r.notion[0].id
       }

@@ -101,7 +101,21 @@ function labelFromLine(line: string): string {
     .trim()
 }
 
-function extract(text: string, re: RegExp): NotionRef[] {
+/**
+ * `stripDashes` es por proveedor y NO es un detalle.
+ *
+ * Los ids de Notion son UUID y su API los acepta con guiones o sin ellos, así
+ * que se normalizan a una sola forma para poder compararlos. Los de Drive NO
+ * son UUID: son base64url, y **el guión es parte del id**. Quitárselo devuelve
+ * un id que no existe.
+ *
+ * Costó una corrida entera: `…RVAyf5-B9Fen5` viajaba como `…RVAyf5B9Fen5` y
+ * Drive contestaba 404. Y como 404 es también lo que devuelve cuando no tenés
+ * permiso, el agente le dijo al usuario *"chequeá la URL, es probable que haya
+ * un typo"* — culpándolo de un bug nuestro sobre un link que estaba perfecto.
+ * Se verifica con `npm run drive:check`.
+ */
+function extract(text: string, re: RegExp, stripDashes: boolean): NotionRef[] {
   const output: NotionRef[] = []
   const seen = new Set<string>()
 
@@ -113,7 +127,7 @@ function extract(text: string, re: RegExp): NotionRef[] {
     re.lastIndex = 0
     let m: RegExpExecArray | null
     while ((m = re.exec(line)) !== null) {
-      const id = m[1].replace(/-/g, '')
+      const id = stripDashes ? m[1].replace(/-/g, '') : m[1]
       if (seen.has(id)) continue
       seen.add(id)
       output.push({ id, url: m[0], label: labelFromLine(line) })
@@ -204,8 +218,9 @@ export function parseRules(agentId: string, text: string, path: string, exists: 
     exists,
     text,
     summary: summarizeRules(text),
-    notion: extract(text, RE_NOTION),
-    drive: extract(text, RE_DRIVE)
+    notion: extract(text, RE_NOTION, true),
+    // Sin normalizar: en Drive el guión es parte del id.
+    drive: extract(text, RE_DRIVE, false)
   }
 }
 

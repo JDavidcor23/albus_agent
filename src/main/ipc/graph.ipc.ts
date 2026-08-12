@@ -1,6 +1,7 @@
-import { BrowserWindow, shell } from 'electron'
+import { shell } from 'electron'
 import { z } from 'zod'
 import { registerHandler } from './register-handler'
+import { appWindow } from '../app-window'
 import { IpcChannels, IpcEvents } from '../../shared/ipc'
 import { listResults } from '../supabase/results-repo'
 import { getProvider } from '../providers/registry'
@@ -12,10 +13,10 @@ const BuildSchema = z.object({
   modelId: z.string().nullable().default(null)
 })
 
+// A la ventana de la APP, no a todas: la del scraper no tiene preload y descarta
+// el mensaje. Ver `app-window.ts`.
 function broadcast(channel: string, payload: unknown): void {
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) win.webContents.send(channel, payload)
-  }
+  appWindow()?.webContents.send(channel, payload)
 }
 
 export function registerGraphHandlers(): void {

@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { albusYmlPath as pathInDataDir } from '../paths'
+import { albusYmlPath as pathInDataDir, migrateLegacyData } from '../paths'
 
 /**
  * `albus.yml` — las llaves de la app, en un solo archivo legible.
@@ -66,6 +66,17 @@ let migrated = false
 function migrateIfNeeded(): void {
   if (migrated) return
   migrated = true
+
+  /*
+   * Primero la mudanza de carpeta, después la del repo.
+   *
+   * Son dos migraciones distintas y encadenadas: `%APPDATA%` → `Documentos/
+   * albus_agent` (la de `paths.ts`) y raíz-del-repo → carpeta de datos (la de
+   * acá). Esta función es la puerta por la que entran los SCRIPTS, que nunca
+   * arrancan la app: sin esta línea, `notion:check` leería la carpeta nueva vacía
+   * y diría "no hay token".
+   */
+  migrateLegacyData()
 
   const next = pathInDataDir()
   const previous = legacyPath()

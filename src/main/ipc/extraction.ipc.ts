@@ -1,6 +1,6 @@
-import { BrowserWindow } from 'electron'
 import { z } from 'zod'
 import { registerHandler } from './register-handler'
+import { appWindow } from '../app-window'
 import { IpcChannels, IpcEvents } from '../../shared/ipc'
 import { createItemSource } from '../supabase/item-source'
 import { createResultSink } from '../supabase/result-sink'
@@ -21,10 +21,16 @@ const RunPayloadSchema = z.object({
  * Un lote tarda minutos: sin empujar eventos, la ventana se queda muda hasta el
  * final. Se manda a todas las ventanas para no depender de quién disparó.
  */
+/*
+ * A la ventana de la APP, no a todas.
+ *
+ * `getAllWindows()` incluye la del navegador que llena formularios, que no tiene
+ * preload: el mensaje se descarta en silencio. Mandarlo igual no rompía nada acá
+ * —era ruido—, pero la misma línea en `jobs.ipc.ts` hacía que las preguntas del
+ * agente nunca llegaran al chat. Ver `app-window.ts`.
+ */
 function broadcast(channel: string, payload: unknown): void {
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) win.webContents.send(channel, payload)
-  }
+  appWindow()?.webContents.send(channel, payload)
 }
 
 export function registerExtractionHandlers(): void {

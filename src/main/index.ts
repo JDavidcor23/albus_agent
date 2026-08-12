@@ -2,9 +2,10 @@ import { config as loadDotenv } from 'dotenv'
 import { app, shell, BrowserWindow, screen } from 'electron'
 import { join } from 'path'
 
-// electron-vite solo inyecta al main las variables con prefijo MAIN_VITE_. El
-// cliente de Supabase ya lo cargaba por su cuenta, pero el módulo de trabajo
-// no lo importa y se quedaba sin JOB_WORKSPACE_DIR. Se carga una vez, acá.
+// electron-vite solo inyecta al main las variables con prefijo MAIN_VITE_, y el
+// cliente de Supabase ya lo cargaba por su cuenta. Se carga una vez acá para que
+// el resto del main vea el `.env` — hoy las credenciales de Supabase y los
+// overrides opcionales de ruta, nada que un agente necesite para existir.
 loadDotenv()
 
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -16,6 +17,8 @@ import { registerConnectionHandlers } from './ipc/connections.ipc'
 import { applyConnections } from './connections/registry'
 import { terminateOcr } from './core/extraction/ocr'
 import { maybeRunJobsCommand } from './jobs/headless'
+import { isTestMode, migrateLegacyData } from './paths'
+import { setAppWindow } from './app-window'
 
 process.on('uncaughtException', (error: unknown) => {
   const message = error instanceof Error ? error.message : String(error)
@@ -48,6 +51,16 @@ function createWindow(): void {
     }
   })
 
+  /*
+   * Se REGISTRA cuál es la ventana de la app.
+   *
+   * Antes los eventos de progreso salían a `getAllWindows()[0]`, y con una
+   * postulación abierta esa puede ser la ventana del navegador que llena
+   * formularios — que no tiene preload, así que el mensaje se descarta en silencio.
+   * El agente preguntaba y el usuario no veía nada. Ver `app-window.ts`.
+   */
+  setAppWindow(mainWindow)
+
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
   })
@@ -79,15 +92,24 @@ function createWindow(): void {
  * necesita la partición REAL para diagnosticarla, así que ese sí requiere que
  * la app esté cerrada, y el candado se encarga de decirlo.
  */
-const TEST_MODE =
-  process.env.ALBUS_JOBS_SELFTEST === '1' ||
-  process.env.ALBUS_UI_SELFTEST === '1' ||
-  process.env.ALBUS_NAV_CHECK === '1'
-
-if (TEST_MODE) {
+/*
+ * La condición vive en `paths.ts` y se importa. No se repite acá.
+ *
+ * La necesitan los dos: esto para mover el `userData` de Electron, y `dataDir()`
+ * para no escribir las reglas de prueba encima de las de verdad. Duplicada,
+ * agregar un selftest nuevo y actualizar un solo lado es un test que le borra las
+ * reglas al usuario.
+ */
+if (isTestMode()) {
   // `'pruebas'` es un valor congelado: cambiarlo huerfaniza el perfil de prueba.
   app.setPath('userData', join(app.getPath('userData'), 'pruebas'))
 }
+
+/*
+ * La mudanza de `%APPDATA%` a `Documentos/albus_agent`, antes de que cualquier
+ * módulo lea una regla o un token. Copia y no sobrescribe: ver `paths.ts`.
+ */
+migrateLegacyData()
 
 /**
  * Una sola instancia. No es cosmético: es un bug real que ya nos costó.

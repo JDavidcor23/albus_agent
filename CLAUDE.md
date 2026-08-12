@@ -57,11 +57,12 @@ Podés renombrar el identificador, **nunca el valor**. El porqué de cada uno, e
 
 | Valor | Qué se rompe en silencio |
 |---|---|
-| `'albus-agent'`, `agentes/`, `albus.yml`, `<id>.preguntas.json` | se abandona el estado del usuario: reglas, tokens, cola de preguntas |
+| `albus_agent/`, `agents/`, `graphify/`, `albus.yml`, `connections.json`, `<id>.agente.json`, `<id>.preguntas.json` | se abandona el estado del usuario: agentes, reglas, tokens, conexiones, grafo, cola de preguntas |
+| `'albus-agent'` (el `userData` de Electron) | se pierde la partición del navegador: hay que loguearse de nuevo en LinkedIn y Google |
 | `'post link'` y todo nombre de propiedad/opción de Notion | el upsert se vuelve insert; Notion inventa columnas y opciones; los filtros dejan de traer nada |
 | `'pagos'`, `'qr-eventos'`, `'contactos'`, `'info'`, `'sin-clasificar'` | Drive crea carpetas nuevas VACÍAS y deja el archivo viejo atrás |
 | `'persist:albus-jobs'` | se pierden las sesiones de LinkedIn y Google; hay que loguearse a mano |
-| los 13 headers de `COLUMNS`, `albus-profile.json`, `seen_jobs.json` | contrato con `ai-job-search`, que también escribe ahí |
+| los 13 headers de `COLUMNS`, `albus-profile.json`, `seen_jobs.json` | contrato con lo que también escriba ese workspace. Vive en `agents/<id>/`, derivado del id del agente: **no hay variable de entorno que configurar** |
 | `trabaja_en`, `conoci_en`, `organiza`, `pagado_a`, `trata_de`, `enlaza_a` | el grafo se parte: aristas viejas y nuevas dejan de ser el mismo tipo |
 | `'## Respuestas a lo que el agente preguntó'` y el formato de la viñeta | la sección se duplica; las respuestas dejan de verse (ya pasó) |
 

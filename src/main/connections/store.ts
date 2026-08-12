@@ -1,7 +1,8 @@
-import { app, safeStorage } from 'electron'
+import { safeStorage } from 'electron'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname } from 'node:path'
 import { deleteFromAlbusYml, fromAlbusYml, writeToAlbusYml } from './albus-yml'
+import { connectionsPath } from '../paths'
 
 /**
  * De dónde salen las credenciales de Albus, y en qué orden.
@@ -31,8 +32,17 @@ interface Stored {
   [key: string]: string
 }
 
+/*
+ * Va con los datos del usuario, no con los caches.
+ *
+ * Antes salía de `app.getPath('userData')` directo, así que al mudar la carpeta a
+ * `Documentos/albus_agent` este archivo se quedaba en `%APPDATA%` y el usuario
+ * abría la app con todos los servicios "desconectados" — sin ningún error, que es
+ * la peor forma de perder estado. `connectionsPath()` lo pone del lado correcto de
+ * la línea y `migrateLegacyData()` lo trae.
+ */
 function filePath(): string {
-  return join(app.getPath('userData'), 'connections.json')
+  return connectionsPath()
 }
 
 function readRaw(): Stored {

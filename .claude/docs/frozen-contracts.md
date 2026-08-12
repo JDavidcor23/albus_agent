@@ -20,20 +20,55 @@
 
 ---
 
-## 1. El disco del usuario (`userData`)
+## 1. El disco del usuario
 
-Todo esto vive en `%APPDATA%/albus-agent` y lo escribió el usuario o la app en
-su máquina. Cambiar el nombre no migra nada: abandona lo viejo.
+**Hay DOS carpetas y la línea entre ellas es si el dato se puede regenerar.**
+
+| | Ruta | Qué guarda |
+|---|---|---|
+| `dataDir()` | `Documentos/albus_agent` | lo que se perdería para siempre: agentes, reglas, cola de preguntas, credenciales, grafo |
+| `cacheDir()` | `%APPDATA%/albus-agent` | lo desechable: caches de Chromium, capturas, staging de subidas, perfil de prueba |
+
+La carpeta visible existe porque la otra tenía **3.190 archivos** de Chromium y
+las reglas del usuario eran cuatro de esos tres mil: nadie podía encontrarlas,
+abrirlas ni respaldarlas. `ALBUS_DATA_DIR` mueve la primera.
+
+Cambiar cualquiera de estos nombres **no migra nada: abandona lo viejo.**
 
 | Valor congelado | Dónde | Qué se rompe en silencio |
 |---|---|---|
-| `'albus-agent'` | `main/paths.ts` → `APP_NAME` | se mueve la raíz de `userData` entera; todo el estado de la app queda huérfano |
-| `agentes` (carpeta) | `main/paths.ts` → `agentsDir()`, `agents/rules.ts` | los `.md` de reglas que el usuario escribió a mano se vuelven invisibles; la app los da por inexistentes y ofrece crear la plantilla de nuevo |
+| `albus_agent` (carpeta) | `main/paths.ts` → `DATA_FOLDER` | la app arranca mirando una carpeta vacía: sin reglas, sin tokens, sin agentes. El usuario cree que perdió todo |
+| `'albus-agent'` | `main/paths.ts` → `APP_NAME` | se mueve `cacheDir()`; se pierde la partición del navegador, o sea las sesiones de LinkedIn y Google |
+| `agents` (carpeta) | `main/paths.ts` → `agentsDir()` | los `.md` de reglas y los `.agente.json` se vuelven invisibles; la app da los agentes por inexistentes |
+| `<id>.agente.json` | `agents/manifest.ts` → `SUFFIX` | el agente desaparece de la lista aunque su `.md` esté ahí |
 | `<id>.preguntas.json` | `agents/questions.ts` | se pierde la cola de preguntas ya respondidas; el agente vuelve a preguntar lo mismo |
 | `albus.yml` | `main/paths.ts` → `albusYmlPath()`, `connections/albus-yml.ts` | **se pierden TODOS los tokens guardados** (Notion + refresh token de Google). La UI simplemente dice "sin conectar" |
 | `NOTION_TOKEN`, `GOOGLE_REFRESH_TOKEN` | claves dentro de `albus.yml`, armadas por `ymlKey()` en `connections/store.ts` | el token está en el archivo y es ilegible. Mismo síntoma que arriba y más difícil de diagnosticar, porque el archivo *parece* bien |
-| `connections.json` | `connections/store.ts` | los tokens cifrados del esquema viejo dejan de poder leerse. Ya no se escribe ahí, pero se sigue leyendo |
-| `capturas`, `pruebas` | `connections/connection-agent.ts`, `main/index.ts` | capturas y perfil de prueba huérfanos. Daño bajo, igual congelado |
+| `connections.json` | `main/paths.ts` → `connectionsPath()` | el usuario abre la app con todos los servicios "desconectados", sin ningún error |
+| `graphify` (carpeta) | `main/paths.ts` → `graphifyDir()` | el grafo construido queda huérfano y se reconstruye desde cero |
+| `capturas`, `pruebas` | `connections/connection-agent.ts`, `main/paths.ts` | capturas y perfil de prueba huérfanos. Daño bajo, igual congelado |
+
+### La migración es obligatoria, y COPIA
+
+`migrateLegacyData()` en `paths.ts` trae lo viejo: `%APPDATA%/agentes` → `agents/`,
+`albus.yml`, `connections.json`, y `Escritorio/albus-graph` → `graphify/`.
+
+Tres cosas que no son negociables ahí, cada una porque ya falló:
+
+1. **Copia, no mueve.** Si la copia sale mal no hay a dónde volver. El original
+   queda hasta que el usuario verifique.
+2. **Entrada por entrada, no la carpeta entera.** La primera versión salteaba todo
+   si el destino existía, y `check-agents.ts` dejaba ahí una carpeta VACÍA: la
+   migración se daba por hecha y el `job-search.md` del usuario quedaba atrás sin
+   error, sin log y sin síntoma hasta abrir el panel.
+3. **La dispara también `albus-yml.ts`**, no solo el arranque. Los scripts nunca
+   abren la app: sin eso `notion:check` mira la carpeta nueva vacía y reporta "no
+   hay token" sobre uno que existe.
+
+Y `dataDir()` en modo prueba devuelve `cacheDir()/pruebas`, con `cacheDir()`
+capturado **al importar** — antes de que `index.ts` redirija el `userData`. Sin esa
+captura la ruta salía `pruebas/pruebas` en la app y `pruebas` en los scripts: dos
+lugares distintos para el mismo perfil.
 
 ### El formato de las respuestas del agente
 
@@ -90,7 +125,44 @@ visible; un select con basura adentro es uno invisible.
 
 ---
 
-## 5. El workspace de `ai-job-search`
+## 5. El workspace del agente de trabajo
+
+**Dónde está: `agents/<id del agente>/`. Se DERIVA. No hay nada que configurar.**
+
+La regla es **agente `X` → `agents/X/`**. Un agente nuevo trae su carpeta sin que
+nadie agregue una variable de entorno ni una constante. La única perilla de rutas
+que queda en todo el proyecto es `ALBUS_DATA_DIR`, que mueve la RAÍZ de los datos:
+una para todo, cero por agente.
+
+Hubo tres versiones peores, y cada una se murió por un motivo distinto:
+
+1. **`JOB_WORKSPACE_DIR` obligatoria.** `workspaceDir()` tiraba si faltaba, y la
+   variable apuntaba a un clon de `github.com/MadsLorentzen/ai-job-search` — el
+   repo de un TERCERO. Arrancar Albus exigía clonar el repositorio de otra persona.
+2. **La misma variable como override que ganaba.** Reclamo del usuario, y va al
+   hueso: *"si ahí están listados todos los agentes, ¿por qué yo tengo que poner en
+   el `.env` todo eso? Si esto yo lo quiero publicar el día de mañana para otra
+   persona, ¿qué hago?"*. Una ruta de una máquina no se publica.
+3. **La ruta absoluta HARDCODEADA** como fallback en `check-jobs.ts`,
+   `check-agents.ts` y `check-live.ts`. Era el "esto no se puede publicar" más
+   concreto de todos, porque ni se podía configurar.
+
+> **Los tests se aíslan por PARÁMETRO, nunca por variable de entorno.**
+> `createWorkspaceKitSource(stagingDir, workspace?)` y `createCsvTracker(csvPath?)`
+> existen por eso. Una perilla pública que existe solo para que los tests se aíslen
+> es una perilla que se puede girar al revés — y girada al revés, `check-jobs.ts`
+> **le agregó dos filas de prueba al CSV real del usuario**. Un parámetro no se
+> puede ignorar.
+>
+> Y por la misma razón el autochequeo del navegador usa
+> `resources/albus-profile.fixture.json` en vez del perfil real: un test que
+> necesita los datos personales de alguien no corre en la máquina de nadie más.
+
+Y ojo con lo que sigue siendo cierto: si el usuario mantiene el clon de
+`ai-job-search`, ese repo **también escribe** en su copia. Dos carpetas con los
+mismos nombres de archivo divergen en silencio — un CV nuevo generado por las
+skills de ese repo no aparece del lado de Albus. Una sola tiene que ser la de
+verdad.
 
 Este repo **no es el único que escribe** en esas rutas. Son un contrato entre
 dos programas, y el otro no se entera de los cambios de este.

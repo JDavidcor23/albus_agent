@@ -1,19 +1,24 @@
-import { app } from 'electron'
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Graph } from '../core/graph/types'
+import { graphifyDir } from '../paths'
 
 /**
  * El grafo NO vive en el repo ni en la nube: es un artefacto del usuario.
- * Por defecto va al Escritorio, en una carpeta que puede abrir y llevarse.
  *
- * Se respeta ALBUS_GRAPH_DIR si está en el .env, para poder moverlo sin tocar código.
+ * Vivía en `Escritorio/albus-graph`, que era mejor que el repo pero seguía siendo
+ * una carpeta suelta más en el escritorio de alguien. Ahora va con el resto de lo
+ * que el usuario perdería si se borrara —`Documentos/albus_agent/graphify`— y
+ * `migrateLegacyData()` trae el que ya exista.
+ *
+ * Se respeta `ALBUS_GRAPH_DIR` si está en el `.env`, para poder moverlo sin tocar
+ * código.
  */
 export function graphDir(): string {
   const override = process.env.ALBUS_GRAPH_DIR
   if (override !== undefined && override.trim().length > 0) return override.trim()
 
-  return join(app.getPath('desktop'), 'albus-graph')
+  return graphifyDir()
 }
 
 export function graphPath(): string {
