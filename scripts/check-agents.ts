@@ -8,6 +8,7 @@
  */
 import { readFile } from 'node:fs/promises'
 import { existsSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { parseProfile } from '../src/main/core/jobs/profile'
@@ -29,6 +30,7 @@ import {
 } from '../src/main/core/jobs/email'
 import { applyFloor, QUALITY_FLOOR, type RankedJob } from '../src/main/core/jobs/rank'
 import { dedupeKey } from '../src/main/jobs/search'
+import { PROFILE_FILE, workspaceDir } from '../src/main/jobs/workspace'
 
 let passed = 0
 let failed = 0
@@ -50,10 +52,15 @@ function section(t: string): void {
   console.log(`\n── ${t}`)
 }
 
-const PROFILE_PATH = join(
-  process.env.JOB_WORKSPACE_DIR ?? 'C:/Users/jdiaz483/Documents/work/dream/ai-job-search',
-  'albus-profile.json'
-)
+/*
+ * La ruta del perfil se DERIVA. Acá había la ruta absoluta de una máquina
+ * commiteada en el repo como fallback — el "esto no se puede publicar" más
+ * concreto que había, porque ni se puede configurar.
+ *
+ * Ojo con el orden: se calcula ANTES de que los asserts de más abajo pisen
+ * `ALBUS_DATA_DIR` con un tmpdir, así que apunta al workspace de verdad.
+ */
+const PROFILE_PATH = join(workspaceDir(), PROFILE_FILE)
 
 function job(p: Partial<RankedJob>): RankedJob {
   return {
@@ -276,7 +283,46 @@ async function main(): Promise<void> {
   // ── ASSERTS 1-3 · el bug de "host no permitido" ──────────────────────────
   section('asserts 1-3 · abrir la vacante que el scraper devuelve de verdad')
 
-  const { isOpenableUrl, isApplicableUrl, APPLICABLE_HOSTS } = await import('../src/shared/ipc')
+  const { isOpenableUrl, isApplicableUrl, APPLICABLE_HOSTS, unwrapLinkedInRedirect } = await import(
+    '../src/shared/ipc'
+  )
+
+  /*
+   * El interstitial de LinkedIn. Es la URL EXACTA que rompió la postulación a
+   * Monks: pasaba la allowlist por ser linkedin.com, se cargaba con `loadURL`,
+   * LinkedIn se comía el `url=` y quedaba la pantalla de "Página no encontrada".
+   * Sin desenvolverlo, ninguna postulación externa de LinkedIn puede funcionar.
+   */
+  const SAFETY_GO =
+    'https://www.linkedin.com/safety/go/?url=https%3A%2F%2Fwww%2Emonks%2Ecom%2Fcareers%2F6134628004%2Fsenior-frontend-engineer%3Fgh_src%3Da9b949034us&urlhash=Ce2A&isSdui=true'
+
+  check(
+    'saca el destino real del interstitial de LinkedIn',
+    unwrapLinkedInRedirect(SAFETY_GO),
+    'https://www.monks.com/careers/6134628004/senior-frontend-engineer?gh_src=a9b949034us'
+  )
+  check(
+    'una vacante normal de LinkedIn NO es un interstitial',
+    unwrapLinkedInRedirect('https://co.linkedin.com/jobs/view/1'),
+    null
+  )
+  check(
+    'un host que no es LinkedIn no se desenvuelve',
+    unwrapLinkedInRedirect('https://malicioso.com/safety/go/?url=https%3A%2F%2Fx.com'),
+    null
+  )
+  // Un `javascript:` metido en el parámetro es justo el ataque que la allowlist
+  // viene a evitar: desenvolverlo sin filtrar el protocolo sería abrirle la puerta.
+  check(
+    'un destino que no es https se rechaza',
+    unwrapLinkedInRedirect('https://www.linkedin.com/safety/go/?url=javascript%3Aalert(1)'),
+    null
+  )
+  check(
+    'y sin parámetro url tampoco inventa nada',
+    unwrapLinkedInRedirect('https://www.linkedin.com/safety/go/?_l=es_ES'),
+    null
+  )
 
   // La URL exacta que falló en su corrida.
   const REAL = 'https://co.linkedin.com/jobs/view/frontend-developer-at-fox-analytics-4448573564'
@@ -499,21 +545,19 @@ async function main(): Promise<void> {
   ])
 
 
-  const { AGENTS: registered } = await import('../src/main/agents/registry')
-  const jobSearch = registered.find((a) => a.id === 'job-search')
+  const { JOB_SEARCH_SEED } = await import('../src/main/agents/seeds')
 
   // Sin archivo, el resumen va VACÍO aunque haya plantilla: si no, un agente
   // recién creado muestra los ejemplos del instructivo como reglas propias y
   // el botón dice "escribir las primeras" arriba de una lista llena.
   const { readRules } = await import('../src/main/agents/rules')
-  const missing = readRules('no-existe-este-agente', jobSearch?.rulesTemplate ?? '')
+  const missing = readRules('no-existe-este-agente', JOB_SEARCH_SEED.rulesTemplate)
   check('sin archivo, el resumen está vacío', missing.summary.length, 0)
   check('y tampoco hereda los links de la plantilla', missing.notion.length, 0)
   check('pero el texto de la plantilla sí viaja, para poder crearla', missing.text.length > 100, true)
-  check('el agente de trabajo declara su plantilla', jobSearch?.rulesTemplate !== undefined, true)
   check(
     'y la plantilla trae sus links de ejemplo COMENTADOS',
-    /<!--[\s\S]*notion\.so[\s\S]*-->/.test(jobSearch?.rulesTemplate ?? ''),
+    /<!--[\s\S]*notion\.so[\s\S]*-->/.test(JOB_SEARCH_SEED.rulesTemplate),
     true
   )
 
@@ -717,7 +761,21 @@ async function main(): Promise<void> {
 
   // La misma duda veinte veces es UNA pregunta. Sin esto, veinte postulaciones
   // con el mismo campo sin resolver llenan el panel y el usuario lo abandona.
+  /*
+   * El chequeo escribe en una carpeta TEMPORAL, no en la del usuario.
+   *
+   * Antes usaba `agentsDir()` a secas, o sea la carpeta real: estos asserts
+   * dejaban `chequeo-preguntas.md` y su `.preguntas.json` al lado del
+   * `job-search.md` de verdad. Ya causó un daño concreto —la carpeta que este
+   * chequeo creaba hacía que la migración de datos se diera por hecha y las
+   * reglas del usuario quedaran atrás— y el potencial era peor: un bug en
+   * `answerQuestion` acá se le come las reglas al usuario mientras corre un test.
+   *
+   * `ALBUS_DATA_DIR` existe para esto y para que la carpeta se pueda mover.
+   */
   const AG = 'chequeo-preguntas'
+  process.env.ALBUS_DATA_DIR = join(tmpdir(), `albus-check-${process.pid}`)
+
   const questionsPath = join(
     (await import('../src/main/paths')).agentsDir(),
     `${AG}.preguntas.json`
@@ -935,22 +993,138 @@ async function main(): Promise<void> {
     'jobs.lever.co/empresa/abc'
   )
 
-  // ── ASSERT 11 · sumar un agente es una entrada ───────────────────────────
-  section('assert 11 · el registro de agentes es una lista, no un if')
+  /*
+   * ── ASSERT 11 · un agente es un ARCHIVO del usuario, no una entrada de código
+   *
+   * Antes este assert verificaba lo contrario: que `AGENTS` fuera un array con
+   * una entrada y una función `check` por agente. Era coherente con el diseño de
+   * entonces y ese diseño era el problema — para sumar un agente había que editar
+   * el array, o sea bajarse el código fuente. Ahora el registro lee
+   * `userData/agentes/*.agente.json` y lo que se verifica es que el agente que
+   * TRAE la app no tenga un camino privilegiado: si la semilla no valida con el
+   * mismo schema que un archivo escrito a mano, sigue siendo un caso especial del
+   * código disfrazado de dato.
+   */
+  section('assert 11 · un agente es un archivo, y el de fábrica no es especial')
 
-  const { AGENTS } = await import('../src/main/agents/registry')
-  check('hoy hay un agente registrado', AGENTS.length, 1)
-  check('es el de búsqueda de trabajo', AGENTS[0].id, 'job-search')
-  check('cada agente declara cómo chequearse', typeof AGENTS[0].check, 'function')
-  // Se verifican los campos OBLIGATORIOS, no la lista exacta: un agente puede
-  // declarar cosas opcionales —su plantilla de reglas, por ejemplo— y eso no
-  // puede romper el chequeo del registro.
+  const { AgentManifestSchema, AGENT_NEEDS } = await import('../src/main/agents/manifest')
+
+  const seeded = AgentManifestSchema.safeParse(JOB_SEARCH_SEED.manifest)
+  check('la semilla valida con el schema de un archivo del usuario', seeded.success, true)
+  check('y declara objetivos: el flujo es dato, no código', JOB_SEARCH_SEED.manifest.goals.length > 0, true)
   check(
-    'toda entrada trae id + nombre + descripción + chequeo',
-    ['id', 'name', 'description', 'check'].every((k) =>
-      AGENTS.every((a) => k in a && (a as unknown as Record<string, unknown>)[k] !== undefined)
-    ),
+    'sus dependencias salen del enum cerrado, que es el que tiene sondas',
+    JOB_SEARCH_SEED.manifest.needs.every((n) => (AGENT_NEEDS as readonly string[]).includes(n)),
     true
+  )
+  check(
+    'tools vacío = todas: recortar capacidades es dato del usuario',
+    JOB_SEARCH_SEED.manifest.tools.length,
+    0
+  )
+
+  // Una dependencia que ya no existe NO invalida el archivo: se descarta y el
+  // agente sigue abriendo. Un manifiesto viejo tiene que sobrevivir al upgrade.
+  const withJunk = AgentManifestSchema.safeParse({ name: 'X', needs: ['notion', 'fax'] })
+  check('un "need" desconocido se descarta, no rompe el manifiesto', withJunk.success, true)
+  check('y queda solo el que sí existe', withJunk.success ? withJunk.data.needs : [], ['notion'])
+
+  // Lo mínimo es el nombre: todo lo demás tiene default. Un agente que el
+  // usuario escriba con dos líneas tiene que funcionar.
+  const minimal = AgentManifestSchema.safeParse({ name: 'Mi agente' })
+  check('un manifiesto de una sola clave alcanza', minimal.success, true)
+  check('sin nombre NO alcanza: sería un agente sin identidad', AgentManifestSchema.safeParse({}).success, false)
+
+  /*
+   * ── ASSERT 12 · el agente sabe qué postulación está abierta
+   *
+   * El bug: el usuario decía "sí manda, pero rellená estos datos" y el agente
+   * contestaba "¿cuál es el id de la vacante donde estás rellenando el formulario?
+   * hay varias en pantalla". No era terquedad — su contexto tenía las vacantes que
+   * se MUESTRAN y nada que dijera cuál estaba abierta en el navegador.
+   */
+  section('assert 12 · el agente sabe cuál postulación está abierta')
+
+  const { buildAgentPrompt } = await import('../src/main/core/jobs/agent')
+  const { JOB_TOOLS } = await import('../src/main/jobs/agent-tools')
+
+  const baseCtx = {
+    rules: '',
+    tools: JOB_TOOLS,
+    screen: [
+      { id: 'a', company: 'BairesDev', title: 'UI Engineer', score: 70, kitReady: true },
+      { id: 'b', company: 'Monks', title: 'Senior Frontend Engineer', score: 80, kitReady: true }
+    ],
+    history: [],
+    message: 'si pero debes rellenar estas preguntas'
+  }
+
+  const withOpen = buildAgentPrompt({
+    ...baseCtx,
+    openApplication: {
+      id: 'b',
+      company: 'Monks',
+      role: 'Senior Frontend Engineer',
+      url: 'https://www.monks.com/careers/1',
+      unresolved: ['What is your level of English?']
+    }
+  })
+
+  /*
+   * Se busca el ENCABEZADO en su propio renglón, no la frase suelta.
+   *
+   * La descripción de `completar_formulario` nombra la sección —"ver POSTULACIÓN
+   * ABIERTA AHORA MISMO"— y las descripciones de las herramientas están SIEMPRE en
+   * el prompt. Un `includes` ingenuo da positivo aunque no haya ninguna abierta, y
+   * el assert de más abajo dejaría de proteger nada.
+   */
+  const HEADER = '\nPOSTULACIÓN ABIERTA AHORA MISMO\n'
+
+  check('el prompt dice cuál está abierta', withOpen.includes(HEADER), true)
+  check('con su id, para que no lo tenga que adivinar', withOpen.includes('id=b'), true)
+  check('y los campos que faltaron', withOpen.includes('What is your level of English?'), true)
+  check(
+    'y le prohíbe preguntar cuál es',
+    /No le preguntes cuál es/.test(withOpen),
+    true
+  )
+
+  // Sin postulación abierta el bloque NO aparece: un encabezado vacío invita al
+  // modelo a inventar que hay una.
+  const withoutOpen = buildAgentPrompt({ ...baseCtx, openApplication: null })
+  check('sin ninguna abierta no se menciona', withoutOpen.includes(HEADER), false)
+
+  check(
+    'y existe la herramienta para trabajar sobre ella',
+    JOB_TOOLS.some((t) => t.name === 'completar_formulario'),
+    true
+  )
+
+  /*
+   * El PERFIL viaja al agente. Sin esto preguntaba lo que la app ya sabía:
+   * "Necesito tu nivel de inglés. ¿B1, B2, C1 o C2?" — teniendo `englishLevel` en el
+   * JSON y el formulario ya mostrándolo lleno.
+   */
+  // `profile` es el que este chequeo ya cargó del workspace, más arriba.
+  const withProfile = buildAgentPrompt({ ...baseCtx, profile })
+
+  check('el prompt lleva los DATOS del candidato', withProfile.includes('DATOS DEL CANDIDATO'), true)
+  check(
+    'incluido el nivel de inglés, que venía preguntando',
+    withProfile.includes(`inglés ${profile.englishLevel}`),
+    true
+  )
+  check(
+    'y le prohíbe preguntar lo que ya tiene',
+    /NO le preguntes al usuario nada que esté en esta lista/.test(withProfile),
+    true
+  )
+  // Sin perfil el bloque no aparece: el agente puede buscar y puntuar igual, solo
+  // que no puede contestar campos por su cuenta.
+  check(
+    'sin perfil no se inventa el bloque',
+    buildAgentPrompt({ ...baseCtx, profile: null }).includes('DATOS DEL CANDIDATO'),
+    false
   )
 
   const total = passed + failed

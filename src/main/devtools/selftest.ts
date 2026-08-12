@@ -7,7 +7,7 @@ import { parseProfile } from '../core/jobs/profile'
 import { cvUploadName } from '../core/jobs/cv-name'
 import { createBrowserPage } from '../browser/page'
 import { jobsSession } from '../browser/session'
-import { createWorkspaceKitSource, workspaceDir } from '../jobs/workspace'
+import { createWorkspaceKitSource } from '../jobs/workspace'
 
 /**
  * Los asserts que necesitan un Chromium vivo. `npx tsx` no puede levantar un
@@ -48,16 +48,33 @@ const MINIMAL_PDF = Buffer.from(
 export async function runJobsSelfTest(): Promise<boolean> {
   console.log('\n══ AUTOCHEQUEO DE POSTULACIÓN (navegador real, formulario sintético) ══')
 
+  // Al lado de `job-form-fixture.html`, y por el mismo motivo: el chequeo trae sus
+  // datos, no los pide prestados a la máquina donde corre.
+  const FIXTURE_PROFILE = join(app.getAppPath(), 'resources', 'albus-profile.fixture.json')
+
   const tmp = join(app.getPath('userData'), 'selftest')
   await rm(tmp, { recursive: true, force: true })
   await mkdir(join(tmp, 'cv'), { recursive: true })
   await writeFile(join(tmp, 'cv', 'main_examplecorp.pdf'), MINIMAL_PDF)
 
+  /*
+   * El perfil sale de un FIXTURE del repo, no del perfil real del usuario.
+   *
+   * Antes se leía `albus-profile.json` del workspace, que llegaba por
+   * `JOB_WORKSPACE_DIR` apuntando al clon de un repo de un tercero. O sea: este
+   * autochequeo solo corría en UNA máquina, y con los datos personales de una
+   * persona adentro de los asserts. Reclamo del usuario, y va al hueso: *"si esto
+   * yo lo quiero publicar el día de mañana para otra persona, ¿qué hago?"*.
+   *
+   * Con el fixture el chequeo es hermético: mide el MECANISMO —que el archivo
+   * llegue al formulario con el nombre que dice el perfil— sin depender de quién
+   * sea el candidato.
+   */
   let profile
   try {
-    profile = parseProfile(JSON.parse(await readFile(join(workspaceDir(), 'albus-profile.json'), 'utf8')))
+    profile = parseProfile(JSON.parse(await readFile(FIXTURE_PROFILE, 'utf8')))
   } catch (error: unknown) {
-    console.log(`  FALLA no pude leer el perfil: ${String(error)}`)
+    console.log(`  FALLA no pude leer el perfil de prueba (${FIXTURE_PROFILE}): ${String(error)}`)
     return false
   }
 
@@ -85,13 +102,17 @@ export async function runJobsSelfTest(): Promise<boolean> {
   // ── el kit se prepara con el nombre correcto ─────────────────────────────
   console.log('\n── assert 3 · el archivo llega al formulario con el nombre del candidato')
 
-  const kitSource = createWorkspaceKitSource(join(tmp, 'staging'))
-
-  // El perfil ya está leído del workspace real; de acá en adelante el "workspace"
-  // es la carpeta temporal, para no depender de que exista un PDF compilado de
-  // una empresa concreta ni de tocar nada del repo del usuario.
-  const realWorkspace = process.env.JOB_WORKSPACE_DIR
-  process.env.JOB_WORKSPACE_DIR = tmp
+  /*
+   * El perfil ya está leído del workspace real; de acá en adelante el "workspace"
+   * es la carpeta temporal, para no depender de que exista un PDF compilado de una
+   * empresa concreta ni de tocar nada del usuario.
+   *
+   * Entra por PARÁMETRO. Antes se pisaba `process.env.JOB_WORKSPACE_DIR` y se
+   * restauraba después: una perilla pública usada como seam de test, con el riesgo
+   * de que un `return` temprano o una excepción dejara la variable pisada para el
+   * resto del proceso.
+   */
+  const kitSource = createWorkspaceKitSource(join(tmp, 'staging'), tmp)
 
   const kit = await kitSource.findKit({
     url: '',
@@ -99,7 +120,6 @@ export async function runJobsSelfTest(): Promise<boolean> {
     role: 'Frontend',
     slug: 'examplecorp'
   })
-  process.env.JOB_WORKSPACE_DIR = realWorkspace
 
   check('encuentra el CV compilado del workspace', kit.cv !== null, true)
 
@@ -173,7 +193,9 @@ export async function runJobsSelfTest(): Promise<boolean> {
       `JSON.stringify((() => { const i = document.querySelector('input[name=resume]'); return i && i.files[0] ? i.files[0].name : null })())`
     )
     check(
-      'el formulario recibió "CV Jorge David Diaz.pdf"',
+      // La etiqueta no nombra a nadie: lo que se verifica es que el archivo llegue
+      // con el nombre que dice el PERFIL, quien sea el candidato.
+      'el formulario recibió el CV con el nombre del perfil',
       JSON.parse(nameOnPage as string),
       cvUploadName(profile, 'x.pdf')
     )

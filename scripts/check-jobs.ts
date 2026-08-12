@@ -20,6 +20,7 @@ import { canClick, classifyButton } from '../src/main/core/jobs/submit-guard'
 import { planStep } from '../src/main/core/jobs/apply'
 import type { FormField, FormModel } from '../src/main/core/jobs/types'
 import { csvEscape, parseCsv, toCsvLine } from '../src/main/jobs/tracker'
+import { PROFILE_FILE, workspaceDir } from '../src/main/jobs/workspace'
 import type { TrackerRow } from '../src/main/core/jobs/ports'
 
 let passed = 0
@@ -43,11 +44,16 @@ function section(title: string): void {
   console.log(`\n── ${title}`)
 }
 
-// ── perfil de prueba: el real, para que los asserts midan lo que se usa ─────
-const PROFILE_PATH = join(
-  process.env.JOB_WORKSPACE_DIR ?? 'C:/Users/jdiaz483/Documents/work/dream/ai-job-search',
-  'albus-profile.json'
-)
+/*
+ * ── perfil de prueba: el real, para que los asserts midan lo que se usa ─────
+ *
+ * La ruta se DERIVA de `workspaceDir()`. Acá había
+ * `process.env.JOB_WORKSPACE_DIR ?? 'C:/Users/jdiaz483/Documents/work/dream/…'`:
+ * la ruta absoluta de una máquina, commiteada en el repo. Ese literal era el "esto
+ * no se puede publicar" más concreto que había — más que cualquier variable de
+ * entorno, porque ni se puede configurar.
+ */
+const PROFILE_PATH = join(workspaceDir(), PROFILE_FILE)
 
 function field(p: Partial<FormField>): FormField {
   return {
@@ -298,7 +304,31 @@ async function main(): Promise<void> {
   check('clasifica "Submit application"', classifyButton('Submit application'), 'submit')
   check('clasifica "Enviar solicitud"', classifyButton('Enviar solicitud'), 'submit')
   check('clasifica "Next"', classifyButton('Next'), 'next')
-  check('clasifica "Easy Apply"', classifyButton('Easy Apply'), 'apply')
+
+  /*
+   * "Easy Apply" ya NO es una categoría propia, y esto lo fija.
+   *
+   * Antes devolvía 'apply', y todo lo que caía ahí lo apretaba `canClick` en modo
+   * `review` sin que nadie mirara. El agujero: un ATS de una sola pantalla cuyo
+   * botón final diga solo "Apply" caía en esa misma categoría —`SUBMIT` tiene
+   * `apply now`, no `apply`— y la postulación se enviaba sola. Ahora todo lo que
+   * no sea avanzar o enviar es `other`, el bucle no lo toca, y llegar al
+   * formulario es trabajo del agente que mira la pantalla.
+   */
+  check('"Easy Apply" es other: abrir no se decide por texto', classifyButton('Easy Apply'), 'other')
+  check('"Apply" pelado tampoco es accionable', classifyButton('Apply'), 'other')
+  check('"Solicitar" tampoco — y por eso ya no importa', classifyButton('Solicitar'), 'other')
+  /*
+   * Ojo dónde está el freno: `canClick('other', …)` devuelve `true`. Lo que
+   * protege no es eso, es que `pickButton` SOLO elige `next` o `submit`, así que
+   * un `other` no se aprieta porque nunca se elige. La propiedad que importa es
+   * que estos textos no caigan en ninguna de las dos categorías accionables.
+   */
+  check(
+    '"Apply" no cae en ninguna categoría que el bucle apriete',
+    ['next', 'submit'].includes(classifyButton('Apply')),
+    false
+  )
   check('review NO puede enviar', canClick('submit', 'review'), false)
   check('dry-run NO puede ni avanzar', canClick('next', 'dry-run'), false)
   check('review sí puede avanzar', canClick('next', 'review'), true)
@@ -310,6 +340,7 @@ async function main(): Promise<void> {
   const mixedForm: FormModel = {
     url: 'https://example.com/apply',
     title: 'Apply',
+    inModal: false,
     fields: [
       field({ id: 'x1', label: 'First name' }),
       field({ id: 'x2', label: 'Qué te motiva de esta vacante en particular', kind: 'textarea' }),
@@ -367,9 +398,11 @@ async function main(): Promise<void> {
   const original = `${header}2026-07-10,Somewhere,Staffing,Web Developer,fullstack,LinkedIn,interview,,69,"a, b",cv/x.tex,cover/y.tex,https://ln/1\n`
   await writeFile(join(dir, 'job_search_tracker.csv'), original, 'utf8')
 
-  process.env.JOB_WORKSPACE_DIR = dir
+  // La copia temporal entra por PARÁMETRO. Antes se pisaba `JOB_WORKSPACE_DIR`, y
+  // el día que la precedencia quedó al revés este mismo test le agregó dos filas
+  // de prueba al CSV real del usuario. Un parámetro no se puede ignorar.
   const { createCsvTracker } = await import('../src/main/jobs/tracker')
-  const tracker = createCsvTracker()
+  const tracker = createCsvTracker(join(dir, 'job_search_tracker.csv'))
   await tracker.append(row)
 
   const final = await readFile(join(dir, 'job_search_tracker.csv'), 'utf8')
@@ -383,18 +416,40 @@ async function main(): Promise<void> {
   check('dedupe lee la URL vieja', seen.has('https://ln/1'), true)
   check('dedupe lee la URL nueva', seen.has(row.source), true)
 
-  // ── ASSERT 9 · nada de secretos nuevos ───────────────────────────────────
-  section('assert 9 · el workspace sale del entorno')
+  /*
+   * ── ASSERT 9 · el workspace se DERIVA. No hay nada que configurar.
+   *
+   * Este assert pasó por dos versiones equivocadas antes de esta:
+   *
+   * 1. Verificaba que sin `JOB_WORKSPACE_DIR` la app **fallara ruidoso**. Era
+   *    coherente con el diseño de entonces, y ese diseño era el problema: la
+   *    variable apuntaba a un clon de un repo de un TERCERO, así que arrancar
+   *    Albus exigía clonar el repositorio de otra persona.
+   * 2. Verificaba que esa variable, como override, GANARA. También mal: una ruta
+   *    de una máquina no se publica, y el reclamo del usuario fue exacto — *"si
+   *    ahí están listados todos los agentes, ¿por qué yo tengo que poner en el
+   *    .env todo eso?"*.
+   *
+   * Ahora no hay variable. La carpeta sale del id del agente y esto lo fija. Para
+   * mover toda la carpeta de datos está `ALBUS_DATA_DIR`: UNO para la raíz, cero
+   * por agente.
+   */
+  section('assert 9 · el workspace se deriva del id del agente, sin configurar nada')
 
+  const { agentsDir } = await import('../src/main/paths')
+
+  check('sale de la carpeta del agente', workspaceDir(), join(agentsDir(), 'job-search'))
+  check(
+    'la regla es agente X → agents/X',
+    workspaceDir().endsWith(join('agents', 'job-search')),
+    true
+  )
+
+  // La variable vieja ya no existe para el código: setearla no cambia nada. Sin
+  // este assert, alguien la vuelve a leer "por compatibilidad" y volvemos al `.env`.
+  process.env.JOB_WORKSPACE_DIR = join(tmpdir(), 'ya-no-se-mira')
+  check('y JOB_WORKSPACE_DIR ya NO se lee', workspaceDir(), join(agentsDir(), 'job-search'))
   delete process.env.JOB_WORKSPACE_DIR
-  const { workspaceDir } = await import('../src/main/jobs/workspace')
-  let threw = false
-  try {
-    workspaceDir()
-  } catch {
-    threw = true
-  }
-  check('sin JOB_WORKSPACE_DIR falla ruidoso al arrancar', threw, true)
 
   // ── cierre ───────────────────────────────────────────────────────────────
   const total = passed + failed

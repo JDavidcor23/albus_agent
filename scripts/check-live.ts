@@ -14,6 +14,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { config as loadDotenv } from 'dotenv'
+import { workspaceDir } from '../src/main/jobs/workspace'
 
 loadDotenv()
 
@@ -45,8 +46,12 @@ function section(t: string): void {
   console.log(`\n── ${t}`)
 }
 
-const WS =
-  process.env.JOB_WORKSPACE_DIR ?? 'C:/Users/jdiaz483/Documents/work/dream/ai-job-search'
+/*
+ * El workspace se DERIVA del id del agente. Acá había la ruta absoluta de una
+ * máquina commiteada como fallback: el "esto no se puede publicar" más concreto que
+ * había, porque ni se puede configurar.
+ */
+const WS = workspaceDir()
 
 async function checkSearch(): Promise<void> {
   section('assert 14 · el CLI de búsqueda devuelve vacantes parseadas')

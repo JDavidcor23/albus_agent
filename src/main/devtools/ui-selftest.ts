@@ -57,6 +57,10 @@ const READ_UI = `JSON.stringify((() => {
       return i ? i.getAttribute('placeholder') || '' : ''
     })(),
     examples: texts('.jobchat-vacio li'),
+    pipelineButton: (() => {
+      const b = document.querySelector('.jobchat-pipeline')
+      return b ? (b.textContent || '').trim() : ''
+    })(),
     hasConnections: !!document.querySelector('.job-conexiones-btn'),
     connectionsText: (() => {
       const b = document.querySelector('.job-conexiones-btn')
@@ -100,6 +104,7 @@ export async function runUiSelfTest(): Promise<boolean> {
       hasInput: boolean
       chatPlaceholder: string
       examples: string[]
+      pipelineButton: string
       hasConnections: boolean
       connectionsText: string
     }
@@ -114,9 +119,18 @@ export async function runUiSelfTest(): Promise<boolean> {
     check('hay chat', ui.hasChat, true)
     check('con su campo para escribir', ui.hasInput, true)
     check('que invita a escribir, no a completar', /escribile/i.test(ui.chatPlaceholder), true)
-    // Sin ejemplos, un chat vacío es una pantalla que no dice qué se puede pedir.
-    check('y muestra ejemplos de qué pedir', ui.examples.length >= 2, true)
-    if (ui.examples.length > 0) console.log(`          ejemplo: "${ui.examples[0]}"`)
+    /*
+     * El barrido es UNA acción, así que se dispara con un botón.
+     *
+     * Antes acá se verificaba lo contrario: que hubiera ejemplos clickeables
+     * ("buscame trabajo, hacé un barrido"). El problema no era el assert sino
+     * lo que pedía — invitar a escribir el rol contradice que los roles salgan
+     * de las reglas del usuario, y esa frase de ejemplo terminaba viajando
+     * cruda a LinkedIn como término de búsqueda.
+     */
+    check('el barrido se dispara con un botón', ui.pipelineButton !== '', true)
+    check('y no pidiéndole que escriba el rol', ui.examples, [])
+    if (ui.pipelineButton !== '') console.log(`          botón: "${ui.pipelineButton}"`)
 
     // El formulario y sus perillas SE FUERON: el chat los reemplazó.
     check('ya no hay formulario de búsqueda', ui.hasForm, false)
