@@ -85,7 +85,11 @@ Podés renombrar el identificador, **nunca el valor**. El porqué de cada uno, e
   flags en allowlist, timeout duro, salida validada, jamás `exec` con strings.
 - **El escalón caro va último.** Regex antes que modelo — salvo en conexiones,
   donde el agente va primero y el porqué está en `connections.md`.
-- **Código nuevo en inglés; comentarios y copy de UI en español.** Deliberado.
+- **Todo en inglés: código, copy de UI y comentarios nuevos.** Cambió el 2026-08-12;
+  antes el copy de UI iba en español. Los comentarios viejos en español se dejan —
+  se traducen solo si se reescribe el archivo entero. **Los valores de la tabla de
+  arriba NO son copy y siguen en español para siempre**: son dato que el sistema
+  compara, no texto que alguien lee.
 
 ## El punto ciego: `typecheck` no cruza el IPC
 

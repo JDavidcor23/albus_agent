@@ -136,26 +136,36 @@ body::before {
     rgba(201, 151, 63, 0.02) 30%,
     transparent 65%
   ), var(--ground);
-  padding: 2.5rem;
-  gap: 3rem;
+  /* Fijos en 2.5rem/3rem se comían un tercio del ancho útil en una ventana de
+     900px. Con clamp la ventana chica respira y la grande no cambia. */
+  padding: clamp(1rem, 2.4vw, 2.5rem);
+  gap: clamp(1.25rem, 3vw, 3rem);
+  /* Sin esto un hijo flex nunca baja de su altura de contenido, y el overflow-y
+     de los paneles no se activa nunca. */
+  min-height: 0;
 }
 
 /* Layout Asimétrico */
 .panel-left {
   /* No crece ni se estira, pero sí puede encogerse en ventanas angostas. */
   flex: 0 1 320px;
-  min-width: 240px;
+  min-width: 220px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   border-right: 1px solid var(--line);
-  padding-right: 2.5rem;
+  padding-right: clamp(1rem, 2vw, 2.5rem);
+  /* El bug: sin esto lo que no entra queda fuera de alcance, porque html/body
+     tienen overflow:hidden y acá no había scroll propio. */
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .panel-right {
   flex: 1;
   /* Sin esto un hijo flex no baja de su ancho de contenido y desborda el shell. */
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
