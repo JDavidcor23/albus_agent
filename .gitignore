@@ -15,6 +15,12 @@ albus.yml
 .playwright-mcp/
 *.png
 
+# ...menos las imagenes de la documentacion. `*.png` esta para las capturas de
+# inspeccion, que son basura de una corrida; el logo del README es del proyecto y
+# sin esta linea GitHub muestra una imagen rota.
+!docs/*.png
+!resources/*.png
+
 # modelos de tesseract (binarios grandes, se descargan)
 *.traineddata
 
