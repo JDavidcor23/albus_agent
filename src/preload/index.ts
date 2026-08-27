@@ -28,7 +28,9 @@ import {
   type KitResultRow,
   type ResultRow,
   type TaskDetail,
-  type TaskRow
+  type TaskRow,
+  type VideoRunSummary,
+  type VideoStepEvent
 } from '../shared/ipc'
 
 const api = {
@@ -267,6 +269,29 @@ const api = {
     const handler = (_e: unknown, payload: JobApplyStepRow): void => cb(payload)
     ipcRenderer.on(IpcEvents.JOBS_STEP, handler)
     return () => ipcRenderer.removeListener(IpcEvents.JOBS_STEP, handler)
+  },
+
+  // ── extracción de video ──────────────────────────────────────────────────
+
+  /** Abre el diálogo nativo. `path: null` = el usuario canceló, no es un error. */
+  pickVideo: (): Promise<IpcResult<{ path: string | null }>> =>
+    ipcRenderer.invoke(IpcChannels.VIDEO_PICK),
+
+  runVideo: (req: {
+    path: string
+    model?: 'tiny' | 'base' | 'small' | 'medium'
+    language?: string
+    silenceDb?: number
+  }): Promise<IpcResult<VideoRunSummary>> => ipcRenderer.invoke(IpcChannels.VIDEO_RUN, req),
+
+  /** Abre la página o la carpeta. El main verifica que caiga dentro de su salida. */
+  openVideoOutput: (path: string): Promise<IpcResult<{ path: string }>> =>
+    ipcRenderer.invoke(IpcChannels.VIDEO_OPEN, { path }),
+
+  onVideoStep: (cb: (step: VideoStepEvent) => void): (() => void) => {
+    const handler = (_e: unknown, payload: VideoStepEvent): void => cb(payload)
+    ipcRenderer.on(IpcEvents.VIDEO_STEP, handler)
+    return () => ipcRenderer.removeListener(IpcEvents.VIDEO_STEP, handler)
   }
 }
 

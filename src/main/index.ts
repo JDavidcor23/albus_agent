@@ -14,6 +14,7 @@ import { registerGraphHandlers } from './ipc/graph.ipc'
 import { registerTaskHandlers } from './ipc/tasks.ipc'
 import { registerJobHandlers } from './ipc/jobs.ipc'
 import { registerConnectionHandlers } from './ipc/connections.ipc'
+import { registerVideoHandlers } from './ipc/video.ipc'
 import { applyConnections } from './connections/registry'
 import { terminateOcr } from './core/extraction/ocr'
 import { maybeRunJobsCommand } from './jobs/headless'
@@ -174,6 +175,7 @@ app.whenReady().then(() => {
   registerTaskHandlers()
   registerJobHandlers()
   registerConnectionHandlers()
+  registerVideoHandlers()
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)

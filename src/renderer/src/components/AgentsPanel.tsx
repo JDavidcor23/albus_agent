@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { AgentInfo, CliProviderInfo } from '../../../shared/ipc'
 import { JobChat } from './JobChat'
+import { VideoPanel } from './VideoPanel'
 
 /**
  * El contenedor de agentes.
@@ -15,12 +16,45 @@ import { JobChat } from './JobChat'
  * motivo. Esconderlo haría que el usuario crea que nunca existió.
  */
 
-/** id del registro → el componente que lo dibuja. */
-const PANELS: Record<string, (props: PanelProps) => React.JSX.Element> = {
+/**
+ * Nombre de PANTALLA → el componente que la dibuja.
+ *
+ * Ojo con lo que cambió: antes esto se indexaba por **id de agente**, y eso
+ * volvía imposible lo que Albus dice ser. Un agente que el usuario escribiera
+ * en su carpeta no podía tener cara nunca, porque su id no estaba en este mapa
+ * del código fuente — quedaba en la lista con "no tiene pantalla todavía" para
+ * siempre. Sumar un agente seguía siendo editar este archivo y compilar.
+ *
+ * Ahora el manifiesto ELIGE su pantalla (`"screen": "video"`). Las pantallas
+ * siguen siendo código; cuál usar es dato del usuario. Un segundo agente que
+ * procese grabaciones se escribe como archivo y no toca este archivo.
+ */
+const SCREENS: Record<string, (props: PanelProps) => React.JSX.Element> = {
   // Chat y no formulario: el agente se maneja hablándole. Ver `JobChat.tsx`.
-  'job-search': (p) => (
+  'job-chat': (p) => (
     <JobChat providerId={p.providerId} modelId={p.modelId} onError={p.onError} />
-  )
+  ),
+  /*
+   * Formulario y no chat, al revés que el de arriba: un pipeline determinista no
+   * tiene nada que conversar. Se elige un archivo y se espera.
+   */
+  video: (p) => <VideoPanel providerId={p.providerId} modelId={p.modelId} onError={p.onError} />
+}
+
+/**
+ * Los `.agente.json` que ya están en la carpeta del usuario no tienen `screen`:
+ * se escribieron antes de que el campo existiera, y una semilla NO sobrescribe
+ * un archivo que ya está. Sin este mapa, el agente de trabajo perdía su chat al
+ * actualizar la app — su pantalla existe, pero nadie sabría que le corresponde.
+ *
+ * Es una tabla de compatibilidad, no la forma de sumar agentes: un id nuevo acá
+ * es un bug. Se borra cuando ya no queden manifiestos viejos.
+ */
+const LEGACY_SCREEN_BY_ID: Record<string, string> = { 'job-search': 'job-chat' }
+
+function screenFor(agent: AgentInfo): string {
+  if (agent.screen !== '') return agent.screen
+  return LEGACY_SCREEN_BY_ID[agent.id] ?? ''
 }
 
 export interface PanelProps {
@@ -116,7 +150,7 @@ export function AgentsPanel({ providerId, modelId, onError, providers }: Props):
   }
 
   const selected = agents.find((a) => a.id === active) ?? null
-  const Panel = selected !== null ? PANELS[selected.id] : undefined
+  const Panel = selected === null ? undefined : SCREENS[screenFor(selected)]
 
   return (
     <div className="agentes">

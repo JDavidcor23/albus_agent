@@ -45,7 +45,7 @@ import { agentsDir } from '../paths'
  * una tiene una sonda de verdad en `registry.ts`, y un nombre que no esté ahí
  * sería una dependencia que nadie verifica — o sea, una que siempre pasa.
  */
-export const AGENT_NEEDS = ['linkedin', 'notion', 'google', 'workspace'] as const
+export const AGENT_NEEDS = ['linkedin', 'notion', 'google', 'workspace', 'video-tools'] as const
 export type AgentNeed = (typeof AGENT_NEEDS)[number]
 
 /**
@@ -79,7 +79,26 @@ export const AgentManifestSchema = z.object({
    * assert que lo verifique porque el archivo es del usuario: si escribe un
    * selector adentro, se lo lleva el modelo y se rompe solo.
    */
-  goals: z.array(z.string()).default([])
+  goals: z.array(z.string()).default([]),
+  /**
+   * Con qué pantalla se dibuja. **Es el dato que le faltaba al formato.**
+   *
+   * El renderer mapeaba `id de agente → componente`, y eso volvía imposible lo
+   * que este archivo entero viene a habilitar: un agente escrito a mano quedaba
+   * en la lista para siempre con "no tiene pantalla todavía", porque su id no
+   * estaba en un mapa del código fuente. Sumar un agente seguía siendo editar
+   * el renderer y compilar — exactamente lo que se quería sacar.
+   *
+   * Ahora la pantalla se ELIGE por dato. Las pantallas siguen siendo código
+   * —alguien tiene que escribir el formulario— pero cuál usar es del usuario.
+   * Es la misma línea que `needs` y `tools`: se COMPONE de lo que hay, no se
+   * inventa. Un nombre que no existe cae en "no tiene pantalla", que es la
+   * verdad.
+   *
+   * Vacío = se prueba con el id, para los manifiestos que se escribieron antes
+   * de que este campo existiera.
+   */
+  screen: z.string().default('')
 })
 
 export interface AgentManifest {
@@ -91,6 +110,7 @@ export interface AgentManifest {
   needs: AgentNeed[]
   tools: string[]
   goals: string[]
+  screen: string
 }
 
 const SUFFIX = '.agente.json'

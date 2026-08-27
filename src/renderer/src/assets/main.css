@@ -2891,3 +2891,148 @@ body::before {
   min-width: 0;
   margin-top: 0;
 }
+
+/* ── video extraction ─────────────────────────────────────────────────────────
+   The agent that turns a recording into a transcript plus screenshots. A form,
+   not a chat: there is no model to talk to, so there is nothing to negotiate.
+
+   The progress block carries real weight here. Transcribing an hour of audio is
+   two hours of CPU, and a panel that sits still for two hours reads as frozen. */
+
+.video {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.video-pick {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.video-file {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+  /* A recording is named after its timestamp and runs long. It wraps instead of
+     pushing the button off the row. */
+  overflow-wrap: anywhere;
+}
+
+.video-opts {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.video-opt {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.video-opt > span {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.video-opt select,
+.video-opt input {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  padding: 7px 9px;
+}
+
+.video-opt select:focus-visible,
+.video-opt input:focus-visible {
+  outline: none;
+  border-color: var(--brass);
+}
+
+.video-progress {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+}
+
+.video-stage {
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.video-bar {
+  height: 3px;
+  margin-top: 10px;
+  background: var(--line);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.video-bar-fill {
+  height: 100%;
+  background: var(--brass);
+  transition: width 0.3s ease;
+}
+
+.video-count,
+.video-hint {
+  margin-top: 7px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.video-count {
+  font-family: var(--font-mono);
+}
+
+.video-done {
+  background: var(--surface);
+  border: 1px solid var(--line-brass);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+}
+
+.video-done-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 19px;
+  color: var(--ink);
+}
+
+.video-done-sub {
+  margin: 7px 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+/* A failed chunk is NOT the same as filtered silence: it is a hole with speech
+   behind it. It gets the failure colour so it does not read as routine. */
+.video-warn {
+  margin: 9px 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--failed);
+}
+
+.video-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.video-actions .reglas-editar {
+  width: auto;
+  margin-top: 0;
+}

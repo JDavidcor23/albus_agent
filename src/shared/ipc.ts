@@ -52,7 +52,17 @@ export const IpcChannels = {
   JOBS_KIT: 'jobs:kit',
   JOBS_APPLY: 'jobs:apply',
   JOBS_EMAIL: 'jobs:email',
-  JOBS_CONFIRM: 'jobs:confirm'
+  JOBS_CONFIRM: 'jobs:confirm',
+  /**
+   * El archivo lo elige el MAIN, no el renderer.
+   *
+   * Un `<input type=file>` en el renderer devuelve un `File`, no una ruta: para
+   * mandarle 2,7 GB a ffmpeg habría que pasarlos por el IPC. El diálogo nativo
+   * devuelve la ruta y ffmpeg lee del disco.
+   */
+  VIDEO_PICK: 'video:pick',
+  VIDEO_RUN: 'video:run',
+  VIDEO_OPEN: 'video:open'
 } as const
 
 /** Eventos que el main empuja al renderer mientras corre un lote. */
@@ -80,8 +90,45 @@ export const IpcEvents = {
    * queda muda todo ese rato y el usuario no distingue "está trabajando" de
    * "se colgó" — que fue exactamente lo que pasó.
    */
-  CONNECTIONS_STEP: 'connections:step'
+  CONNECTIONS_STEP: 'connections:step',
+  /**
+   * En qué paso va el procesado de un video.
+   *
+   * Mismo motivo que los otros dos: `video:run` es un `invoke` y transcribir una
+   * hora de grabación son DOS horas de CPU. Sin este canal el usuario mira una
+   * pantalla quieta durante dos horas y concluye, con razón, que se colgó.
+   */
+  VIDEO_STEP: 'video:step'
 } as const
+
+/** En qué anda el procesado de un video. `total: 0` = un paso sin subpasos. */
+export interface VideoStepEvent {
+  stage: 'probe' | 'extract' | 'split' | 'transcribe' | 'filter' | 'page' | 'done'
+  label: string
+  done: number
+  total: number
+}
+
+export interface VideoRunSummary {
+  /** La carpeta con todo, para poder abrirla. */
+  outDir: string
+  pagePath: string
+  srtPath: string
+  textPath: string
+  cues: number
+  /**
+   * Cuántas líneas se descartaron por caer en silencio.
+   *
+   * Se muestra a propósito: es la prueba de que el filtro corrió. Un cero acá
+   * sobre una grabación larga no quiere decir "salió limpio", quiere decir
+   * "revisá el umbral".
+   */
+  droppedCues: number
+  frames: number
+  durationSeconds: number
+  /** Tramos que fallaron. Más de cero = el transcript tiene un hueco no-silencioso. */
+  failedChunks: number
+}
 
 /** Un paso de una conexión, tal como lo ve el usuario mientras pasa. */
 export interface ConnectionStepRow {
@@ -486,6 +533,15 @@ export interface AgentInfo {
   /** `false` = se pinta apagado con el motivo, no se esconde. */
   available: boolean
   reason: string
+  /**
+   * Qué pantalla usa, elegida en su manifiesto.
+   *
+   * Viaja hasta acá porque es lo que permite que un agente que el usuario
+   * escribió tenga cara. Antes el renderer buscaba el componente por ID, y un
+   * agente que no estuviera en ese mapa del código fuente no podía tener
+   * pantalla nunca. Vacío = se prueba con el id (manifiestos viejos).
+   */
+  screen: string
   rules: AgentRulesInfo
 }
 

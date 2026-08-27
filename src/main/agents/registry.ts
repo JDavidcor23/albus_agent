@@ -11,7 +11,9 @@ import { hasLinkedInSession } from '../browser/session'
 import { isNotionConfigured } from '../notion/client'
 import { hasGmailScope } from '../gmail/send'
 import { loadProfile } from '../jobs/workspace'
-import { JOB_SEARCH_SEED } from './seeds'
+import { ffmpegPath } from '../video/ffmpeg'
+import { whisperPath } from '../video/whisper'
+import { SEEDS } from './seeds'
 
 /**
  * El registro de agentes de Albus. Lee la CARPETA del usuario, no un array.
@@ -76,10 +78,31 @@ const PROBES: Record<AgentNeed, () => Promise<{ ok: boolean; reason: string }>> 
     } catch (error: unknown) {
       return { ok: false, reason: error instanceof Error ? error.message : String(error) }
     }
+  },
+
+  /*
+   * ffmpeg y whisper. Dependencia DURA y sin vuelta: no hay una versión
+   * degradada de "transcribir un video" que funcione sin ellos.
+   *
+   * Esta sonda es la razón por la que `'video-tools'` tuvo que entrar al enum de
+   * `AGENT_NEEDS` en vez de escribirse suelto en el manifiesto. El schema
+   * DESCARTA en silencio una necesidad que no conoce: un `"needs":
+   * ["ffmpeg"]` habría quedado en `needs: []`, y el agente se habría pintado
+   * disponible en una máquina sin ninguno de los dos para después explotar
+   * corriendo, sin motivo a la vista. Justo lo que `agents.md` prohíbe.
+   */
+  'video-tools': async () => {
+    const missing: string[] = []
+    if ((await ffmpegPath()) === null) missing.push('ffmpeg')
+    if ((await whisperPath()) === null) missing.push('whisper')
+
+    return missing.length === 0
+      ? { ok: true, reason: '' }
+      : { ok: false, reason: `falta ${missing.join(' y ')} en el PATH` }
   }
 }
 
-const HARD_NEEDS: readonly AgentNeed[] = ['workspace']
+const HARD_NEEDS: readonly AgentNeed[] = ['workspace', 'video-tools']
 
 async function checkNeeds(needs: AgentNeed[]): Promise<{ available: boolean; reason: string }> {
   const missing: string[] = []
@@ -113,8 +136,10 @@ async function checkNeeds(needs: AgentNeed[]): Promise<{ available: boolean; rea
  * cualquiera va a intentar cuando lo rompa editándolo.
  */
 export function installedAgents(): AgentManifest[] {
-  seedManifest(JOB_SEARCH_SEED.id, JOB_SEARCH_SEED.manifest)
-  ensureRules(JOB_SEARCH_SEED.id, JOB_SEARCH_SEED.rulesTemplate)
+  for (const seed of SEEDS) {
+    seedManifest(seed.id, seed.manifest)
+    ensureRules(seed.id, seed.rulesTemplate)
+  }
   return listManifests()
 }
 
@@ -131,6 +156,7 @@ export async function listAgents(): Promise<AgentInfo[]> {
       description: a.description,
       available: status.available,
       reason: status.reason,
+      screen: a.screen,
       rules: {
         // Todo agente usa archivo de reglas: es la forma de hablarle.
         supported: true,

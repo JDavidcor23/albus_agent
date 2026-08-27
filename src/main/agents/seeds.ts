@@ -22,6 +22,15 @@ import type { AgentManifest } from './manifest'
  * Y la prueba de que la distinción es real: el agente de trabajo recorre
  * exactamente el mismo camino que uno escrito a mano. Si fuera un caso especial,
  * el camino del usuario no se probaría nunca.
+ *
+ * ## Y por qué acá hay UNO solo
+ *
+ * Porque una semilla es una excepción, no la forma de sumar agentes. El de
+ * trabajo está porque la app tiene que arrancar mostrando algo. El de extracción
+ * de video **no está acá a propósito**: es un archivo en la carpeta del usuario,
+ * y su plantilla vive en `.claude/docs/video-analysis.md` para copiar y pegar.
+ * Ese es el camino que importa — si cada agente nuevo terminara en este archivo,
+ * "contenedor de agentes" sería una forma elegante de decir "hay que compilar".
  */
 
 export interface AgentSeed {
@@ -97,6 +106,14 @@ export const JOB_SEARCH_SEED: AgentSeed = {
      * cada capacidad es código.
      */
     tools: [],
+    /*
+     * Su pantalla, como DATO.
+     *
+     * Antes el renderer la buscaba por el ID del agente, y eso volvía imposible
+     * lo que Albus dice ser: un agente escrito a mano no podía tener cara nunca,
+     * porque su id no estaba en un mapa del código fuente.
+     */
+    screen: 'job-chat',
     /*
      * Los objetivos: el flujo del agente como DATO.
      *
