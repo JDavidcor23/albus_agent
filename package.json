@@ -22,6 +22,7 @@
     "notion:check": "tsx scripts/check-notion.ts",
     "drive:check": "tsx scripts/check-drive.ts",
     "ipc:check": "tsx scripts/check-ipc.ts",
+    "video:check": "tsx scripts/check-video.ts",
     "jobs:check": "tsx scripts/check-jobs.ts && tsx scripts/check-agents.ts && tsx scripts/check-ipc.ts",
     "jobs:check:live": "tsx scripts/check-live.ts",
     "gmail:auth": "tsx scripts/gmail-auth.ts",
