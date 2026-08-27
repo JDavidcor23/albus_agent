@@ -21,6 +21,33 @@ albus.yml
 !docs/*.png
 !resources/*.png
 
+# Video, audio y sus derivados. Un mp4 de una reunión son GIGABYTES, y de la
+# historia de git no se saca sin reescribirla: para cuando alguien lo nota, ya
+# está en el clon de todos. Los .jpg entran acá y no arriba con los .png porque
+# las capturas que salen de un video son .jpg (ver
+# .claude/docs/video-analysis.md), y ese hueco dejaba pasar 58 frames de una
+# grabación con la cara de alguien.
+*.mp4
+*.mov
+*.webm
+*.wav
+*.m4a
+*.mp3
+*.srt
+*.vtt
+*.jpg
+*.jpeg
+
+# ...misma excepción que los png: lo que es documentación del proyecto se commitea.
+!docs/*.jpg
+!resources/*.jpg
+
+# La carpeta de salida del pipeline de video, entera. Filtrar por extensión NO
+# alcanza: el HTML que une capturas + transcript es .html y el transcript plano
+# es .txt, y ninguno de los dos matchea las reglas de arriba. Ese archivo lleva
+# adentro, en base64, la cara de quien haya estado en la llamada.
+video-out/
+
 # modelos de tesseract (binarios grandes, se descargan)
 *.traineddata
 

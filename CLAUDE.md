@@ -19,6 +19,7 @@ My Notes escribe; Albus lee y escribe de vuelta.
 | `src/main/notion/`, `core/jobs/rank.ts`, `jobs/tracker.ts` | `.claude/docs/notion-and-tracking.md` |
 | sharp, tesseract, CDP, un DOM ajeno, un error raro de Supabase | `.claude/docs/gotchas.md` |
 | algo que "está mal" y parece obvio de arreglar | `.claude/docs/known-debt.md` · `src/main/devtools/README.md` |
+| un video, un audio, "analizá esta grabación", `src/main/video/`, `core/video/` | `.claude/docs/video-analysis.md` — Claude no acepta video: hay que convertirlo, y whisper INVENTA sobre el silencio |
 
 ## Los dos repos: la frontera de seguridad
 
@@ -123,6 +124,8 @@ npm run typecheck        # node + web. EL gate: no hay linter ni test runner.
 npx tsx scripts/x.ts     # un script TS sin build
 npm run jobs:check       # dominio puro + contrato IPC, sin Electron ni red
 npm run ipc:check        # solo el punto ciego: claves del preload vs. schemas zod del main
+npm run video:check      # dominio del video + binarios. Con una ruta, corre el pipeline entero:
+                         #   npm run video:check -- "grabacion.mp4" 210
 npm run jobs:check:live  # los que tocan red y credenciales (scraping, Notion, Gmail)
 npm run jobs:selftest    # navegador contra resources/job-form-fixture.html
 npm run nav:check        # "el agente mira la página", con un modelo falso
