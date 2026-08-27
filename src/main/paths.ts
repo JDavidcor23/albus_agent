@@ -196,6 +196,18 @@ export function graphifyDir(): string {
   return join(dataDir(), 'graphify')
 }
 
+/**
+ * Lo que sale de procesar una grabación: capturas, transcript y la página.
+ *
+ * Va al lado del usuario y no al cache porque es el ENTREGABLE — transcribir
+ * una hora de video cuesta una hora de CPU, y perderlo al limpiar un cache
+ * sería perder eso. El wav y los tramos, que sí son descartables y pesan cien
+ * megas, se quedan en `cacheDir()` y se borran al terminar.
+ */
+export function videoDir(): string {
+  return join(dataDir(), 'video')
+}
+
 /** Las credenciales. */
 export function albusYmlPath(): string {
   return join(dataDir(), 'albus.yml')
