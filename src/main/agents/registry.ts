@@ -14,6 +14,8 @@ import { loadProfile } from '../jobs/workspace'
 import { ffmpegPath } from '../video/ffmpeg'
 import { whisperPath } from '../video/whisper'
 import { SEEDS } from './seeds'
+import { externalAgentInfos } from '../hub/agent-info'
+import { listExternalAgents } from '../hub/discover'
 
 /**
  * El registro de agentes de Albus. Lee la CARPETA del usuario, no un array.
@@ -171,6 +173,8 @@ export async function listAgents(): Promise<AgentInfo[]> {
       available: status.available,
       reason: status.reason,
       screen: a.screen,
+      origin: 'builtin',
+      external: null,
       rules: {
         // Todo agente usa archivo de reglas: es la forma de hablarle.
         supported: true,
@@ -187,6 +191,11 @@ export async function listAgents(): Promise<AgentInfo[]> {
       }
     })
   }
+
+  // External agents (the hub) append to the SAME list the renderer reads
+  // from `agents:list` — one list, two origins. See `.claude/docs/agents-hub.md`.
+  const builtinIds = new Set(info.map((a) => a.id))
+  info.push(...(await externalAgentInfos(builtinIds)))
 
   return info
 }
@@ -230,15 +239,27 @@ export function enabledTools<T extends { name: string }>(agentId: string, all: T
 /** Abre el `.md` de reglas del agente, creándolo vacío si no está. */
 export async function openAgentRules(agentId: string): Promise<string> {
   const a = agentManifest(agentId)
-  if (a === null) throw new Error(`no conozco el agente "${agentId}"`)
+  if (a !== null) {
+    /*
+     * Un agente escrito a mano no tiene plantilla, y eso está bien: se le crea un
+     * archivo con el encabezado mínimo. Antes esto tiraba "no usa archivo de
+     * reglas" para cualquiera que no estuviera en el array — o sea, para todos los
+     * que el usuario escribiera.
+     */
+    return await openRules(agentId, `# ${a.name} — reglas\n\nEscribí acá lo que querés que respete.\n\n- \n`)
+  }
 
   /*
-   * Un agente escrito a mano no tiene plantilla, y eso está bien: se le crea un
-   * archivo con el encabezado mínimo. Antes esto tiraba "no usa archivo de
-   * reglas" para cualquiera que no estuviera en el array — o sea, para todos los
-   * que el usuario escribiera.
+   * No es un agente builtin — puede ser uno del hub. Mismo archivo, mismo
+   * contrato (`AGENT_RULES_PATH`); la plantilla sale del `agent.json` externo
+   * en vez de un `AgentManifest`. Un `agent.json` roto todavía deja abrir el
+   * archivo: el folder name hace de nombre.
    */
-  return await openRules(agentId, `# ${a.name} — reglas\n\nEscribí acá lo que querés que respete.\n\n- \n`)
+  const external = (await listExternalAgents()).find((e) => e.id === agentId)
+  if (external === undefined) throw new Error(`no conozco el agente "${agentId}"`)
+
+  const name = external.manifest?.name ?? external.id
+  return await openRules(agentId, `# ${name} — reglas\n\nEscribí acá lo que querés que respete.\n\n- \n`)
 }
 
 /**

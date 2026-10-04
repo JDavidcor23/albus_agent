@@ -73,7 +73,20 @@ export const IpcChannels = {
    */
   VIDEO_LIST: 'video:list',
   /** Ponerle nombre a un transcript. Cambia el título, NUNCA la carpeta. */
-  VIDEO_RENAME: 'video:rename'
+  VIDEO_RENAME: 'video:rename',
+
+  // ── agents hub: discover, run, install and open external agents ─────────
+  // See `.claude/docs/agents-hub.md`. These are separate from AGENTS_* above:
+  // those list/rule/answer BOTH builtin and external agents; these run only
+  // the external ones (an external agent has no `run` equivalent for a
+  // builtin agent — builtins don't spawn a child process).
+  HUB_RUN: 'hub:run',
+  HUB_CANCEL: 'hub:cancel',
+  HUB_RESULTS: 'hub:results',
+  HUB_OPEN: 'hub:open',
+  HUB_INSTALL: 'hub:install',
+  HUB_PICK_FOLDER: 'hub:pick-folder',
+  HUB_OPEN_HUB: 'hub:open-hub'
 } as const
 
 /** Eventos que el main empuja al renderer mientras corre un lote. */
@@ -109,7 +122,15 @@ export const IpcEvents = {
    * hora de grabación son DOS horas de CPU. Sin este canal el usuario mira una
    * pantalla quieta durante dos horas y concluye, con razón, que se colgó.
    */
-  VIDEO_STEP: 'video:step'
+  VIDEO_STEP: 'video:step',
+  /**
+   * One line of a hub agent's run, in vivo. `hub:run` is an `invoke` and an
+   * external agent can run for its whole `timeoutMinutes` — same reasoning as
+   * `VIDEO_STEP` and `JOBS_AGENT_STEP`.
+   */
+  HUB_EVENT: 'hub:event',
+  /** One step of `hub:install`, as it happens — cloning or `npm install` can take minutes. */
+  HUB_INSTALL_STEP: 'hub:install-step'
 } as const
 
 /** En qué anda el procesado de un video. `total: 0` = un paso sin subpasos. */
@@ -597,9 +618,88 @@ export interface AgentInfo {
    * escribió tenga cara. Antes el renderer buscaba el componente por ID, y un
    * agente que no estuviera en ese mapa del código fuente no podía tener
    * pantalla nunca. Vacío = se prueba con el id (manifiestos viejos).
+   *
+   * An external agent always gets `'external'`: one generic screen for every
+   * agent installed through the hub, instead of one component per agent id.
    */
   screen: string
   rules: AgentRulesInfo
+  /**
+   * `'builtin'` lives in `src/main/agents/` (job-search, and whatever ships
+   * with the app next). `'external'` is a folder under `agents-hub/agents/`
+   * that Albus only discovers, installs and runs — see `.claude/docs/agents-hub.md`.
+   */
+  origin: 'builtin' | 'external'
+  /** `null` for a builtin agent. Set only for `origin: 'external'`. */
+  external: ExternalAgentDetails | null
+}
+
+/**
+ * What the hub knows about one external agent, beyond the common `AgentInfo`
+ * shape. `running` lets the UI show a spinner/cancel button without a second
+ * round trip to `hub:run`'s in-flight state.
+ */
+export interface ExternalAgentDetails {
+  /** Where its own code (its own git repo) lives. Shown so the user can find it, never opened blind. */
+  dir: string
+  /** Where it writes what it produces. */
+  resultsDir: string
+  version: string
+  /** The command names its `agent.json` declares (`run`, `check`, …), not the full line. */
+  commands: string[]
+  /** Informative only — Albus cannot probe a third party's own session. */
+  needs: string[]
+  /** Informative only — Albus does not schedule anything. */
+  schedule: string
+  running: boolean
+}
+
+/**
+ * The hub's own run protocol, mirrored here so the renderer can type the
+ * events it receives without importing `main/core/hub/protocol.ts` (which
+ * `shared/ipc.ts` cannot: it imports nothing). `result.path`/the `path` on a
+ * `result` event are RELATIVE to the agent's results folder here — the main
+ * process turns the absolute path it resolved internally into a relative one
+ * before it ever reaches the renderer, same reasoning as `HubResultFile`.
+ */
+export type HubAgentEvent =
+  | { type: 'progress'; message: string; percent?: number }
+  | { type: 'result'; path: string | null; message: string }
+  | { type: 'question'; question: string; context: string; options: string[] }
+  | { type: 'error'; message: string }
+  | { type: 'log'; text: string }
+
+export interface HubRunSummary {
+  runId: string
+  agentId: string
+  command: string
+  status: 'ok' | 'failed' | 'timeout' | 'cancelled'
+  exitCode: number | null
+  message: string
+  /** `path` is relative to the results folder, or `null`. */
+  results: { path: string | null; message: string }[]
+  /** Capped to the last 50 — more than that and nobody is reading them live anyway. */
+  events: HubAgentEvent[]
+}
+
+/** One file already on disk under an agent's results folder. */
+export interface HubResultFile {
+  relPath: string
+  size: number
+  modifiedAt: string
+}
+
+export interface HubInstallStep {
+  step: string
+  ok: boolean
+  detail: string
+}
+
+export interface HubInstallReport {
+  ok: boolean
+  id: string | null
+  dir: string | null
+  steps: HubInstallStep[]
 }
 
 /** Una referencia que el usuario enlazó en su `.md` de reglas. */

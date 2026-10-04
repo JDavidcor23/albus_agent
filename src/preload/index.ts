@@ -18,6 +18,11 @@ import {
   type ConnectionInfo,
   type ConnectionStepRow,
   type EmailApplyResult,
+  type HubAgentEvent,
+  type HubInstallReport,
+  type HubInstallStep,
+  type HubResultFile,
+  type HubRunSummary,
   type HuntProgress,
   type HuntResult,
   type ItemStartEvent,
@@ -308,6 +313,59 @@ const api = {
     const handler = (_e: unknown, payload: VideoStepEvent): void => cb(payload)
     ipcRenderer.on(IpcEvents.VIDEO_STEP, handler)
     return () => ipcRenderer.removeListener(IpcEvents.VIDEO_STEP, handler)
+  },
+
+  // ── agents hub: discover, run, install and open external agents ─────────
+  // `listAgents()` already returns these mixed in with the builtin ones
+  // (`origin: 'external'`); what follows is specific to running and managing
+  // the hub's own code and results. See `.claude/docs/agents-hub.md`.
+
+  runHubAgent: (agentId: string, command = 'run'): Promise<IpcResult<HubRunSummary>> =>
+    ipcRenderer.invoke(IpcChannels.HUB_RUN, { agentId, command }),
+
+  cancelHubAgent: (agentId: string): Promise<IpcResult<boolean>> =>
+    ipcRenderer.invoke(IpcChannels.HUB_CANCEL, { agentId }),
+
+  listHubResults: (agentId: string): Promise<IpcResult<HubResultFile[]>> =>
+    ipcRenderer.invoke(IpcChannels.HUB_RESULTS, { agentId }),
+
+  /**
+   * Opens the agent's own code folder, its results folder, or one file
+   * inside the results folder (`relPath`, required for `target: 'file'`).
+   * The main process re-checks that a `file` target falls inside the
+   * results folder — it never trusts a path the renderer hands back.
+   */
+  openHubPath: (
+    agentId: string,
+    target: 'code' | 'results' | 'file',
+    relPath?: string
+  ): Promise<IpcResult<{ opened: boolean }>> =>
+    ipcRenderer.invoke(IpcChannels.HUB_OPEN, { agentId, target, relPath }),
+
+  /** `link: true` installs as a filesystem junction instead of copying/cloning. */
+  installHubAgent: (source: string, link: boolean): Promise<IpcResult<HubInstallReport>> =>
+    ipcRenderer.invoke(IpcChannels.HUB_INSTALL, { source, link }),
+
+  /** Native folder picker, for choosing a local agent folder to install. `null` = cancelled. */
+  pickHubAgentFolder: (): Promise<IpcResult<string | null>> =>
+    ipcRenderer.invoke(IpcChannels.HUB_PICK_FOLDER),
+
+  /** Opens `agents-hub/` itself in the system file explorer. */
+  openAgentsHub: (): Promise<IpcResult<{ opened: boolean }>> =>
+    ipcRenderer.invoke(IpcChannels.HUB_OPEN_HUB),
+
+  /** One line of a hub agent's run, live. `hub:run` does not resolve until the agent finishes. */
+  onHubEvent: (cb: (payload: { agentId: string; event: HubAgentEvent }) => void): (() => void) => {
+    const handler = (_e: unknown, payload: { agentId: string; event: HubAgentEvent }): void => cb(payload)
+    ipcRenderer.on(IpcEvents.HUB_EVENT, handler)
+    return () => ipcRenderer.removeListener(IpcEvents.HUB_EVENT, handler)
+  },
+
+  /** One step of `hub:install`, live — cloning or `npm install` can take minutes. */
+  onHubInstallStep: (cb: (step: HubInstallStep) => void): (() => void) => {
+    const handler = (_e: unknown, payload: HubInstallStep): void => cb(payload)
+    ipcRenderer.on(IpcEvents.HUB_INSTALL_STEP, handler)
+    return () => ipcRenderer.removeListener(IpcEvents.HUB_INSTALL_STEP, handler)
   }
 }
 
