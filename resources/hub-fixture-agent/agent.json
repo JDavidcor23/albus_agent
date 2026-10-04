@@ -1,0 +1,19 @@
+{
+  "protocol": 1,
+  "id": "hub-fixture-agent",
+  "name": "Hub fixture agent",
+  "description": "Plain Node fixture with no dependencies, used by scripts/check-hub.ts to exercise the agents-hub adapters end to end.",
+  "version": "0.0.1",
+  "commands": {
+    "run": "node agent.mjs 0",
+    "fail": "node agent.mjs 2",
+    "check": "node agent.mjs 0",
+    "sleep": "node agent.mjs sleep"
+  },
+  "timeoutMinutes": 1,
+  "needs": [],
+  "schedule": "",
+  "exitCodes": {
+    "2": "fixture says: needs setup"
+  }
+}

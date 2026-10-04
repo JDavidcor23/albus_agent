@@ -221,6 +221,63 @@ export function udemyDir(): string {
   return join(dataDir(), 'udemy')
 }
 
+/** CONTRACT — root folder name for the agents hub. Renaming it orphans every installed agent and its results. */
+const AGENTS_HUB_FOLDER = 'agents-hub'
+
+/** CONTRACT — the code subfolder inside the hub. Renaming it hides every installed agent from discovery. */
+const AGENTS_HUB_CODE_FOLDER = 'agents'
+
+/** CONTRACT — the results subfolder inside the hub. Renaming it orphans everything an agent already produced. */
+const AGENTS_HUB_RESULTS_FOLDER = 'results'
+
+/**
+ * Root of the agents hub: external agents' own CODE and what they PRODUCE.
+ *
+ * Lives in `Documents/`, same reasoning as `dataDir()` — computed by hand via
+ * `documentsDir()`, never `app.getPath('documents')` (see that comment above:
+ * it hung the boot on a machine with OneDrive). `ALBUS_AGENTS_HUB_DIR` moves
+ * it, the same escape hatch `ALBUS_DATA_DIR` is for `dataDir()`.
+ *
+ * Test mode gets its own throwaway folder under `cacheDir()` so a check
+ * script never touches a real installed agent or its real results — same
+ * reasoning as `dataDir()`'s `pruebas` folder.
+ */
+export function agentsHubDir(): string {
+  if (isTestMode()) return join(cacheDir(), 'pruebas', AGENTS_HUB_FOLDER)
+
+  const override = process.env.ALBUS_AGENTS_HUB_DIR?.trim()
+  if (override !== undefined && override !== '') return override
+
+  return join(documentsDir(), AGENTS_HUB_FOLDER)
+}
+
+/** Where an external agent's own code (its own git repo) lives, one folder per agent id. */
+export function agentsCodeDir(): string {
+  return join(agentsHubDir(), AGENTS_HUB_CODE_FOLDER)
+}
+
+/**
+ * Where an external agent writes what it produces. Same id as its code
+ * folder on purpose — see `.claude/docs/agents-hub.md`.
+ */
+export function agentResultsDir(agentId: string): string {
+  // Same guard as `manifestPath`: the id ends up in a path, so a stray `..`
+  // must not be able to write outside this folder.
+  const clean = agentId.replace(/[^a-z0-9-]/gi, '')
+  return join(agentsHubDir(), AGENTS_HUB_RESULTS_FOLDER, clean)
+}
+
+/**
+ * Diagnostic log of every hub run, one JSON-lines file per run.
+ *
+ * Lives in `cacheDir()`, not inside the hub: it is Albus's own diagnostic,
+ * not a deliverable the agent produced. "Albus never writes inside the
+ * agent's folder" is the same rule in both directions.
+ */
+export function agentRunsDir(): string {
+  return join(cacheDir(), 'agent-runs')
+}
+
 /** Las credenciales. */
 export function albusYmlPath(): string {
   return join(dataDir(), 'albus.yml')
