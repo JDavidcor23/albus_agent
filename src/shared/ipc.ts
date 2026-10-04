@@ -86,7 +86,14 @@ export const IpcChannels = {
   HUB_OPEN: 'hub:open',
   HUB_INSTALL: 'hub:install',
   HUB_PICK_FOLDER: 'hub:pick-folder',
-  HUB_OPEN_HUB: 'hub:open-hub'
+  HUB_OPEN_HUB: 'hub:open-hub',
+  /**
+   * Reads one `.html` result so Albus can show it sandboxed instead of
+   * opening the OS browser. Separate from `HUB_OPEN`'s `target: 'file'`:
+   * that one hands the OS a path, this one hands the renderer the bytes —
+   * an agent's report is content Albus renders, not a file it merely opens.
+   */
+  HUB_READ_REPORT: 'hub:read-report'
 } as const
 
 /** Eventos que el main empuja al renderer mientras corre un lote. */
@@ -686,6 +693,21 @@ export interface HubRunSummary {
 export interface HubResultFile {
   relPath: string
   size: number
+  modifiedAt: string
+}
+
+/**
+ * One `.html` result, read so Albus can show it in a sandboxed `<iframe>`.
+ *
+ * Albus never knows what a given agent IS — this is the one exception an
+ * agent can opt into: any agent that writes an `.html` file to its results
+ * folder gets it rendered, without Albus needing a bespoke screen for it.
+ * See `.claude/docs/agents-hub.md` §"Reportes HTML".
+ */
+export interface HubReport {
+  /** Relative to the agent's results folder, same shape as `HubResultFile.relPath`. */
+  relPath: string
+  html: string
   modifiedAt: string
 }
 

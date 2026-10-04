@@ -213,6 +213,31 @@ biblioteca aparece vacía sin ningún error. Es el contrato congelado de `video/
 `meta.json` y `transcript.srt` de `frozen-contracts.md`. Se copia entrada por
 entrada con `copyMissing`, nunca se mueve.
 
+## Reportes HTML
+
+Cualquier agente puede escribir un `.html` en su carpeta de resultados (la
+misma `results/<id>/` de siempre, sin convención de nombre ni de ubicación
+adicional). Si lo hace, Albus lo muestra en la pantalla del agente, dentro de
+un `<iframe sandbox="">` sin `allow-scripts`, sin `allow-same-origin` y sin
+`allow-popups`: el HTML viene de un tercero y puede traer texto generado por
+un modelo, así que Albus no le da ni ejecución de script ni origen propio ni
+capacidad de abrir ventanas. Los links de adentro no navegan por eso mismo —
+para eso queda el botón "open in browser", que abre el archivo con
+`hub:open`/`target: 'file'`, el mismo camino que ya usaba cualquier otro
+resultado.
+
+El contrato es una línea: **un resultado con ruta `.html` es un reporte que
+se puede ver.** No hay que declarar nada en `agent.json` ni avisarle a Albus
+de ninguna otra forma — es el mismo principio que el resto del hub: el agente
+dueño de su presentación, Albus genérico. El canal que lee el archivo es
+`hub:read-report` (`{agentId, relPath}` → `{relPath, html, modifiedAt}`),
+separado de `hub:open`: ese le pide al sistema operativo que abra un path,
+este le entrega los bytes al renderer para pintarlos. Mismas reglas de
+seguridad que el resto del hub — `relPath` se resuelve con
+`resolveInsideResults` y se rechaza si se escapa de `results/<id>/` — más un
+límite de 2 MB: un reporte se lee entero a memoria antes de mandarlo por
+IPC, y eso lo mantiene barato.
+
 ## Lo que NO cambió y conviene saber
 
 - El provider `claude-code.ts` sigue sin aislar el contexto. La sesión de WhatsApp

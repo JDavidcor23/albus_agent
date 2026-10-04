@@ -21,6 +21,7 @@ import {
   type HubAgentEvent,
   type HubInstallReport,
   type HubInstallStep,
+  type HubReport,
   type HubResultFile,
   type HubRunSummary,
   type HuntProgress,
@@ -328,6 +329,10 @@ const api = {
 
   listHubResults: (agentId: string): Promise<IpcResult<HubResultFile[]>> =>
     ipcRenderer.invoke(IpcChannels.HUB_RESULTS, { agentId }),
+
+  /** Reads one `.html` result's bytes so the renderer can show it in a sandboxed `<iframe>` instead of opening the OS browser. */
+  readHubReport: (agentId: string, relPath: string): Promise<IpcResult<HubReport>> =>
+    ipcRenderer.invoke(IpcChannels.HUB_READ_REPORT, { agentId, relPath }),
 
   /**
    * Opens the agent's own code folder, its results folder, or one file

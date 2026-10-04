@@ -1,10 +1,18 @@
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, readFileSync, statSync } from 'node:fs'
 import { relative } from 'node:path'
 import { dialog, shell } from 'electron'
 import { z } from 'zod'
 import { registerHandler } from './register-handler'
 import { appWindow } from '../app-window'
-import { IpcChannels, IpcEvents, type HubAgentEvent, type HubInstallReport, type HubResultFile, type HubRunSummary } from '../../shared/ipc'
+import {
+  IpcChannels,
+  IpcEvents,
+  type HubAgentEvent,
+  type HubInstallReport,
+  type HubReport,
+  type HubResultFile,
+  type HubRunSummary
+} from '../../shared/ipc'
 import { agentResultsDir, agentsHubDir } from '../paths'
 import { listExternalAgents } from '../hub/discover'
 import { runAgent, cancelRun } from '../hub/runner'
@@ -47,7 +55,16 @@ const InstallSchema = z.object({
   link: z.boolean()
 })
 
+const ReadReportSchema = z.object({
+  agentId: z.string().regex(AGENT_ID_PATTERN),
+  /** Case-insensitive: an agent's build step may emit `Report.HTML`, and Albus does not get to police that. */
+  relPath: z.string().min(1).max(500).regex(/\.html$/i)
+})
+
 const MAX_EVENTS = 50
+
+/** A report is read into memory and sent whole over IPC — 2 MB keeps that cheap and rules out someone's video dump mislabeled `.html`. */
+const MAX_REPORT_BYTES = 2 * 1024 * 1024
 
 function broadcast(channel: string, payload: unknown): void {
   appWindow()?.webContents.send(channel, payload)
@@ -112,6 +129,26 @@ export function registerHubHandlers(): void {
   registerHandler<HubResultFile[]>(IpcChannels.HUB_RESULTS, async (payload) => {
     const { agentId } = AgentIdSchema.parse(payload)
     return listResults(agentId).map((r) => ({ relPath: r.relPath, size: r.size, modifiedAt: r.modifiedAt }))
+  })
+
+  registerHandler<HubReport>(IpcChannels.HUB_READ_REPORT, async (payload) => {
+    const { agentId, relPath } = ReadReportSchema.parse(payload)
+
+    // Same escape check as `HUB_OPEN`'s `target: 'file'` — this handler hands
+    // back bytes instead of asking the OS to open them, but the path still
+    // comes from the renderer and still needs to land inside results/<id>.
+    const resolved = resolveInsideResults(agentId, relPath)
+    if (resolved === null) throw new Error('that path escapes the results folder')
+
+    const stat = statSync(resolved)
+    if (!stat.isFile()) throw new Error('that path is not a file')
+    if (stat.size > MAX_REPORT_BYTES) throw new Error('report is too large to preview (over 2 MB)')
+
+    return {
+      relPath,
+      html: readFileSync(resolved, 'utf8'),
+      modifiedAt: stat.mtime.toISOString()
+    }
   })
 
   registerHandler<{ opened: boolean }>(IpcChannels.HUB_OPEN, async (payload) => {

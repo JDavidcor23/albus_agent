@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { AgentInfo, HubAgentEvent, HubResultFile, HubRunSummary } from '../../../shared/ipc'
+import type { AgentInfo, HubAgentEvent, HubReport, HubResultFile, HubRunSummary } from '../../../shared/ipc'
 
 /**
  * The generic screen for every agent the hub runs.
@@ -31,6 +31,15 @@ function humanDate(iso: string): string {
   return at.toLocaleString()
 }
 
+/**
+ * Case-insensitive on purpose: the agent's own build step picks the casing of
+ * whatever it writes, and Albus does not get to police that — same relaxed
+ * matching as the `regex(/\.html$/i)` the main process validates against.
+ */
+function isHtmlReportPath(path: string): boolean {
+  return /\.html$/i.test(path)
+}
+
 function statusLabel(status: HubRunSummary['status']): string {
   if (status === 'ok') return 'finished'
   if (status === 'failed') return 'failed'
@@ -57,19 +66,28 @@ function logLineClass(type: HubAgentEvent['type']): string {
 function ResultLine({
   message,
   path,
-  onOpen
+  onOpen,
+  onView
 }: {
   message: string
   path: string | null
   onOpen: (relPath: string) => void
+  onView: (relPath: string) => void
 }): React.JSX.Element {
   return (
     <span>
       {message}
       {path !== null && (
-        <button type="button" className="external-agent-log-open" onClick={() => onOpen(path)}>
-          open
-        </button>
+        <>
+          <button type="button" className="external-agent-log-open" onClick={() => onOpen(path)}>
+            open
+          </button>
+          {isHtmlReportPath(path) && (
+            <button type="button" className="external-agent-log-open" onClick={() => onView(path)}>
+              view
+            </button>
+          )}
+        </>
       )}
     </span>
   )
@@ -98,6 +116,9 @@ export function ExternalAgentPanel({ agent, onError }: Props): React.JSX.Element
   const [summary, setSummary] = useState<HubRunSummary | null>(null)
   const [results, setResults] = useState<HubResultFile[]>([])
   const [resultsLoading, setResultsLoading] = useState(true)
+  const [report, setReport] = useState<HubReport | null>(null)
+  const [reportPath, setReportPath] = useState<string | null>(null)
+  const [reportLoading, setReportLoading] = useState(false)
 
   // Returns the unsubscribe: without it StrictMode mounts the handler twice.
   useEffect(() => {
@@ -108,6 +129,24 @@ export function ExternalAgentPanel({ agent, onError }: Props): React.JSX.Element
     })
   }, [agent.id])
 
+  const loadReport = useCallback(
+    async (relPath: string): Promise<void> => {
+      setReportLoading(true)
+      try {
+        const res = await window.api.readHubReport(agent.id, relPath)
+        if (!res.ok) {
+          onError(res.error.message)
+          return
+        }
+        setReport(res.data)
+        setReportPath(res.data.relPath)
+      } finally {
+        setReportLoading(false)
+      }
+    },
+    [agent.id, onError]
+  )
+
   const refreshResults = useCallback(async (): Promise<void> => {
     const res = await window.api.listHubResults(agent.id)
     setResultsLoading(false)
@@ -116,7 +155,19 @@ export function ExternalAgentPanel({ agent, onError }: Props): React.JSX.Element
       return
     }
     setResults(res.data)
-  }, [agent.id, onError])
+
+    // Resync the viewer to the newest report every time results reload: a
+    // fresh run may have produced a newer one, and this reuses the three
+    // existing reload points below (run completion, window focus, external
+    // run polling) instead of adding new ones.
+    const latestHtml = res.data.find((r) => isHtmlReportPath(r.relPath))
+    if (latestHtml !== undefined) {
+      void loadReport(latestHtml.relPath)
+    } else {
+      setReport(null)
+      setReportPath(null)
+    }
+  }, [agent.id, onError, loadReport])
 
   useEffect(() => {
     void refreshResults()
@@ -311,7 +362,7 @@ export function ExternalAgentPanel({ agent, onError }: Props): React.JSX.Element
               {e.type === 'progress' && <span>{e.message}</span>}
               {e.type === 'error' && <span>{e.message}</span>}
               {e.type === 'result' && (
-                <ResultLine message={e.message} path={e.path} onOpen={openResultFile} />
+                <ResultLine message={e.message} path={e.path} onOpen={openResultFile} onView={loadReport} />
               )}
               {e.type === 'question' && (
                 <span>
@@ -329,6 +380,43 @@ export function ExternalAgentPanel({ agent, onError }: Props): React.JSX.Element
           {statusLabel(summary.status)}
           {summary.message !== '' && ` — ${summary.message}`}
           {summary.exitCode !== null && ` (exit ${summary.exitCode})`}
+        </div>
+      )}
+
+      {reportPath !== null && (
+        <div className="external-agent-report">
+          <div className="external-agent-report-head">
+            <h4>latest report</h4>
+            <div className="external-agent-report-meta">
+              <span className="external-agent-report-path">{reportPath}</span>
+              {report !== null && <span>{humanDate(report.modifiedAt)}</span>}
+              <button
+                type="button"
+                className="external-agent-log-open"
+                onClick={() => void openResultFile(reportPath)}
+              >
+                open in browser ↗
+              </button>
+            </div>
+          </div>
+
+          {reportLoading && <p className="video-empty">loading the report…</p>}
+
+          {/*
+           * Empty `sandbox` on purpose: the HTML came from a third-party agent
+           * and may contain model-generated text. No `allow-scripts`, no
+           * `allow-same-origin`, no `allow-popups` — links render but do not
+           * navigate, which is an acceptable tradeoff for a non-interactive
+           * preview (see "open in browser" above for anything clickable).
+           */}
+          {!reportLoading && report !== null && (
+            <iframe
+              sandbox=""
+              srcDoc={report.html}
+              title={`${agent.name} report — ${reportPath}`}
+              className="external-agent-report-frame"
+            />
+          )}
         </div>
       )}
 
@@ -350,20 +438,32 @@ export function ExternalAgentPanel({ agent, onError }: Props): React.JSX.Element
 
         {results.length > 0 && (
           <ul className="external-agent-results-list">
-            {results.map((r) => (
-              <li key={r.relPath} className="external-agent-result-row">
-                <button
-                  type="button"
-                  className="external-agent-result-link"
-                  onClick={() => void openResultFile(r.relPath)}
-                >
-                  {r.relPath}
-                </button>
-                <span className="external-agent-result-meta">
-                  {humanSize(r.size)} · {humanDate(r.modifiedAt)}
-                </span>
-              </li>
-            ))}
+            {results.map((r) => {
+              const isHtml = isHtmlReportPath(r.relPath)
+              return (
+                <li key={r.relPath} className="external-agent-result-row">
+                  <button
+                    type="button"
+                    className="external-agent-result-link"
+                    onClick={() => void (isHtml ? loadReport(r.relPath) : openResultFile(r.relPath))}
+                  >
+                    {r.relPath}
+                  </button>
+                  <span className="external-agent-result-meta">
+                    {humanSize(r.size)} · {humanDate(r.modifiedAt)}
+                    {isHtml && (
+                      <button
+                        type="button"
+                        className="external-agent-log-open"
+                        onClick={() => void openResultFile(r.relPath)}
+                      >
+                        open in browser ↗
+                      </button>
+                    )}
+                  </span>
+                </li>
+              )
+            })}
           </ul>
         )}
       </div>
