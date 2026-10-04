@@ -10,6 +10,12 @@ import { resolveBinary } from '../providers/cli-common'
  * A broken `agent.json` is listed WITH its problem, never hidden — same rule
  * as a broken `.md` rules file or a corrupt `.agente.json`: "a hidden agent
  * is an agent the user believes never existed" (`.claude/docs/agents.md`).
+ *
+ * This function itself never filters by `manifest.hidden` either — the owner
+ * opt-out that field represents is a renderer-list concern, applied in
+ * `agent-info.ts`. `listExternalAgents` stays the one unfiltered source of
+ * truth so `runner.ts` and the hub CLI can always find an agent by id,
+ * hidden or not.
  */
 export interface ExternalAgentEntry {
   /** The folder name. Equals `manifest.id` when the manifest is valid. */

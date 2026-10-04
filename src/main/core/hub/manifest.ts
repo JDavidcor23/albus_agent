@@ -61,7 +61,18 @@ export const AgentJsonSchema = z.object({
    * an agent that sets `runLabel: ""` explicitly gets the same fallback instead
    * of a rejected manifest over a cosmetic field.
    */
-  runLabel: z.string().max(40).default('')
+  runLabel: z.string().max(40).default(''),
+  /**
+   * An explicit owner opt-out: this agent is run from the CLI (or Orca) only
+   * and should not show up in the Albus agents list. Defaults to `false` so a
+   * manifest written before this field existed stays visible exactly as
+   * before. This is NOT the same thing as a broken manifest being hidden —
+   * a broken `agent.json` always lists with its problem (see `discover.ts`);
+   * `hidden: true` is the owner saying "I know this is healthy, don't show
+   * it." `hub -- list` still prints it, marked `(hidden)`, and `hub -- run
+   * <id>` still runs it — only the renderer-facing list filters it out.
+   */
+  hidden: z.boolean().default(false)
 })
 
 export type AgentManifest = z.infer<typeof AgentJsonSchema>

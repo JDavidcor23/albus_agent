@@ -10,7 +10,7 @@
  *
  * Sale con código 1 si algo falla, para poder encadenarlo.
  */
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -18,6 +18,7 @@ import { AgentJsonSchema, parseAgentJson } from '../src/main/core/hub/manifest'
 import { parseCommand } from '../src/main/core/hub/command'
 import { buildAgentEnv, buildSystemEnv } from '../src/main/core/hub/env'
 import { parseEventLine, resolveResultPath, type AgentEvent } from '../src/main/core/hub/protocol'
+import { listExternalAgents } from '../src/main/hub/discover'
 import { installAgent } from '../src/main/hub/install'
 import { activeRuns, cancelRun, runAgent } from '../src/main/hub/runner'
 
@@ -82,6 +83,13 @@ check(
   'runLabel declarado se parsea tal cual',
   withRunLabel.success && withRunLabel.data.runLabel === 'Generate digest'
 )
+
+check(
+  'hidden no declarado (manifiesto viejo) por defecto queda false',
+  AgentJsonSchema.parse(WHATSAPP_EXAMPLE).hidden === false
+)
+const withHidden = AgentJsonSchema.safeParse({ ...WHATSAPP_EXAMPLE, hidden: true })
+check('hidden: true se parsea tal cual', withHidden.success && withHidden.data.hidden === true)
 
 section('command: el allowlist de línea')
 
@@ -171,7 +179,40 @@ check('buildSystemEnv: no agrega campos de contrato', Object.keys(systemEnv).inc
 
 /* ── 2. Integración: instalar y correr el fixture de verdad ────────────────── */
 
+// `tsx` compila a CJS y ahí no hay top-level await — de ahí el envoltorio
+// `main()` para todo lo que necesita `await`, incluida la sección de abajo.
 async function main(): Promise<void> {
+  section('discover: hidden no se filtra en listExternalAgents')
+
+  {
+    const hiddenHubRoot = mkdtempSync(join(tmpdir(), 'albus-hub-hidden-'))
+    const hiddenAgentDir = join(hiddenHubRoot, 'agents', 'hidden-agent')
+    mkdirSync(hiddenAgentDir, { recursive: true })
+    writeFileSync(
+      join(hiddenAgentDir, 'agent.json'),
+      JSON.stringify({
+        protocol: 1,
+        id: 'hidden-agent',
+        name: 'Hidden agent',
+        commands: { run: 'npm run start' },
+        hidden: true
+      })
+    )
+
+    try {
+      const entries = await listExternalAgents(hiddenHubRoot)
+      const hidden = entries.find((e) => e.id === 'hidden-agent')
+      // listExternalAgents is the shared source both the CLI and the runner use
+      // to resolve an agent by id — it must never drop a `hidden: true` entry.
+      // The renderer-facing filter lives in `hub/agent-info.ts`, not here.
+      check('listExternalAgents sigue devolviendo el agente oculto', hidden !== undefined)
+      check('el manifiesto oculto trae hidden: true', hidden?.manifest?.hidden === true)
+      check('un agente oculto válido no tiene problem', hidden?.problem === '')
+    } finally {
+      rmSync(hiddenHubRoot, { recursive: true, force: true })
+    }
+  }
+
   section('integración: instalar y correr el fixture')
 
   const tmpRoot = mkdtempSync(join(tmpdir(), 'albus-hub-check-'))

@@ -17,6 +17,14 @@ import { activeRuns } from './runner'
  * it gets `AGENT_RULES_PATH` in its environment (`core/hub/env.ts`) pointing
  * at the exact same file `readRules`/`pending` read here. One mechanism, two
  * kinds of agent.
+ *
+ * `manifest.hidden` is an explicit owner opt-out ("I run this from the CLI
+ * only") and is filtered out here, before it ever reaches the renderer. It is
+ * NOT the same rule as a broken manifest: a broken `agent.json` still has
+ * `entry.manifest === null`, so it is never `hidden` and keeps listing with
+ * its problem, exactly as `discover.ts` documents. `listExternalAgents` itself
+ * stays unfiltered — `runner.ts` and the hub CLI need to find a hidden agent
+ * by id to run it.
  */
 export async function externalAgentInfos(builtinIds: ReadonlySet<string>): Promise<AgentInfo[]> {
   const entries = await listExternalAgents()
@@ -24,6 +32,8 @@ export async function externalAgentInfos(builtinIds: ReadonlySet<string>): Promi
   const out: AgentInfo[] = []
 
   for (const entry of entries) {
+    if (entry.manifest?.hidden === true) continue
+
     const rules = readRules(entry.id, '')
     const name = entry.manifest?.name ?? entry.id
     const description = entry.manifest?.description ?? ''
