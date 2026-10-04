@@ -19,6 +19,24 @@ Comandos:
   apply <json|archivo>    completa el formulario de una vacante
   selftest                corre los asserts del navegador contra el fixture
   nav                     corre los asserts de "el modelo mira la página"
+  udemy-login             abre Udemy para que entres a mano. Una sola vez.
+      --force             borra la sesión guardada y vuelve a abrir la ventana.
+                          Es lo que hay que correr cuando la cookie VENCIÓ: sin
+                          esto el comando ve que la cookie existe y no abre nada.
+                          Solo toca udemy.com; LinkedIn y Google quedan igual.
+  udemy <url> [flags]     baja los transcripts y captura UNA vez por slide
+      --section 3         solo esa sección (o "3,4" para varias). Vacío = todas
+      --limit 1           tope de lecciones. Para validar, empezá con 1
+      --every 5           cada cuántos segundos se MUESTREA (default 5).
+                          NO es cada cuánto captura: guarda solo lo que cambió
+
+Flag para CUALQUIER comando:
+  --no-sandbox            apaga el sandbox de Chromium. Usalo si ves
+                          "FATAL: GPU process isn't usable. Goodbye."
+                          El error habla de GPU pero NO es de GPU: es el
+                          sandbox que no puede cargar sus DLL. Las páginas de
+                          terceros pierden contención. Muleta, no arreglo.
+                          (--no-gpu se acepta como alias del nombre viejo)
   inspect <url>           muestra qué ve el agente en esa página. No toca nada.
   ui                      corre los asserts de la pestaña de agentes
 
@@ -43,6 +61,27 @@ Los modos:
 
 const env = { ...process.env }
 
+/*
+ * `--no-sandbox` vale para CUALQUIER comando, no solo para `udemy`.
+ *
+ * Existe porque este wrapper existe: `VAR=1 npm run dev` no funciona en
+ * PowerShell, que es la shell del usuario. Y en la máquina donde el sandbox de
+ * Chromium no carga sus DLL no arranca NINGÚN comando —el síntoma es un
+ * `FATAL: GPU process isn't usable` que habla de GPU y no es de GPU, ver
+ * `main/index.ts`—, así que un flag por comando dejaría afuera justo al que
+ * hace falta primero: el login.
+ *
+ * `--no-gpu` se acepta como alias porque fue el primer nombre que tuvo, cuando
+ * el diagnóstico todavía era el equivocado. Quien lo tenga escrito en una nota
+ * no tiene por qué enterarse de que cambió; el nombre que describe lo que pasa
+ * de verdad es el otro.
+ */
+const sandboxAt = rest.findIndex((a) => a === '--no-sandbox' || a === '--no-gpu')
+if (sandboxAt !== -1) {
+  env.ALBUS_NO_SANDBOX = '1'
+  rest.splice(sandboxAt, 1)
+}
+
 if (command === 'selftest') {
   env.ALBUS_JOBS_SELFTEST = '1'
 } else if (command === 'nav') {
@@ -64,6 +103,35 @@ if (command === 'selftest') {
   env.ALBUS_UI_SELFTEST = '1'
 } else if (command === 'login') {
   env.ALBUS_JOBS_LOGIN = '1'
+} else if (command === 'udemy-login') {
+  env.ALBUS_UDEMY_LOGIN = '1'
+  // Without `--force` there is no way back in once the cookie expired: the
+  // probe sees it EXISTS, the command returns before opening the window, and
+  // forcing the window open would not help — the poll closes it 1.5s later
+  // for the very same reason.
+  if (rest.includes('--force')) env.ALBUS_UDEMY_LOGIN_FORCE = '1'
+} else if (command === 'udemy-whoami') {
+  env.ALBUS_UDEMY_WHOAMI = '1'
+} else if (command === 'udemy') {
+  // `<url> [tope]`. El tope va como argumento aparte y no pegado a la URL
+  // porque una URL de lección ya trae `#` y query: sumarle un número la rompe.
+  // Flags y no posicionales: `udemy <url> 0 5 3` no lo entiende nadie, y
+  // equivocarse de posición baja lo que no era sin avisar.
+  const flag = (name, fallback) => {
+    const i = rest.indexOf('--' + name)
+    return i === -1 || rest[i + 1] === undefined ? fallback : String(rest[i + 1]).trim()
+  }
+
+  const url = (rest[0] ?? '').trim()
+  if (url === '' || url.startsWith('--')) {
+    console.error('Falta la URL del curso.\n' + HELP)
+    process.exit(1)
+  }
+
+  env.ALBUS_UDEMY_RUN = url
+  env.ALBUS_UDEMY_LIMIT = flag('limit', '0')
+  env.ALBUS_UDEMY_EVERY = flag('every', '5')
+  env.ALBUS_UDEMY_SECTIONS = flag('section', flag('sections', ''))
 } else if (command === 'apply') {
   const arg = rest.join(' ').trim()
   if (arg === '') {

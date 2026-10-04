@@ -45,7 +45,14 @@ import { agentsDir } from '../paths'
  * una tiene una sonda de verdad en `registry.ts`, y un nombre que no esté ahí
  * sería una dependencia que nadie verifica — o sea, una que siempre pasa.
  */
-export const AGENT_NEEDS = ['linkedin', 'notion', 'google', 'workspace', 'video-tools'] as const
+export const AGENT_NEEDS = [
+  'linkedin',
+  'notion',
+  'google',
+  'workspace',
+  'video-tools',
+  'udemy'
+] as const
 export type AgentNeed = (typeof AGENT_NEEDS)[number]
 
 /**

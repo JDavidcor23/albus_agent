@@ -62,7 +62,18 @@ export const IpcChannels = {
    */
   VIDEO_PICK: 'video:pick',
   VIDEO_RUN: 'video:run',
-  VIDEO_OPEN: 'video:open'
+  VIDEO_OPEN: 'video:open',
+  /**
+   * La biblioteca: todos los transcripts que el usuario tiene.
+   *
+   * Se LISTA del disco en cada pedido, no se cachea en el main. La carpeta es
+   * del usuario y él la abre y borra cosas ahí —para eso existe `paths.ts`—, así
+   * que cualquier lista guardada en memoria empieza a mentir en cuanto toca un
+   * archivo. El disco es la fuente de verdad.
+   */
+  VIDEO_LIST: 'video:list',
+  /** Ponerle nombre a un transcript. Cambia el título, NUNCA la carpeta. */
+  VIDEO_RENAME: 'video:rename'
 } as const
 
 /** Eventos que el main empuja al renderer mientras corre un lote. */
@@ -110,6 +121,15 @@ export interface VideoStepEvent {
 }
 
 export interface VideoRunSummary {
+  /**
+   * El id del transcript en la biblioteca: el nombre de su carpeta.
+   *
+   * Se devuelve para que el renderer pueda renombrarlo sin volver a listar todo:
+   * apenas termina una corrida, lo primero que alguien quiere es ponerle nombre.
+   */
+  id: string
+  /** Con qué nombre quedó guardado. Vacío nunca: si no se pidió uno, se deriva. */
+  title: string
   /** La carpeta con todo, para poder abrirla. */
   outDir: string
   pagePath: string
@@ -128,6 +148,43 @@ export interface VideoRunSummary {
   durationSeconds: number
   /** Tramos que fallaron. Más de cero = el transcript tiene un hueco no-silencioso. */
   failedChunks: number
+}
+
+/**
+ * Una fila de la biblioteca de transcripts.
+ *
+ * Vive acá y no en `core/video/library.ts` porque es la forma que viaja por el
+ * IPC, y `core/` no importa `shared/`. Declararla en los dos lados serían dos
+ * copias que se separan — el mismo error que el proyecto ya pagó con los tres
+ * `.mjs` sueltos de `scripts/video/`.
+ */
+export interface TranscriptEntry {
+  /** El nombre de la carpeta. Es la identidad, igual que el id de un agente. */
+  id: string
+  /** Lo que el usuario escribió; si no escribió nada, el nombre derivado. */
+  title: string
+  dir: string
+  pagePath: string
+  srtPath: string
+  textPath: string
+  /** De qué grabación salió, para cuando el título no alcanza. */
+  sourceName: string
+  /** ISO 8601. Vacío solo si ni el `meta.json` ni el mtime se pudieron leer. */
+  createdAt: string
+  model: string
+  language: string
+  durationSeconds: number
+  cues: number
+  droppedCues: number
+  frames: number
+  /**
+   * `true` = el título es DERIVADO, no lo escribió nadie.
+   *
+   * Se manda a propósito para que la UI pueda distinguirlos: un transcript sin
+   * nombre es trabajo a medio terminar, y esconder esa diferencia es lo que
+   * convierte una biblioteca en una lista de timestamps.
+   */
+  untitled: boolean
 }
 
 /** Un paso de una conexión, tal como lo ve el usuario mientras pasa. */

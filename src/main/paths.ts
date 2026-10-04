@@ -208,6 +208,19 @@ export function videoDir(): string {
   return join(dataDir(), 'video')
 }
 
+/**
+ * Los cursos bajados de Udemy.
+ *
+ * Va en `dataDir()` y no en `cacheDir()` porque NO se puede regenerar barato:
+ * cada transcript costó abrir una lección con la sesión del usuario, y las
+ * capturas costaron esperar a que el video saltara al momento correcto.
+ * Además es material de un curso pago, así que tiene que estar donde el dueño
+ * lo vea y lo pueda borrar — no enterrado entre los caches de Chromium.
+ */
+export function udemyDir(): string {
+  return join(dataDir(), 'udemy')
+}
+
 /** Las credenciales. */
 export function albusYmlPath(): string {
   return join(dataDir(), 'albus.yml')

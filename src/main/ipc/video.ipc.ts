@@ -7,6 +7,7 @@ import { appWindow } from '../app-window'
 import { IpcChannels, IpcEvents } from '../../shared/ipc'
 import { videoDir } from '../paths'
 import { runVideo } from '../video/run'
+import { listTranscripts, renameTranscript } from '../video/store'
 import { DEFAULT_SILENCE_DB } from '../core/video/transcript'
 
 /**
@@ -20,6 +21,19 @@ import { DEFAULT_SILENCE_DB } from '../core/video/transcript'
 /** Las que ffmpeg abre sin drama y la gente tiene de verdad. */
 const VIDEO_EXTENSIONS = ['.mp4', '.mov', '.mkv', '.webm', '.avi', '.m4v']
 
+/**
+ * A title is a label a person types, so it gets a ceiling.
+ *
+ * Not because 200 characters would break anything downstream, but because the
+ * main process never takes a renderer's string on faith — and an unbounded one
+ * ends up written to the user's disk verbatim.
+ *
+ * Declared BEFORE the schemas that read it: `const` is in the temporal dead zone
+ * until its line runs, and these schemas are built at module load. Below them it
+ * is a `ReferenceError` on startup, not a type error.
+ */
+const TITLE_MAX = 200
+
 const RunSchema = z.object({
   path: z.string().min(1),
   /*
@@ -30,10 +44,21 @@ const RunSchema = z.object({
   model: z.enum(['tiny', 'base', 'small', 'medium']).default('small'),
   language: z.string().min(2).max(30).default('Spanish'),
   /** El umbral del filtro de alucinaciones, por si hay que moverlo. */
-  silenceDb: z.number().min(-90).max(-20).default(DEFAULT_SILENCE_DB)
+  silenceDb: z.number().min(-90).max(-20).default(DEFAULT_SILENCE_DB),
+  /**
+   * How to name it in the library. Optional: an empty title derives one from the
+   * recording, so nobody is forced to name a thing before they have read it.
+   */
+  title: z.string().max(TITLE_MAX).default('')
 })
 
 const OpenSchema = z.object({ path: z.string().min(1) })
+
+const RenameSchema = z.object({
+  id: z.string().min(1).max(200),
+  /** Empty is legal and means "go back to the derived name". Clearing is not an error. */
+  title: z.string().max(TITLE_MAX)
+})
 
 function broadcast(channel: string, payload: unknown): void {
   appWindow()?.webContents.send(channel, payload)
@@ -98,15 +123,31 @@ export function registerVideoHandlers(): void {
   })
 
   registerHandler(IpcChannels.VIDEO_RUN, async (payload: unknown) => {
-    const { path, model, language, silenceDb } = RunSchema.parse(payload ?? {})
+    const { path, model, language, silenceDb, title } = RunSchema.parse(payload ?? {})
 
     return await runVideo({
       videoPath: checkedVideoPath(path),
       model,
       language,
       silenceDb,
+      title,
       onStep: (step) => broadcast(IpcEvents.VIDEO_STEP, step)
     })
+  })
+
+  /*
+   * The library. Read from disk on every call, never cached.
+   *
+   * This folder belongs to the user — `paths.ts` moved it out of `%APPDATA%`
+   * precisely so they could open, back up and delete things in it. Any list kept
+   * in the main process starts lying the moment they do, and a library that
+   * shows transcripts that are not there is worse than one that is a beat slow.
+   */
+  registerHandler(IpcChannels.VIDEO_LIST, async () => ({ transcripts: listTranscripts() }))
+
+  registerHandler(IpcChannels.VIDEO_RENAME, async (payload: unknown) => {
+    const { id, title } = RenameSchema.parse(payload ?? {})
+    return { transcript: renameTranscript(id, title) }
   })
 
   registerHandler(IpcChannels.VIDEO_OPEN, async (payload: unknown) => {

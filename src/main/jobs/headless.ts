@@ -161,6 +161,34 @@ export async function runJobsCommand(): Promise<number | null> {
     return (await runUiSelfTest()) ? 0 : 1
   }
 
+  if (process.env.ALBUS_UDEMY_LOGIN === '1') {
+    const { udemyLoginCommand } = await import('../devtools/udemy-run')
+    return (await udemyLoginCommand(process.env.ALBUS_UDEMY_LOGIN_FORCE === '1')) ? 0 : 1
+  }
+
+  if (process.env.ALBUS_UDEMY_WHOAMI === '1') {
+    const { udemyWhoAmICommand } = await import('../devtools/udemy-run')
+    return (await udemyWhoAmICommand()) ? 0 : 1
+  }
+
+  const udemyUrl = process.env.ALBUS_UDEMY_RUN
+  if (udemyUrl !== undefined && udemyUrl.trim() !== '') {
+    const { runUdemyCommand } = await import('../devtools/udemy-run')
+    const limit = Number(process.env.ALBUS_UDEMY_LIMIT ?? '0')
+    const every = Number(process.env.ALBUS_UDEMY_EVERY ?? '5')
+    const sections = (process.env.ALBUS_UDEMY_SECTIONS ?? '')
+      .split(',')
+      .map((s) => Number(s.trim()))
+      .filter((n) => Number.isFinite(n) && n > 0)
+
+    const ok = await runUdemyCommand(udemyUrl.trim(), {
+      limit: Number.isFinite(limit) ? limit : 0,
+      everySeconds: Number.isFinite(every) && every > 0 ? every : 5,
+      sections
+    })
+    return ok ? 0 : 1
+  }
+
   if (process.env.ALBUS_JOBS_LOGIN === '1') {
     return loginCommand()
   }
@@ -189,6 +217,9 @@ export function maybeRunJobsCommand(): boolean {
     process.env.ALBUS_NOTION_PROBE === '1' ||
     process.env.ALBUS_SUPA_REPRO === '1' ||
     process.env.ALBUS_JOBS_LOGIN === '1' ||
+    process.env.ALBUS_UDEMY_LOGIN === '1' ||
+    process.env.ALBUS_UDEMY_WHOAMI === '1' ||
+    (process.env.ALBUS_UDEMY_RUN ?? '').trim() !== '' ||
     (process.env.ALBUS_JOBS_APPLY ?? '').trim() !== ''
 
   if (!hasCommand) return false

@@ -19,6 +19,14 @@ import { SEEDS } from '../src/main/agents/seeds'
 import { ffmpegPath } from '../src/main/video/ffmpeg'
 import { whisperPath } from '../src/main/video/whisper'
 import { runVideo } from '../src/main/video/run'
+import { listTranscripts } from '../src/main/video/store'
+import {
+  TranscriptMetaSchema,
+  defaultTitle,
+  sortTranscripts,
+  titleFor,
+  titleFromSlug
+} from '../src/main/core/video/library'
 import {
   DEFAULT_SILENCE_DB,
   filterHallucinations,
@@ -86,6 +94,69 @@ check('la alucinacion se descarta', dropped.length === 1 && dropped[0].text === 
 check('el habla baja se conserva', kept.some((c) => c.text === 'habla baja pero real'))
 check('lo que no se pudo medir se conserva', kept.some((c) => c.text === 'no se pudo medir'))
 
+/* ── 1b. La biblioteca: un transcript tiene NOMBRE ─────────────────────────── */
+
+console.log('\n── biblioteca: titulos y orden\n')
+
+/*
+ * El caso que importa: un transcript de ANTES de que `meta.json` existiera.
+ *
+ * Hay dos en esta máquina. Si el fallback se rompe desaparecen de la lista, y
+ * "mi transcript no está" es indistinguible de "se borró". Mismo problema que el
+ * manifiesto de `job-search` sin `screen`.
+ */
+check(
+  'un slug con timestamp se lee como fecha y hora',
+  titleFromSlug('2026-09-02-10-29-05') === '2026-09-02 10:29:05',
+  titleFromSlug('2026-09-02-10-29-05')
+)
+check('un slug cualquiera se lee sin guiones', titleFromSlug('demo-corta') === 'demo corta')
+check(
+  'sin meta.json el titulo se DERIVA, no queda vacio',
+  titleFor('2026-09-02-10-29-05', null) !== ''
+)
+check(
+  'con meta.json gana lo que escribio el usuario',
+  titleFor('2026-09-02-10-29-05', TranscriptMetaSchema.parse({ title: 'Reunión de kickoff' })) ===
+    'Reunión de kickoff'
+)
+/*
+ * Un título de espacios NO es un título. Sin este trim, un campo que el usuario
+ * dejó con un espacio pisa el nombre derivado y la fila queda visualmente vacía.
+ */
+check(
+  'un titulo de solo espacios cae al derivado',
+  titleFor('demo-corta', TranscriptMetaSchema.parse({ title: '   ' })) === 'demo corta'
+)
+check(
+  'el titulo por defecto sale del archivo',
+  defaultTitle('2026-09-02 16-04-41.mp4') === '2026-09-02 16:04:41',
+  defaultTitle('2026-09-02 16-04-41.mp4')
+)
+
+/*
+ * `meta.json` es un archivo del USUARIO: lo puede editar a mano y romperlo. Cada
+ * campo tiene default para que un archivo a medias no borre el transcript de la
+ * lista — es la misma tolerancia que `parseManifest`.
+ */
+const emptyMeta = TranscriptMetaSchema.safeParse({})
+check('un meta.json vacio sigue siendo valido', emptyMeta.success)
+const partialMeta = TranscriptMetaSchema.safeParse({ title: 'algo', cues: 'no es un numero' })
+check('un campo con el tipo mal SI invalida el archivo', !partialMeta.success)
+
+const ordered = sortTranscripts([
+  { id: 'a', createdAt: '2026-09-01T10:00:00.000Z' },
+  { id: 'c', createdAt: '' },
+  { id: 'b', createdAt: '2026-09-02T10:00:00.000Z' }
+])
+check(
+  'la biblioteca ordena del mas nuevo al mas viejo',
+  ordered.map((r) => r.id).join('') === 'bac',
+  ordered.map((r) => r.id).join(' → ')
+)
+// Sin fecha va al final: un string vacío gana toda comparación y los treparía arriba.
+check('lo que no tiene fecha va al final', ordered[2].id === 'c')
+
 /* ── 2. El agente vive AFUERA ─────────────────────────────────────────────── */
 
 // `tsx` compila a CJS y ahí no hay top-level await. De ahí el envoltorio.
@@ -117,10 +188,47 @@ check(
  * está: sin la tabla de compatibilidad del renderer perdía el chat.
  */
 const jobs = manifests.find((m) => m.id === 'job-search') ?? null
+
+/*
+ * Si `job-search` no está, esto se SALTEA en vez de fallar.
+ *
+ * La semilla la planta `registry.ts` cuando arranca la app, y este script no
+ * arranca la app: en un perfil nuevo —una máquina recién configurada, o alguien
+ * que corre el verificador antes de abrir Albus una sola vez— el agente
+ * legítimamente no existe todavía. Fallar ahí es un gate que grita por una razón
+ * ambiental, y un gate que grita en falso es un gate que se empieza a ignorar,
+ * justo cuando tapa un fallo de verdad de los que están arriba.
+ */
+if (jobs === null) {
+  console.log('  skip  job-search todavía no está sembrado (la app nunca arrancó en este perfil)')
+} else {
+  check(
+    'el manifiesto viejo de job-search no tiene screen (por eso existe el fallback)',
+    jobs.screen === '',
+    `screen="${jobs.screen}"`
+  )
+}
+
+/* ── 2b. La biblioteca, contra el disco de verdad (solo lectura) ───────────── */
+
+console.log('\n── biblioteca: lo que hay guardado acá\n')
+
+/*
+ * Solo LEE. Este script no escribe transcripts de prueba en la carpeta del
+ * usuario: `paths.ts` cuenta que `check-agents.ts` dejando datos de prueba en
+ * `agents/` fue exactamente lo que hizo que una migración se diera por hecha y
+ * las reglas del usuario quedaran huérfanas.
+ */
+const saved = listTranscripts()
+check('listar la biblioteca no explota', Array.isArray(saved), `${saved.length} transcript(s)`)
 check(
-  'el manifiesto viejo de job-search no tiene screen (por eso existe el fallback)',
-  jobs !== null && jobs.screen === '',
-  jobs === null ? 'no está' : `screen="${jobs.screen}"`
+  'ninguna fila quedó sin nombre para mostrar',
+  saved.every((r) => r.title.trim() !== ''),
+  saved.map((r) => r.title).join(' · ') || '(la carpeta está vacía)'
+)
+check(
+  'toda fila apunta a un srt que existe',
+  saved.every((r) => existsSync(r.srtPath))
 )
 
 console.log('\n── binarios\n')

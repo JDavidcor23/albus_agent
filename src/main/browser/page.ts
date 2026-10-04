@@ -144,6 +144,29 @@ export function createBrowserPage(
     }
   })
 
+  /*
+   * Electron announces itself in the User-Agent, and that is enough to get the
+   * window walled off. The default string ends in:
+   *
+   *   ... albus-agent/1.0.0 Chrome/140.0.0.0 Electron/38.2.0 Safari/537.36
+   *
+   * Cloudflare reads `Electron/` and serves "Just a moment..." instead of the
+   * page — the whole course, replaced by an anti-bot interstitial with two
+   * links in it. Nothing downstream can recover from that: the curriculum
+   * reader finds zero `data-purpose` and blames its own selectors.
+   *
+   * Stripping the two automation tokens leaves the Chrome/Safari string
+   * underneath, which is a real Chrome's. It is derived from the running
+   * runtime rather than hardcoded on purpose: pinning a version here would rot
+   * into a Chrome that no longer exists, which is its own tell.
+   */
+  win.webContents.setUserAgent(
+    win.webContents
+      .getUserAgent()
+      .replace(/\s*albus-agent\/[\d.]+/i, '')
+      .replace(/\s*Electron\/[\d.]+/i, '')
+  )
+
   /** Hosts que la página quiso abrir y no estaban permitidos. Se reportan. */
   const blockedPopups: string[] = []
 
@@ -421,6 +444,38 @@ export function createBrowserPage(
       return `data:image/jpeg;base64,${small.toJPEG(72).toString('base64')}`
     },
 
+    /**
+     * La pantalla reducida a una grilla de grises, para comparar frames.
+     *
+     * ## Por qué acá y no en la página
+     *
+     * Lo natural sería dibujar el `<video>` en un `<canvas>` y leerlo desde
+     * adentro. No se puede: el video de un curso viene de otro origen, el canvas
+     * queda *tainted* y `getImageData` tira `SecurityError`. `capturePage()`
+     * captura la ventana, no el elemento, así que no le aplica nada de eso.
+     *
+     * ## Por qué devuelve números y no una imagen
+     *
+     * Comparar dos capturas completas cuesta megabytes por paso y hay setenta y
+     * ocho por clase. A 32×24 son 768 celdas, y a esa escala el puntero del
+     * mouse y el ruido del códec desaparecen mientras que un cambio de slide
+     * sigue siendo obvio. Quién decide si eso es una slide nueva es
+     * `core/udemy/frames.ts`, que se prueba con arrays a mano.
+     */
+    async frameSignature(width = 32, height = 24): Promise<number[]> {
+      const image = await win.webContents.capturePage()
+      const small = image.resize({ width, height, quality: 'good' })
+      const bitmap = small.toBitmap() // BGRA, 4 bytes por pixel
+
+      const out: number[] = []
+      for (let i = 0; i + 2 < bitmap.length; i += 4) {
+        // Luma Rec. 601. El promedio simple confunde un azul saturado con un
+        // gris medio, y las slides de un curso son texto de color sobre blanco.
+        out.push(Math.round(0.299 * bitmap[i + 2] + 0.587 * bitmap[i + 1] + 0.114 * bitmap[i]))
+      }
+      return out
+    },
+
     async hasSession(domain: string, cookieName: string): Promise<boolean> {
       const cookies = await win.webContents.session.cookies.get({ domain, name: cookieName })
       return cookies.length > 0
@@ -516,6 +571,25 @@ export function createBrowserPage(
       return (await evaluate(
         `((document.body && document.body.innerText) || '').replace(/\\n{3,}/g, '\\n\\n').slice(0, 4000)`
       )) as string
+    },
+
+    /**
+     * Corre un script del MÓDULO y devuelve lo que ese script serializó.
+     *
+     * Existe porque `udemy/` necesita leer estructuras que ningún primitivo de
+     * acá cubre —el índice del curso, las cues del panel de transcripción— y la
+     * alternativa era meter selectores de Udemy en este archivo, que no es de
+     * Udemy.
+     *
+     * **La regla que lo hace seguro sigue siendo la de `page-scripts.ts`:** lo
+     * que entra por acá son CONSTANTES declaradas en un módulo, nunca texto que
+     * armó un modelo. Un `runScript(loQueDijoElLLM)` es ejecución remota contra
+     * la sesión del usuario, con sus cookies puestas. Si alguna vez hace falta
+     * meter un valor adentro, va por `JSON.stringify` como ya hacen
+     * `fillScript` y `clickTextScript`, y no por interpolación directa.
+     */
+    async runScript(script: string): Promise<string> {
+      return (await evaluate(script)) as string
     },
 
     reveal(): void {

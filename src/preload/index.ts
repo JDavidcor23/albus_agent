@@ -29,6 +29,7 @@ import {
   type ResultRow,
   type TaskDetail,
   type TaskRow,
+  type TranscriptEntry,
   type VideoRunSummary,
   type VideoStepEvent
 } from '../shared/ipc'
@@ -282,11 +283,26 @@ const api = {
     model?: 'tiny' | 'base' | 'small' | 'medium'
     language?: string
     silenceDb?: number
+    title?: string
   }): Promise<IpcResult<VideoRunSummary>> => ipcRenderer.invoke(IpcChannels.VIDEO_RUN, req),
 
   /** Abre la página o la carpeta. El main verifica que caiga dentro de su salida. */
   openVideoOutput: (path: string): Promise<IpcResult<{ path: string }>> =>
     ipcRenderer.invoke(IpcChannels.VIDEO_OPEN, { path }),
+
+  /** Todos los transcripts guardados, del más nuevo al más viejo. */
+  listTranscripts: (): Promise<IpcResult<{ transcripts: TranscriptEntry[] }>> =>
+    ipcRenderer.invoke(IpcChannels.VIDEO_LIST),
+
+  /**
+   * Le pone nombre a un transcript. Devuelve la fila ya actualizada para que la
+   * UI no tenga que volver a listar la biblioteca entera por un título.
+   */
+  renameTranscript: (
+    id: string,
+    title: string
+  ): Promise<IpcResult<{ transcript: TranscriptEntry }>> =>
+    ipcRenderer.invoke(IpcChannels.VIDEO_RENAME, { id, title }),
 
   onVideoStep: (cb: (step: VideoStepEvent) => void): (() => void) => {
     const handler = (_e: unknown, payload: VideoStepEvent): void => cb(payload)

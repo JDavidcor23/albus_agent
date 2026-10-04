@@ -3036,3 +3036,174 @@ body::before {
   width: auto;
   margin-top: 0;
 }
+
+/* ── the transcript library ──────────────────────────────────────────────────
+
+   The list of everything already transcribed. It sits under the run form
+   because "where is the one I made yesterday" is the question that comes up on
+   every opening after the first, while "make me a new one" comes up once.
+
+   The title is a button and not a text input at rest: a page full of empty
+   fields reads like a form to fill in, when it is really a list to read. */
+
+.video-opt-title {
+  /* The title deserves room to be read back — the other options are one word. */
+  flex: 1 1 280px;
+  min-width: 220px;
+}
+
+.video-library {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.video-library-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.video-library-head h3 {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.video-library-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.video-library-head .reglas-editar {
+  width: auto;
+  margin: 0 0 0 auto;
+}
+
+.video-empty {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.video-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.video-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.video-row-main {
+  /* `min-width: 0` or a long source name shoves the buttons off the card. */
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.video-row-title {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--ink);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.video-row-title:hover,
+.video-row-title:focus-visible {
+  outline: none;
+  color: var(--brass);
+}
+
+/* A derived title is dimmed so it reads as a placeholder, not as a name someone
+   chose. Hiding that difference is what turns a library into a list of
+   timestamps. */
+.video-row-untitled {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.video-row-edit {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.video-row-edit input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--ground);
+  border: 1px solid var(--brass);
+  border-radius: var(--radius);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  padding: 5px 8px;
+}
+
+.video-row-edit input:focus-visible {
+  outline: none;
+}
+
+.video-row-edit .reglas-editar {
+  width: auto;
+  margin: 0;
+}
+
+.video-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.video-row-source {
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  opacity: 0.7;
+  overflow-wrap: anywhere;
+}
+
+.video-row-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.video-row-actions .reglas-editar {
+  width: auto;
+  margin: 0;
+  font-size: 11px;
+  padding: 4px 10px;
+}

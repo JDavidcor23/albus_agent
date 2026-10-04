@@ -106,6 +106,58 @@ if (isTestMode()) {
   app.setPath('userData', join(app.getPath('userData'), 'pruebas'))
 }
 
+/**
+ * Arrancar en una máquina donde el sandbox de Chromium no puede cargar sus DLL.
+ *
+ * ## El síntoma ENGAÑA, y este comentario existe para eso
+ *
+ * ```
+ * GPU process exited unexpectedly: exit_code=-1073741515
+ * FATAL: GPU process isn't usable. Goodbye.
+ * ```
+ *
+ * Dice GPU seis veces, así que el primer diagnóstico —el que se probó y costó
+ * media hora— es "falta una DLL de video" o "hay que apagar la aceleración por
+ * hardware". **Las dos cosas son falsas.** Se midió, en este orden:
+ *
+ * - `vulkan-1.dll`, `d3dcompiler_47.dll` y los runtimes de VC++: todos
+ *   presentes, en System32 y en el `dist` de Electron.
+ * - Electron pelado, sin crear ventana: arranca perfecto.
+ * - Crear UNA `BrowserWindow`: lo mata. Veinte líneas, sin Albus.
+ * - `disableHardwareAcceleration()`, `--disable-gpu`, `--in-process-gpu`,
+ *   `--use-angle=swiftshader` y hasta `--disable-gpu-sandbox`: **todos
+ *   crashean.** El único que arranca es `--no-sandbox`.
+ *
+ * O sea: lo que falla es el SANDBOX cargando sus DLL —`0xC0000135` es
+ * `STATUS_DLL_NOT_FOUND`, pero adentro del proceso sandboxeado— y el proceso
+ * GPU es apenas el primero que lo intenta. Apagar la GPU no arregla nada
+ * porque la GPU nunca fue el problema.
+ *
+ * ## El precio, y es real
+ *
+ * `browser/page.ts` pone `sandbox: true` A PROPÓSITO y lo dice: *"Adentro corre
+ * LinkedIn. No hay preload, no hay Node, y el sandbox queda en true — al revés
+ * que la ventana principal"*. Este switch lo apaga para TODO el proceso, así
+ * que la página de un tercero pierde esa contención.
+ *
+ * Por eso no es el default, hay que pedirlo explícitamente, y grita en cada
+ * arranque. La causa de verdad está afuera del proyecto —una política de
+ * Windows, Exploit Protection, o algo que se mete en la carga de DLL de
+ * procesos sandboxeados— y esto es una muleta para poder trabajar, no el
+ * arreglo.
+ *
+ * Va acá arriba porque un switch de línea de comandos solo cuenta si se setea
+ * ANTES de `whenReady`.
+ */
+if ((process.env.ALBUS_NO_SANDBOX ?? '').trim() === '1') {
+  app.commandLine.appendSwitch('no-sandbox')
+  console.warn(
+    '[albus] SANDBOX DESACTIVADO (ALBUS_NO_SANDBOX=1).\n' +
+      '        Las páginas de terceros corren sin contención de proceso.\n' +
+      '        Muleta para una máquina donde el sandbox no carga sus DLL.'
+  )
+}
+
 /*
  * La mudanza de `%APPDATA%` a `Documentos/albus_agent`, antes de que cualquier
  * módulo lea una regla o un token. Copia y no sobrescribe: ver `paths.ts`.

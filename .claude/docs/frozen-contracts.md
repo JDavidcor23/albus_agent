@@ -46,6 +46,9 @@ Cambiar cualquiera de estos nombres **no migra nada: abandona lo viejo.**
 | `NOTION_TOKEN`, `GOOGLE_REFRESH_TOKEN` | claves dentro de `albus.yml`, armadas por `ymlKey()` en `connections/store.ts` | el token está en el archivo y es ilegible. Mismo síntoma que arriba y más difícil de diagnosticar, porque el archivo *parece* bien |
 | `connections.json` | `main/paths.ts` → `connectionsPath()` | el usuario abre la app con todos los servicios "desconectados", sin ningún error |
 | `graphify` (carpeta) | `main/paths.ts` → `graphifyDir()` | el grafo construido queda huérfano y se reconstruye desde cero |
+| `video` (carpeta) | `main/paths.ts` → `videoDir()` | la biblioteca de transcripts aparece VACÍA. Los archivos están en el disco y la app no los ve — y cada transcript costó su duración en CPU |
+| `meta.json` | `core/video/library.ts` → `META_FILE` | **se pierde el título de cada transcript.** No hay error: la biblioteca sigue funcionando, pero todas las filas vuelven a llamarse `2026-09-02-10-29-05` y nadie distingue una reunión de otra |
+| `transcript.srt` | `video/store.ts` → `entryFor()` | es el archivo por el que se decide "esta carpeta ES un transcript". Renombralo y la carpeta entera deja de listarse, con título y todo adentro |
 | `capturas`, `pruebas` | `connections/connection-agent.ts`, `main/paths.ts` | capturas y perfil de prueba huérfanos. Daño bajo, igual congelado |
 
 ### La migración es obligatoria, y COPIA

@@ -61,6 +61,34 @@ export interface BrowserPort {
   typeById(cid: string, value: string): Promise<void>
   /** Abre DevTools sobre esta página. Para poder inspeccionarla de verdad. */
   openDevTools(): void
+
+  /**
+   * Corre un script CONSTANTE de un módulo y devuelve lo que ese script
+   * serializó.
+   *
+   * Las primitivas de arriba cubren formularios y clicks, que es lo que
+   * necesitaba postularse. `udemy/` necesita leer estructuras que ninguna
+   * cubre —el índice de un curso, las cues de un panel de transcripción— y la
+   * alternativa era meter selectores de Udemy en `browser/page.ts`, que no es
+   * de Udemy.
+   *
+   * **Lo que entra por acá son constantes declaradas en un módulo, nunca texto
+   * que armó un modelo.** Esto corre con la sesión del usuario puesta: un
+   * `runScript(loQueDijoElLLM)` es ejecución remota contra sus cookies. Los
+   * valores variables van por `JSON.stringify`, como ya hacen `fillScript` y
+   * `clickTextScript`.
+   */
+  runScript(script: string): Promise<string>
+
+  /**
+   * La pantalla reducida a una grilla de grises, para comparar frames sin
+   * mover imágenes entre procesos.
+   *
+   * Existe para detectar cuándo cambió la slide de un video: se muestrea
+   * seguido, se compara, y solo se guarda la captura cuando cambió de verdad.
+   * Quién decide eso es `core/udemy/frames.ts`; acá solo se mide.
+   */
+  frameSignature(width?: number, height?: number): Promise<number[]>
 }
 
 /** Un elemento de la página tal como se lo mostramos a quien tenga que elegir. */

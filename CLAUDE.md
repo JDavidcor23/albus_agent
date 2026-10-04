@@ -59,6 +59,7 @@ Podés renombrar el identificador, **nunca el valor**. El porqué de cada uno, e
 | Valor | Qué se rompe en silencio |
 |---|---|
 | `albus_agent/`, `agents/`, `graphify/`, `albus.yml`, `connections.json`, `<id>.agente.json`, `<id>.preguntas.json` | se abandona el estado del usuario: agentes, reglas, tokens, conexiones, grafo, cola de preguntas |
+| `video/`, `meta.json`, `transcript.srt` | la biblioteca de transcripts se vacía o pierde todos los títulos. Sin error: las filas vuelven a llamarse por su timestamp y nadie distingue una reunión de otra |
 | `'albus-agent'` (el `userData` de Electron) | se pierde la partición del navegador: hay que loguearse de nuevo en LinkedIn y Google |
 | `'post link'` y todo nombre de propiedad/opción de Notion | el upsert se vuelve insert; Notion inventa columnas y opciones; los filtros dejan de traer nada |
 | `'pagos'`, `'qr-eventos'`, `'contactos'`, `'info'`, `'sin-clasificar'` | Drive crea carpetas nuevas VACÍAS y deja el archivo viejo atrás |

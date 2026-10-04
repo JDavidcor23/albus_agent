@@ -26,7 +26,11 @@
     "jobs:check": "tsx scripts/check-jobs.ts && tsx scripts/check-agents.ts && tsx scripts/check-ipc.ts",
     "jobs:check:live": "tsx scripts/check-live.ts",
     "gmail:auth": "tsx scripts/gmail-auth.ts",
-    "ui:selftest": "node scripts/run-jobs.mjs ui"
+    "ui:selftest": "node scripts/run-jobs.mjs ui",
+    "udemy:check": "tsx scripts/check-udemy.ts",
+    "udemy:login": "node scripts/run-jobs.mjs udemy-login",
+    "udemy": "node scripts/run-jobs.mjs udemy",
+    "udemy:whoami": "node scripts/run-jobs.mjs udemy-whoami"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",

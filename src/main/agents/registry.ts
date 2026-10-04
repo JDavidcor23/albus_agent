@@ -7,7 +7,7 @@ import {
   type AgentManifest,
   type AgentNeed
 } from './manifest'
-import { hasLinkedInSession } from '../browser/session'
+import { hasLinkedInSession, hasUdemySession } from '../browser/session'
 import { isNotionConfigured } from '../notion/client'
 import { hasGmailScope } from '../gmail/send'
 import { loadProfile } from '../jobs/workspace'
@@ -99,10 +99,24 @@ const PROBES: Record<AgentNeed, () => Promise<{ ok: boolean; reason: string }>> 
     return missing.length === 0
       ? { ok: true, reason: '' }
       : { ok: false, reason: `falta ${missing.join(' y ')} en el PATH` }
-  }
+  },
+
+  /*
+   * La sesión de Udemy. Dependencia DURA: el curso es pago y sin la cookie no
+   * hay transcript que leer — la página ni siquiera muestra el player.
+   *
+   * Es una sonda de COOKIE y no de red a propósito: mirar el cookie jar no
+   * navega, no gasta una request contra Udemy cada vez que se abre la pestaña
+   * de agentes, y no puede fallar por estar sin internet. Lo mismo que hace
+   * `hasLinkedInSession`.
+   */
+  udemy: async () => ({
+    ok: await hasUdemySession(),
+    reason: 'sin sesión de Udemy — hay que loguear una vez'
+  })
 }
 
-const HARD_NEEDS: readonly AgentNeed[] = ['workspace', 'video-tools']
+const HARD_NEEDS: readonly AgentNeed[] = ['workspace', 'video-tools', 'udemy']
 
 async function checkNeeds(needs: AgentNeed[]): Promise<{ available: boolean; reason: string }> {
   const missing: string[] = []

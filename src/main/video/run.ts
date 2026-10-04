@@ -5,6 +5,8 @@ import { cacheDir, videoDir } from '../paths'
 import { duration, extractAudioAndFrames, meanDb, splitAudio } from './ffmpeg'
 import { transcribeChunks } from './whisper'
 import { buildPage } from '../core/video/page'
+import { defaultTitle } from '../core/video/library'
+import { writeMeta } from './store'
 import {
   DEFAULT_SILENCE_DB,
   filterHallucinations,
@@ -43,6 +45,11 @@ export interface RunOptions {
   model?: string
   language?: string
   silenceDb?: number
+  /**
+   * What to call this transcript in the library. Empty = derive it from the
+   * recording, so a run is never nameless.
+   */
+  title?: string
   onStep?: (step: VideoStepEvent) => void
 }
 
@@ -76,6 +83,7 @@ export async function runVideo(options: RunOptions): Promise<VideoRunSummary> {
     model = 'small',
     language = 'Spanish',
     silenceDb = DEFAULT_SILENCE_DB,
+    title = '',
     onStep
   } = options
 
@@ -164,12 +172,35 @@ export async function runVideo(options: RunOptions): Promise<VideoRunSummary> {
     'utf8'
   )
 
+  /*
+   * The metadata goes last, AFTER the transcript is on disk.
+   *
+   * `meta.json` is what makes this folder a named row in the library, so writing
+   * it early would advertise a transcript that does not exist yet — a run killed
+   * mid-transcription would leave a titled, empty entry. Written here, a dead run
+   * leaves a folder the library simply does not list.
+   */
+  const finalTitle = title.trim() === '' ? defaultTitle(basename(videoPath)) : title.trim()
+  writeMeta(slug, {
+    title: finalTitle,
+    sourceName: basename(videoPath),
+    createdAt: new Date().toISOString(),
+    model,
+    language,
+    durationSeconds: seconds,
+    cues: kept.length,
+    droppedCues: dropped.length,
+    frames: frames.size
+  })
+
   // El wav y los tramos pesan cien megas y ya no sirven. La página, sí.
   rmSync(workDir, { recursive: true, force: true })
 
   step('done', 'ready', 1, 1)
 
   return {
+    id: slug,
+    title: finalTitle,
     outDir,
     pagePath,
     srtPath,

@@ -85,8 +85,10 @@ escribir el que corre ffmpeg:
 |---|---|
 | `src/main/core/video/transcript.ts` | parseo, pegado de tramos y **filtro de alucinaciones**. Dominio puro |
 | `src/main/core/video/page.ts` | el HTML único. Recibe los frames en base64, no lee disco |
+| `src/main/core/video/library.ts` | el schema de `meta.json`, los títulos y el orden. Dominio puro: no toca disco |
 | `src/main/video/ffmpeg.ts` · `whisper.ts` | los binarios. `where`, flags en array, timeout duro |
 | `src/main/video/run.ts` | los cinco pasos en orden, con los eventos de progreso |
+| `src/main/video/store.ts` | la biblioteca contra el disco: listar, leer y escribir `meta.json`, renombrar |
 | `AGENT_NEEDS` → `'video-tools'` | la SONDA que busca los binarios. `needs` es dato; saber si están es una función |
 | `SCREENS` → `'video'` | la pantalla. Cuál usar es dato; dibujarla es código |
 
@@ -106,6 +108,44 @@ npm run video:check -- "grabacion.mp4" 210       # el pipeline entero sobre 210s
 `scripts/video/` mientras se investigaba y se borraron al portarlos: dos copias
 del filtro de alucinaciones divergen, y la copia del script iba a ser la vieja
 justo cuando alguien la necesite.
+
+### La biblioteca: un transcript que no se encuentra no está guardado
+
+Cada corrida deja un `meta.json` al lado de su transcript, y ahí vive **el
+título**. Sin eso la carpeta se llamaba `2026-09-02-10-29-05` y dos grabaciones
+de la misma mañana eran indistinguibles sin abrir las dos y leerlas.
+
+```
+Documentos/albus_agent/video/
+  2026-09-02-10-29-05/
+    meta.json        ← el título, la grabación de origen, la fecha y los conteos
+    transcript.srt   ← lo que decide que esta carpeta ES un transcript
+    transcript.txt · page.html · frames/
+```
+
+**Un archivo por transcript, y NO un índice central.** Es la misma decisión que
+ya tomó `agents/`, por las mismas dos razones:
+
+1. **El disco es la fuente de verdad.** Esta carpeta es del usuario y la va a
+   abrir y borrar cosas —para eso `paths.ts` la sacó de `%APPDATA%`—. Un
+   `index.json` empieza a listar transcripts que ya no existen; un escaneo no
+   puede desincronizarse de lo que hay.
+2. **Un archivo roto no puede tapar el resto.** Validar por fila, igual que
+   Supabase y que los manifiestos.
+
+Tres cosas que ya se resolvieron y conviene no re-romper:
+
+- **El título es una etiqueta; la CARPETA es la identidad.** Renombrar cambia el
+  `title` adentro del `meta.json` y nunca mueve el directorio: mover invalidaría
+  todas las rutas ya entregadas al renderer y el chequeo `insideOutput` de los
+  links abiertos.
+- **`meta.json` se escribe AL FINAL**, después de que el transcript está en
+  disco. Escribirlo antes haría que una corrida muerta a mitad dejara una fila
+  con nombre y sin contenido.
+- **Los transcripts anteriores a este formato siguen listándose**, con el título
+  derivado del nombre de la carpeta. Es el mismo fallback que necesitó el
+  manifiesto de `job-search` cuando apareció el campo `screen`: un transcript que
+  desaparece de la lista es indistinguible de uno borrado.
 
 ## Qué hay instalado acá
 
@@ -130,6 +170,21 @@ Medido sobre el **mismo recorte de 120 segundos** de audio de esa reunión:
 | `small` (461 MB) | 4m 10s | ~2,1x | **~2 horas** |
 
 Esos factores son de CPU. No hay atajo por hardware acá.
+
+> **Ese 2,1x es EN SERIE, y el pipeline ya no corre en serie.** Con el audio
+> cortado en tramos y dos procesos en paralelo —lo que hace `run.ts` desde que
+> esto está en código— `small` midió **~1,0x tiempo real de punta a punta**, y eso
+> incluye sacar los frames del mp4 y medir el volumen de cada cue:
+>
+> | Grabación | Audio | Corrida completa | Factor |
+> |---|---|---|---|
+> | `2026-09-02 10-29-05` (791 MB) | 1026,9s · 6 tramos | **909s** | ~0,88x |
+> | `2026-09-02 16-04-41` (536 MB) | 696,2s · 4 tramos | **695s** | ~1,0x |
+>
+> Usá el 2,1x para decidir entre modelos —la comparación contra `base` sigue
+> valiendo— y el ~1x para decirle a alguien cuánto va a esperar. Las dos cifras
+> están bien; miden cosas distintas, y confundirlas hace que la UI prometa el
+> doble de lo que tarda.
 
 **Y `base` no alcanza para español de negocios.** La misma frase, los dos
 modelos:
@@ -318,10 +373,13 @@ Todos éstos se rompieron de verdad acá.
 - **`whisper --help` explota** con `UnicodeEncodeError`: cp1252 no puede
   encodear un carácter CJK del texto de ayuda. `PYTHONUTF8=1` lo arregla. El CLI
   en sí funciona bien.
-- **Hay dos Python 3.13 en el PATH.** `python` resuelve a
-  `C:\Python313\python.exe`, pero whisper vive en el otro:
-  `%LOCALAPPDATA%\Programs\Python\Python313`. Para chequear dependencias de
-  whisper hay que apuntar explícitamente a ese segundo.
+- **Hay varios Python en el PATH y whisper NO vive en el que contesta.** `python`
+  resuelve a `C:\Python313\python.exe`; whisper está en otro, y el "otro" se
+  mueve: cuando se escribió esto era `Python313` y al 2026-09-02 el binario salía
+  de `%LOCALAPPDATA%\Programs\Python\Python312\Scripts\whisper.exe`. **No
+  hardcodees la versión** — para eso `whisper.ts` resuelve por `where` y no por
+  ruta. Si necesitás chequear las dependencias, sacá la ruta de `where whisper` y
+  usá ESE intérprete, no `python`.
 - **`FP16 is not supported on CPU; using FP32 instead`** no es un error, es el
   warning esperado. Confirma que estás en CPU.
 - **La primera corrida descarga el modelo** (139 MB para `base`) a
