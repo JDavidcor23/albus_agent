@@ -20,6 +20,7 @@ My Notes escribe; Albus lee y escribe de vuelta.
 | sharp, tesseract, CDP, un DOM ajeno, un error raro de Supabase | `.claude/docs/gotchas.md` |
 | algo que "está mal" y parece obvio de arreglar | `.claude/docs/known-debt.md` · `src/main/devtools/README.md` |
 | un video, un audio, "analizá esta grabación", `src/main/video/`, `core/video/` | `.claude/docs/video-analysis.md` — Claude no acepta video: hay que convertirlo, y whisper INVENTA sobre el silencio |
+| un agente EXTERNO, `agent.json`, `src/main/hub/`, `core/hub/`, "instalar un agente" | `.claude/docs/agents-hub.md` — el agente NO hereda el env de Albus (tiene el `service_role`), y sus comandos nunca tocan un shell |
 
 ## Los dos repos: la frontera de seguridad
 
@@ -59,6 +60,7 @@ Podés renombrar el identificador, **nunca el valor**. El porqué de cada uno, e
 | Valor | Qué se rompe en silencio |
 |---|---|
 | `albus_agent/`, `agents/`, `graphify/`, `albus.yml`, `connections.json`, `<id>.agente.json`, `<id>.preguntas.json` | se abandona el estado del usuario: agentes, reglas, tokens, conexiones, grafo, cola de preguntas |
+| `agents-hub/`, `agents/`, `results/`, `agent.json` (el hub de agentes externos) | los agentes instalados desaparecen de la lista, o sus resultados quedan huérfanos en la carpeta vieja |
 | `video/`, `meta.json`, `transcript.srt` | la biblioteca de transcripts se vacía o pierde todos los títulos. Sin error: las filas vuelven a llamarse por su timestamp y nadie distingue una reunión de otra |
 | `'albus-agent'` (el `userData` de Electron) | se pierde la partición del navegador: hay que loguearse de nuevo en LinkedIn y Google |
 | `'post link'` y todo nombre de propiedad/opción de Notion | el upsert se vuelve insert; Notion inventa columnas y opciones; los filtros dejan de traer nada |
@@ -127,6 +129,8 @@ npm run jobs:check       # dominio puro + contrato IPC, sin Electron ni red
 npm run ipc:check        # solo el punto ciego: claves del preload vs. schemas zod del main
 npm run video:check      # dominio del video + binarios. Con una ruta, corre el pipeline entero:
                          #   npm run video:check -- "grabacion.mp4" 210
+npm run hub:check       # contrato de agentes externos + un agente de prueba de punta a punta
+npm run hub -- list | run <id> [comando] | install <url|carpeta> [--link]   # el hub, sin Electron
 npm run jobs:check:live  # los que tocan red y credenciales (scraping, Notion, Gmail)
 npm run jobs:selftest    # navegador contra resources/job-form-fixture.html
 npm run nav:check        # "el agente mira la página", con un modelo falso
