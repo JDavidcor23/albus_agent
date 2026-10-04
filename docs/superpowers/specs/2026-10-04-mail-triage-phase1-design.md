@@ -53,9 +53,8 @@ caro va último".
 
 ## Estructura
 
-Repo propio en `~/Documents/web/my_proyects/mail-triage`, instalado en el hub
-con `npm run hub -- install <carpeta> --link`, para que el token quede en su
-lugar.
+Repo propio que vive directamente en el hub: `~/Documents/agents-hub/agents/mail-triage`.
+Regla: todo agente vive físicamente en el hub, nunca en otra carpeta enlazada con `--link`.
 
 ```
 mail-triage/

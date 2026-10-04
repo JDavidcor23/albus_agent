@@ -72,6 +72,12 @@ Podés renombrar el identificador, **nunca el valor**. El porqué de cada uno, e
 
 ## Convenciones que NO se rompen
 
+- **Todo agente vive FÍSICAMENTE en el hub:** `Documents/agents-hub/agents/<id>/`, con su
+  `.git`, su `.env` y su estado adentro. Nunca se crea el código de un agente en otra
+  carpeta (`my_proyects/…`, `web/…`) ni se instala con `--link`: una junction deja el
+  agente en dos lugares a la vez, y el usuario ya pidió que eso no pase nunca más
+  (2026-10-04). Un agente nuevo se crea directo en `agents-hub/agents/<id>/`.
+
 - **IPC como sobre tipado:** toda respuesta es `{ok:true,data} | {ok:false,error:{code,message}}`,
   siempre vía `registerHandler`. El renderer nunca recibe excepciones crudas, y el
   main nunca confía en el renderer: payloads validados con zod.

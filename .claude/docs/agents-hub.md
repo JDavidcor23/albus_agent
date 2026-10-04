@@ -159,7 +159,14 @@ cancelar se mata el **árbol** (`taskkill /T /F`): matar solo a `npm` deja vivo 
 | URL git (`https://`, `git@`, `ssh://`) | `git clone --depth 1` a una carpeta de staging |
 | Carpeta local con `.git` | `git clone` desde la carpeta: **solo lo commiteado**. Sesiones, `.env` y datos privados (que están en `.gitignore`) no viajan |
 | Carpeta local sin `.git` | copia, salteando `node_modules`, `.git`, `.next`, `.env*`, `dist`, `out` |
-| Carpeta local con `link: true` | **junction** `agents/<id>` → la carpeta original. Para desarrollar el agente en su lugar y conservar su estado local (la sesión de WhatsApp) |
+| Carpeta local con `link: true` | **junction** `agents/<id>` → la carpeta original. **No usar para los agentes del usuario** (ver abajo) |
+
+**Regla del usuario (2026-10-04): todo agente vive físicamente en `agents-hub/agents/<id>/`.**
+Un agente nuevo se crea ahí desde el primer commit, con su `.git`, su `.env` y su estado
+local adentro (así vive `whatsapp-digest`). Nada de crear el código en `my_proyects/` e
+instalarlo con `--link`: la junction deja el mismo agente en dos lugares, y el usuario ya no
+sabe cuál es "el agente". Pasó con `mail-triage` y se corrigió moviéndolo. Para sacar una
+junction: `rmdir <ruta>` **sin** `/s` — un borrado recursivo destruye la carpeta original.
 
 Después: leer `agent.json` del staging (el id sale de ahí), mover a `agents/<id>`
 (si ya existe, falla: no hay "actualizar" todavía), `npm ci` o `npm install` si
