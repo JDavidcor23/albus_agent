@@ -78,6 +78,7 @@ misma regla en las dos direcciones.
 | `needs` | strings libres, **solo informativos** | Albus no puede sondear la sesión de WhatsApp de otro programa. El sondeo real es `check` |
 | `schedule` | string libre, informativo | Albus no programa: lo hace Orca o el SO, para que corra con Albus cerrado |
 | `exitCodes` | `{ "<código>": "mensaje" }` | el `2 = hay que escanear el QR` de WhatsApp, generalizado. Es dato, no un `if` por agente |
+| `runLabel` | string, 0–40 caracteres, default `''` | la etiqueta del botón primario en la pantalla del agente (p. ej. `"Generate digest"`). `''` (o un manifiesto viejo sin el campo) hace que la UI muestre `"Run"` — ningún `.min(1)`: un `runLabel: ""` explícito cae en el mismo fallback en vez de rechazar el manifiesto por un campo cosmético |
 
 ### Los comandos: allowlist, no shell
 

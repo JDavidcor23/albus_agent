@@ -3231,294 +3231,351 @@ body::before {
   gap: 8px;
 }
 
+/*
+ * "Option A": the report IS the screen. Name + last-updated, one primary
+ * action, a history of past reports as date pills, and the selected report
+ * filling the rest of the panel. See `.claude/docs/agents-hub.md`.
+ */
 .external-agent {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  flex: 1;
+  min-height: 0;
 }
 
-.external-agent-head {
+.external-agent-header {
   display: flex;
-  flex-wrap: wrap;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 16px;
 }
 
-.external-agent-title {
+.external-agent-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px;
+  min-width: 0;
+}
+
+.external-agent-name {
   font-family: var(--font-serif);
-  font-size: 1.3rem;
+  font-size: 1.6rem;
   font-weight: 400;
   color: var(--ink);
 }
 
-.external-agent-version {
-  margin-left: 8px;
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
+.external-agent-updated {
+  font-size: 0.8rem;
   color: var(--muted);
 }
 
-.external-agent-desc {
-  margin-top: 2px;
-  font-size: 0.82rem;
-  color: var(--muted);
-  line-height: 1.5;
-}
-
-.external-agent-chips {
+.external-agent-controls {
   display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  gap: 6px;
-  max-width: 320px;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
-.external-agent-chip {
+/* The one primary action. Brass fill, dark text — it is the only button on
+   this screen with real visual weight. */
+.external-agent-pill-primary {
+  font-family: var(--font-sans);
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--ground);
+  background: var(--brass);
+  border: 1px solid var(--brass);
+  border-radius: 999px;
+  padding: 9px 22px;
+  cursor: pointer;
+  transition: box-shadow 160ms ease, opacity 160ms ease;
+}
+
+.external-agent-pill-primary:hover:not(:disabled) {
+  box-shadow: 0 0 16px var(--brass-glow);
+}
+
+.external-agent-pill-primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* While running, the same button becomes Cancel: one slot, one meaning at a time. */
+.external-agent-pill-primary-cancel {
+  background: transparent;
+  color: var(--failed);
+  border-color: var(--failed);
+}
+
+.external-agent-ghost-btn {
   font-family: var(--font-mono);
-  font-size: 0.64rem;
-  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1;
+  color: var(--muted);
+  background: transparent;
   border: 1px solid var(--line);
   border-radius: 999px;
-  padding: 3px 10px;
-}
-
-.external-agent-chip-schedule {
-  color: var(--brass);
-  border-color: var(--line-brass);
-}
-
-.external-agent-reason {
-  font-size: 0.8rem;
-  color: var(--ink);
-  background: rgba(180, 87, 74, 0.08);
-  border: 1px solid var(--failed);
-  border-radius: var(--radius);
-  padding: 10px 14px;
-}
-
-.external-agent-actions {
-  display: flex;
-  flex-wrap: wrap;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 160ms ease, color 160ms ease;
+}
+
+.external-agent-ghost-btn:hover {
+  border-color: var(--line-brass);
+  color: var(--ink);
+}
+
+.external-agent-menu-wrap {
+  position: relative;
+}
+
+.external-agent-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  min-width: 220px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.external-agent-menu-item {
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 0.82rem;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.external-agent-menu-item:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.external-agent-menu-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.external-agent-menu-sep {
+  height: 1px;
+  background: var(--line);
+  margin: 4px 2px;
+}
+
+.external-agent-menu-footer {
+  padding: 8px 10px 2px;
+  font-size: 0.66rem;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+/* An unavailable agent, or a run that failed/timed out — same calm shape,
+   the left border is what tells them apart. */
+.external-agent-card {
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--line-brass);
+  border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
   gap: 8px;
 }
 
-.external-agent-progress {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.external-agent-card-failed {
+  border-left-color: var(--failed);
 }
 
-.external-agent-stage {
+.external-agent-card-message {
+  font-size: 0.84rem;
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+.external-agent-card-toggle {
+  align-self: flex-start;
+  font-size: 0.7rem;
+  color: var(--muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.external-agent-card-toggle:hover {
+  color: var(--ink);
+}
+
+.external-agent-cancelled {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+/* While running: one muted line with a pulsing dot, replacing the old
+   scrolling log. The bar only appears when the agent reports a percent. */
+.external-agent-progress-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 0.8rem;
   color: var(--muted);
 }
 
-.external-agent-bar {
-  height: 4px;
+.external-agent-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--brass);
+  flex-shrink: 0;
+  box-shadow: 0 0 8px var(--brass);
+  animation: ink-pulse 1s ease-in-out infinite;
+}
+
+.external-agent-progress-bar {
+  height: 2px;
   background: var(--line);
   border-radius: 999px;
   overflow: hidden;
+  flex: 1;
+  max-width: 220px;
 }
 
-.external-agent-bar-fill {
+.external-agent-progress-bar-fill {
   height: 100%;
   background: var(--brass);
   transition: width 200ms ease;
 }
 
-/* The log: every event the agent emits, in order. Capped client-side to the
-   last 300 lines — more than that and nobody is reading it live anyway. */
-.external-agent-log {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
+.external-agent-question-note {
+  font-size: 0.8rem;
+  color: var(--brass);
+}
+
+/* The last run's log, shown only behind "show details" or the menu's "show
+   last run log" — never on screen by default. */
+.external-agent-log-detail {
   margin: 0;
   padding: 10px 12px;
   list-style: none;
   background: rgba(0, 0, 0, 0.18);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  max-height: 280px;
+  max-height: 220px;
   overflow-y: auto;
   font-family: var(--font-mono);
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   line-height: 1.6;
 }
 
-.external-agent-log-line {
+.external-agent-log-detail li {
   overflow-wrap: anywhere;
 }
 
-.external-agent-log-plain {
+/* The report history: date pills, never the raw file list. */
+.external-agent-history {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.external-agent-history-pill {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
   color: var(--muted);
-  opacity: 0.8;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 12px;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease, background 140ms ease;
 }
 
-.external-agent-log-progress {
-  color: var(--text);
+.external-agent-history-pill:hover {
+  color: var(--ink);
+  border-color: var(--line-brass);
 }
 
-.external-agent-log-error {
-  color: var(--failed);
+.external-agent-history-pill-selected {
+  color: var(--brass);
+  border-color: var(--brass);
+  background: var(--brass-glow);
 }
 
-.external-agent-log-result {
-  color: var(--qr);
-}
-
-.external-agent-log-question {
-  color: var(--profile);
-}
-
-.external-agent-log-note {
+.external-agent-open-link {
+  align-self: flex-start;
+  font-size: 0.7rem;
   color: var(--muted);
-  font-style: italic;
-}
-
-.external-agent-log-open {
-  margin-left: 8px;
   background: none;
   border: none;
-  color: var(--brass);
-  font-family: inherit;
-  font-size: inherit;
   cursor: pointer;
+  padding: 0;
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
-.external-agent-log-open:hover {
-  color: var(--ink);
-}
-
-.external-agent-summary {
-  font-size: 0.82rem;
-  padding: 8px 12px;
-  border-radius: var(--radius);
-  border: 1px solid var(--line);
-}
-
-.external-agent-summary-ok {
-  color: var(--qr);
-  border-color: var(--qr);
-  background: rgba(111, 168, 160, 0.08);
-}
-
-.external-agent-summary-failed {
-  color: var(--failed);
-  border-color: var(--failed);
-  background: rgba(180, 87, 74, 0.08);
-}
-
-.external-agent-summary-timeout,
-.external-agent-summary-cancelled {
-  color: var(--receipt);
-  border-color: var(--line-brass);
-  background: var(--brass-glow);
-}
-
-.external-agent-results {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.external-agent-results-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.external-agent-results-head h4 {
-  font-family: var(--font-serif);
-  font-size: 1rem;
-  font-weight: 400;
-  color: var(--ink);
-}
-
-.external-agent-results-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  list-style: none;
-}
-
-.external-agent-result-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--line);
-}
-
-.external-agent-result-link {
-  flex: 1 1 auto;
-  min-width: 0;
-  text-align: left;
-  background: none;
-  border: none;
-  color: var(--ink);
-  font-family: var(--font-mono);
-  font-size: 0.78rem;
-  cursor: pointer;
-  overflow-wrap: anywhere;
-}
-
-.external-agent-result-link:hover {
+.external-agent-open-link:hover {
   color: var(--brass);
 }
 
-.external-agent-result-meta {
-  flex: none;
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  color: var(--muted);
-}
-
-/* Any agent can drop an `.html` result in its results folder; Albus shows it
-   sandboxed here instead of opening the OS browser. See `.claude/docs/agents-hub.md`. */
-.external-agent-report {
+/* The selected report, filling what is left of the panel. No border, no
+   background of its own — it reads as part of the page, not a widget on it. */
+.external-agent-main {
+  flex: 1;
+  min-height: 400px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
 }
 
-.external-agent-report-head {
+.external-agent-frame {
+  flex: 1;
+  min-height: 400px;
+  width: 100%;
+  border: none;
+  background: transparent;
+}
+
+.external-agent-empty {
+  flex: 1;
+  min-height: 400px;
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
 }
 
-.external-agent-report-head h4 {
+.external-agent-empty-title {
   font-family: var(--font-serif);
-  font-size: 1rem;
+  font-size: 1.7rem;
   font-weight: 400;
   color: var(--ink);
 }
 
-.external-agent-report-meta {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
+.external-agent-empty-sub {
+  font-size: 0.82rem;
   color: var(--muted);
-}
-
-.external-agent-report-path {
-  overflow-wrap: anywhere;
-}
-
-.external-agent-report-frame {
-  width: 100%;
-  height: 70vh;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--ink);
 }
 
 /* ── install an external agent (the minimal marketplace) ──────────────── */

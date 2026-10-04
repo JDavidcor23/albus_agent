@@ -53,7 +53,15 @@ export const AgentJsonSchema = z.object({
   needs: z.array(z.string()).default([]),
   /** Informative only — Albus does not schedule anything. */
   schedule: z.string().default(''),
-  exitCodes: ExitCodesSchema
+  exitCodes: ExitCodesSchema,
+  /**
+   * The label the agent wants on its own primary run button, e.g. "Generate digest".
+   * `''` (the default, and what a manifest that predates this field parses to)
+   * means the UI falls back to the generic "Run" — no `.min(1)` here on purpose:
+   * an agent that sets `runLabel: ""` explicitly gets the same fallback instead
+   * of a rejected manifest over a cosmetic field.
+   */
+  runLabel: z.string().max(40).default('')
 })
 
 export type AgentManifest = z.infer<typeof AgentJsonSchema>

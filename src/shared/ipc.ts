@@ -659,6 +659,8 @@ export interface ExternalAgentDetails {
   /** Informative only — Albus does not schedule anything. */
   schedule: string
   running: boolean
+  /** The agent's own label for its primary run button. `''` = the UI shows "Run". */
+  runLabel: string
 }
 
 /**

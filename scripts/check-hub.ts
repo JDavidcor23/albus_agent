@@ -76,6 +76,13 @@ const badExitCodeKey = parseAgentJson(
 )
 check('rechaza una clave de exitCodes que no es un entero', !badExitCodeKey.ok)
 
+check('runLabel no declarado por defecto queda ""', AgentJsonSchema.parse(WHATSAPP_EXAMPLE).runLabel === '')
+const withRunLabel = AgentJsonSchema.safeParse({ ...WHATSAPP_EXAMPLE, runLabel: 'Generate digest' })
+check(
+  'runLabel declarado se parsea tal cual',
+  withRunLabel.success && withRunLabel.data.runLabel === 'Generate digest'
+)
+
 section('command: el allowlist de línea')
 
 const accepted = [

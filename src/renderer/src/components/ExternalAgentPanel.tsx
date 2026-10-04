@@ -1,35 +1,22 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { AgentInfo, HubAgentEvent, HubReport, HubResultFile, HubRunSummary } from '../../../shared/ipc'
+import { HistoryPills } from './external-agent/HistoryPills'
+import { RunMenu } from './external-agent/RunMenu'
+import { humanDateSmart } from './external-agent/human-date'
 
 /**
- * The generic screen for every agent the hub runs.
+ * The generic screen for every agent the hub runs — "option A": the report
+ * IS the screen. One component instead of one per agent id: an agent the
+ * user installs from a git URL was never compiled into this app, so it
+ * cannot have a bespoke screen. Albus stays generic on purpose; it never
+ * learns what a given agent IS. See `.claude/docs/agents-hub.md`.
  *
- * One component instead of one per agent id: an agent the user installs from
- * a git URL was never compiled into this app, so it cannot have a bespoke
- * screen. What it CAN have is a name, a `run`, a results folder and a log —
- * and that is everything this screen shows. See `.claude/docs/agents-hub.md`.
+ * Rewritten from a dev-command row + raw file list + scrolling log into:
+ * name + last-updated, one primary action, a history of past reports as
+ * date pills, and the selected report filling the screen.
  */
 
 const MAX_LOG_LINES = 300
-
-function humanSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  const units = ['KB', 'MB', 'GB']
-  let value = bytes / 1024
-  let i = 0
-  while (value >= 1024 && i < units.length - 1) {
-    value /= 1024
-    i += 1
-  }
-  return `${value.toFixed(value < 10 ? 1 : 0)} ${units[i]}`
-}
-
-/** An unreadable date renders as a dash: this comes from the agent's own output. */
-function humanDate(iso: string): string {
-  const at = new Date(iso)
-  if (Number.isNaN(at.getTime())) return '—'
-  return at.toLocaleString()
-}
 
 /**
  * Case-insensitive on purpose: the agent's own build step picks the casing of
@@ -40,57 +27,12 @@ function isHtmlReportPath(path: string): boolean {
   return /\.html$/i.test(path)
 }
 
-function statusLabel(status: HubRunSummary['status']): string {
-  if (status === 'ok') return 'finished'
-  if (status === 'failed') return 'failed'
-  if (status === 'timeout') return 'timed out'
-  return 'cancelled'
-}
-
-function logLineClass(type: HubAgentEvent['type']): string {
-  if (type === 'error') return 'external-agent-log-error'
-  if (type === 'result') return 'external-agent-log-result'
-  if (type === 'question') return 'external-agent-log-question'
-  if (type === 'progress') return 'external-agent-log-progress'
-  return 'external-agent-log-plain'
-}
-
-/**
- * A `result` log line, with its "open" button only when there is a file.
- *
- * Split out so `path` narrows to `string` right at the parameter — reading
- * `event.path` straight inside the JSX of the big list loses that narrowing
- * across the click handler's closure, since `event` itself is a union typed
- * by `event.type`.
- */
-function ResultLine({
-  message,
-  path,
-  onOpen,
-  onView
-}: {
-  message: string
-  path: string | null
-  onOpen: (relPath: string) => void
-  onView: (relPath: string) => void
-}): React.JSX.Element {
-  return (
-    <span>
-      {message}
-      {path !== null && (
-        <>
-          <button type="button" className="external-agent-log-open" onClick={() => onOpen(path)}>
-            open
-          </button>
-          {isHtmlReportPath(path) && (
-            <button type="button" className="external-agent-log-open" onClick={() => onView(path)}>
-              view
-            </button>
-          )}
-        </>
-      )}
-    </span>
-  )
+function eventLine(e: HubAgentEvent): string {
+  if (e.type === 'log') return e.text
+  if (e.type === 'progress') return e.message
+  if (e.type === 'error') return e.message
+  if (e.type === 'result') return e.message
+  return e.question
 }
 
 interface Props {
@@ -109,11 +51,12 @@ export function ExternalAgentPanel({ agent, onError }: Props): React.JSX.Element
    * channel just for this.
    */
   const [watchingExternalRun, setWatchingExternalRun] = useState(ext?.running ?? false)
-  const [activeCommand, setActiveCommand] = useState<string | null>(null)
   const [cancelling, setCancelling] = useState(false)
   const [progress, setProgress] = useState<{ message: string; percent?: number } | null>(null)
   const [events, setEvents] = useState<HubAgentEvent[]>([])
   const [summary, setSummary] = useState<HubRunSummary | null>(null)
+  const [showLog, setShowLog] = useState(false)
+
   const [results, setResults] = useState<HubResultFile[]>([])
   const [resultsLoading, setResultsLoading] = useState(true)
   const [report, setReport] = useState<HubReport | null>(null)
@@ -206,7 +149,7 @@ export function ExternalAgentPanel({ agent, onError }: Props): React.JSX.Element
     setSummary(null)
     setEvents([])
     setProgress(null)
-    setActiveCommand(command)
+    setShowLog(false)
     setRunning(true)
     try {
       const res = await window.api.runHubAgent(agent.id, command)
@@ -218,7 +161,6 @@ export function ExternalAgentPanel({ agent, onError }: Props): React.JSX.Element
       }
     } finally {
       setRunning(false)
-      setActiveCommand(null)
     }
   }
 
@@ -263,208 +205,131 @@ export function ExternalAgentPanel({ agent, onError }: Props): React.JSX.Element
   }
 
   const otherCommands = ext.commands.filter((c) => c !== 'run')
+  const reports = results.filter((r) => isHtmlReportPath(r.relPath)).slice(0, 5)
+  const newestReport = reports[0] ?? null
+  const primaryLabel = ext.runLabel !== '' ? ext.runLabel : 'Run'
+  const askedQuestion = events.some((e) => e.type === 'question')
 
   return (
     <div className="external-agent">
-      <header className="external-agent-head">
-        <div>
-          <h3 className="external-agent-title">
-            {agent.name}
-            {ext.version !== '' && <span className="external-agent-version">v{ext.version}</span>}
-          </h3>
-          <p className="external-agent-desc">{agent.description}</p>
+      <header className="external-agent-header">
+        <div className="external-agent-heading">
+          <h3 className="external-agent-name">{agent.name}</h3>
+          {newestReport !== null && (
+            <span className="external-agent-updated"> · {humanDateSmart(newestReport.modifiedAt)}</span>
+          )}
         </div>
 
-        {(ext.needs.length > 0 || ext.schedule !== '') && (
-          <div className="external-agent-chips">
-            {ext.needs.map((n) => (
-              <span key={n} className="external-agent-chip">
-                {n}
-              </span>
-            ))}
-            {ext.schedule !== '' && (
-              <span
-                className="external-agent-chip external-agent-chip-schedule"
-                title="scheduled outside Albus"
-              >
-                {ext.schedule}
-              </span>
-            )}
-          </div>
-        )}
+        <div className="external-agent-controls">
+          <button
+            type="button"
+            className={`external-agent-pill-primary ${running ? 'external-agent-pill-primary-cancel' : ''}`}
+            disabled={running ? cancelling : !agent.available}
+            onClick={() => void (running ? cancel() : run('run'))}
+          >
+            {running ? (cancelling ? 'Cancelling…' : 'Cancel') : primaryLabel}
+          </button>
+
+          <RunMenu
+            commands={otherCommands}
+            busy={running}
+            needs={ext.needs}
+            schedule={ext.schedule}
+            onRunCommand={(c) => void run(c)}
+            onOpenResultsFolder={() => void openResultsFolder()}
+            onOpenCodeFolder={() => void openCode()}
+            onShowLog={() => setShowLog((v) => !v)}
+          />
+        </div>
       </header>
 
       {!agent.available && (
-        <div className="external-agent-reason">
-          <strong>not available:</strong> {agent.reason}
+        <div className="external-agent-card">
+          <p className="external-agent-card-message">
+            <strong>Not available:</strong> {agent.reason}
+          </p>
         </div>
       )}
 
-      <div className="external-agent-actions">
-        <button
-          type="button"
-          className="btn-conectar"
-          disabled={running || !agent.available}
-          onClick={() => void run('run')}
-        >
-          {running && activeCommand === 'run' ? 'running…' : 'run'}
-        </button>
-
-        {otherCommands.map((c) => (
-          <button
-            key={c}
-            type="button"
-            className="reglas-editar"
-            disabled={running}
-            onClick={() => void run(c)}
-          >
-            {running && activeCommand === c ? `${c}…` : c}
-          </button>
-        ))}
-
-        {running && (
-          <button
-            type="button"
-            className="reglas-editar"
-            disabled={cancelling}
-            onClick={() => void cancel()}
-          >
-            {cancelling ? 'cancelling…' : 'cancel'}
-          </button>
-        )}
-
-        <button type="button" className="reglas-editar" onClick={() => void openCode()}>
-          open code folder
-        </button>
-        <button type="button" className="reglas-editar" onClick={() => void openResultsFolder()}>
-          open results folder
-        </button>
-      </div>
-
       {running && (
-        <div className="external-agent-progress">
-          <div className="external-agent-stage">
-            {progress?.message ?? (watchingExternalRun ? 'already running…' : 'starting…')}
-          </div>
+        <div className="external-agent-progress-line">
+          <span className="external-agent-dot" />
+          <span>{progress?.message ?? (watchingExternalRun ? 'Already running…' : 'Starting…')}</span>
           {progress?.percent !== undefined && (
-            <div className="external-agent-bar">
-              <div className="external-agent-bar-fill" style={{ width: `${progress.percent}%` }} />
-            </div>
+            <span className="external-agent-progress-bar">
+              <span className="external-agent-progress-bar-fill" style={{ width: `${progress.percent}%` }} />
+            </span>
           )}
         </div>
       )}
 
-      {events.length > 0 && (
-        <ul className="external-agent-log">
-          {events.map((e, i) => (
-            <li key={i} className={`external-agent-log-line ${logLineClass(e.type)}`}>
-              {e.type === 'log' && <span>{e.text}</span>}
-              {e.type === 'progress' && <span>{e.message}</span>}
-              {e.type === 'error' && <span>{e.message}</span>}
-              {e.type === 'result' && (
-                <ResultLine message={e.message} path={e.path} onOpen={openResultFile} onView={loadReport} />
-              )}
-              {e.type === 'question' && (
-                <span>
-                  {e.question}
-                  <em className="external-agent-log-note"> — added to this agent's questions</em>
-                </span>
-              )}
-            </li>
+      {askedQuestion && (
+        <p className="external-agent-question-note">
+          The agent asked something — answer it in Rules.
+        </p>
+      )}
+
+      {summary !== null && (summary.status === 'failed' || summary.status === 'timeout') && (
+        <div className="external-agent-card external-agent-card-failed">
+          <p className="external-agent-card-message">
+            {summary.status === 'timeout' ? 'Timed out' : 'Failed'}
+            {summary.message !== '' && ` — ${summary.message}`}
+            {summary.exitCode !== null && ` (exit ${summary.exitCode})`}
+          </p>
+          <button type="button" className="external-agent-card-toggle" onClick={() => setShowLog((v) => !v)}>
+            {showLog ? 'hide details' : 'show details'}
+          </button>
+        </div>
+      )}
+
+      {summary !== null && summary.status === 'cancelled' && (
+        <p className="external-agent-cancelled">Cancelled.</p>
+      )}
+
+      {showLog && events.length > 0 && (
+        <ul className="external-agent-log-detail">
+          {events.slice(-100).map((e, i) => (
+            <li key={i}>{eventLine(e)}</li>
           ))}
         </ul>
       )}
 
-      {summary !== null && (
-        <div className={`external-agent-summary external-agent-summary-${summary.status}`}>
-          {statusLabel(summary.status)}
-          {summary.message !== '' && ` — ${summary.message}`}
-          {summary.exitCode !== null && ` (exit ${summary.exitCode})`}
-        </div>
-      )}
+      <HistoryPills reports={reports} selected={reportPath} onSelect={(p) => void loadReport(p)} />
 
       {reportPath !== null && (
-        <div className="external-agent-report">
-          <div className="external-agent-report-head">
-            <h4>latest report</h4>
-            <div className="external-agent-report-meta">
-              <span className="external-agent-report-path">{reportPath}</span>
-              {report !== null && <span>{humanDate(report.modifiedAt)}</span>}
-              <button
-                type="button"
-                className="external-agent-log-open"
-                onClick={() => void openResultFile(reportPath)}
-              >
-                open in browser ↗
-              </button>
-            </div>
-          </div>
-
-          {reportLoading && <p className="video-empty">loading the report…</p>}
-
-          {/*
-           * Empty `sandbox` on purpose: the HTML came from a third-party agent
-           * and may contain model-generated text. No `allow-scripts`, no
-           * `allow-same-origin`, no `allow-popups` — links render but do not
-           * navigate, which is an acceptable tradeoff for a non-interactive
-           * preview (see "open in browser" above for anything clickable).
-           */}
-          {!reportLoading && report !== null && (
-            <iframe
-              sandbox=""
-              srcDoc={report.html}
-              title={`${agent.name} report — ${reportPath}`}
-              className="external-agent-report-frame"
-            />
-          )}
-        </div>
+        <button
+          type="button"
+          className="external-agent-open-link"
+          onClick={() => void openResultFile(reportPath)}
+        >
+          open in browser ↗
+        </button>
       )}
 
-      <div className="external-agent-results">
-        <div className="external-agent-results-head">
-          <h4>recent results</h4>
-          <button type="button" className="reglas-editar" onClick={() => void refreshResults()}>
-            refresh
-          </button>
-        </div>
-
-        {resultsLoading && <p className="video-empty">reading the results folder…</p>}
-
-        {!resultsLoading && results.length === 0 && (
-          <p className="video-empty">
-            nothing here yet — run the agent and its output lands in this list
-          </p>
+      <div className="external-agent-main">
+        {(resultsLoading || reportLoading) && (
+          <p className="video-empty">{resultsLoading ? 'looking for reports…' : 'loading the report…'}</p>
         )}
 
-        {results.length > 0 && (
-          <ul className="external-agent-results-list">
-            {results.map((r) => {
-              const isHtml = isHtmlReportPath(r.relPath)
-              return (
-                <li key={r.relPath} className="external-agent-result-row">
-                  <button
-                    type="button"
-                    className="external-agent-result-link"
-                    onClick={() => void (isHtml ? loadReport(r.relPath) : openResultFile(r.relPath))}
-                  >
-                    {r.relPath}
-                  </button>
-                  <span className="external-agent-result-meta">
-                    {humanSize(r.size)} · {humanDate(r.modifiedAt)}
-                    {isHtml && (
-                      <button
-                        type="button"
-                        className="external-agent-log-open"
-                        onClick={() => void openResultFile(r.relPath)}
-                      >
-                        open in browser ↗
-                      </button>
-                    )}
-                  </span>
-                </li>
-              )
-            })}
-          </ul>
+        {!resultsLoading && !reportLoading && report !== null && (
+          // Empty `sandbox` on purpose: the HTML came from a third-party agent
+          // and may contain model-generated text. No `allow-scripts`, no
+          // `allow-same-origin`, no `allow-popups` — links render but do not
+          // navigate, which is an acceptable tradeoff for a non-interactive
+          // preview (see "open in browser" above for anything clickable).
+          <iframe
+            sandbox=""
+            srcDoc={report.html}
+            title={`${agent.name} report — ${reportPath ?? ''}`}
+            className="external-agent-frame"
+          />
+        )}
+
+        {!resultsLoading && !reportLoading && report === null && (
+          <div className="external-agent-empty">
+            <div className="external-agent-empty-title">No reports yet</div>
+            <div className="external-agent-empty-sub">Press {primaryLabel} to create the first one.</div>
+          </div>
         )}
       </div>
     </div>

@@ -48,7 +48,8 @@ export async function externalAgentInfos(builtinIds: ReadonlySet<string>): Promi
         commands: entry.manifest !== null ? Object.keys(entry.manifest.commands) : [],
         needs: entry.manifest?.needs ?? [],
         schedule: entry.manifest?.schedule ?? '',
-        running: running.has(entry.id)
+        running: running.has(entry.id),
+        runLabel: entry.manifest?.runLabel ?? ''
       },
       rules: {
         supported: true,
