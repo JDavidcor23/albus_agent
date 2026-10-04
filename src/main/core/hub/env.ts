@@ -56,6 +56,26 @@ export interface AgentEnvContract {
 }
 
 /**
+ * The same system-variable allowlist, with no agent contract attached. Used
+ * by anything the hub spawns that is not yet (or not only) one agent's own
+ * run — `git clone` and `npm ci`/`npm install` during an install. Without
+ * this, those calls fall back to Node's default of inheriting the full
+ * `process.env`, which defeats the allowlist exactly the same way handing it
+ * to the agent directly would.
+ */
+export function buildSystemEnv(source: Record<string, string | undefined>): Record<string, string> {
+  const output: Record<string, string> = {}
+
+  for (const [key, value] of Object.entries(source)) {
+    if (value === undefined) continue
+    if (!ALLOWLIST_LOWER.has(key.toLowerCase())) continue
+    output[key] = value
+  }
+
+  return output
+}
+
+/**
  * Builds the environment for one run. `source` is normally `process.env`,
  * passed in rather than read here so this stays pure and testable without
  * mutating or depending on the real process environment.
@@ -64,13 +84,7 @@ export function buildAgentEnv(
   source: Record<string, string | undefined>,
   contract: AgentEnvContract
 ): Record<string, string> {
-  const output: Record<string, string> = {}
-
-  for (const [key, value] of Object.entries(source)) {
-    if (value === undefined) continue
-    if (!ALLOWLIST_LOWER.has(key.toLowerCase())) continue
-    output[key] = value
-  }
+  const output = buildSystemEnv(source)
 
   output.AGENT_ID = contract.agentId
   output.AGENT_RUN_ID = contract.runId

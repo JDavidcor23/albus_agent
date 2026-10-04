@@ -16,7 +16,7 @@ import { join, resolve } from 'node:path'
 
 import { AgentJsonSchema, parseAgentJson } from '../src/main/core/hub/manifest'
 import { parseCommand } from '../src/main/core/hub/command'
-import { buildAgentEnv } from '../src/main/core/hub/env'
+import { buildAgentEnv, buildSystemEnv } from '../src/main/core/hub/env'
 import { parseEventLine, resolveResultPath, type AgentEvent } from '../src/main/core/hub/protocol'
 import { installAgent } from '../src/main/hub/install'
 import { activeRuns, cancelRun, runAgent } from '../src/main/hub/runner'
@@ -145,6 +145,22 @@ check('NOTION_TOKEN NO sobrevive', builtEnv.NOTION_TOKEN === undefined)
 check('una var random NO sobrevive', builtEnv.SOME_RANDOM_VAR === undefined)
 check('AGENT_ID se agrega', builtEnv.AGENT_ID === 'x')
 check('AGENT_PROTOCOL es "1"', builtEnv.AGENT_PROTOCOL === '1')
+
+/*
+ * `buildSystemEnv` is what `install.ts` must pass to `git clone` and
+ * `npm ci`/`npm install` — without it, `execFile` defaults to inheriting the
+ * full `process.env`, handing those child processes the same service_role
+ * key the agent's own run is never allowed to see.
+ */
+const systemEnv = buildSystemEnv({
+  PATH: 'C:\\Windows',
+  SUPABASE_SERVICE_ROLE_KEY: 'secret-key',
+  NOTION_TOKEN: 'notion-secret'
+})
+check('buildSystemEnv: PATH sobrevive', systemEnv.PATH === 'C:\\Windows')
+check('buildSystemEnv: SUPABASE_SERVICE_ROLE_KEY NO sobrevive', systemEnv.SUPABASE_SERVICE_ROLE_KEY === undefined)
+check('buildSystemEnv: NOTION_TOKEN NO sobrevive', systemEnv.NOTION_TOKEN === undefined)
+check('buildSystemEnv: no agrega campos de contrato', Object.keys(systemEnv).includes('AGENT_ID') === false)
 
 /* ── 2. Integración: instalar y correr el fixture de verdad ────────────────── */
 

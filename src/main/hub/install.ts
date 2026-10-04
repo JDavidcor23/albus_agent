@@ -13,6 +13,7 @@ import {
 import { join, resolve } from 'node:path'
 import { agentsCodeDir } from '../paths'
 import { parseAgentJson, type AgentManifest } from '../core/hub/manifest'
+import { buildSystemEnv } from '../core/hub/env'
 import { resolveBinary } from '../providers/cli-common'
 import { resolveProgram } from './process'
 import { runAgent } from './runner'
@@ -79,7 +80,17 @@ function runCommand(
     execFile(
       file,
       args,
-      { cwd: options.cwd, timeout: options.timeoutMs, windowsHide: true, encoding: 'utf8' },
+      {
+        cwd: options.cwd,
+        timeout: options.timeoutMs,
+        windowsHide: true,
+        encoding: 'utf8',
+        // Without this, execFile defaults to the full `process.env` —
+        // including Albus's Supabase service_role key — for `git clone` and
+        // `npm ci`/`npm install`. Same allowlist the agent's own run gets;
+        // see `core/hub/env.ts`.
+        env: buildSystemEnv(process.env)
+      },
       (error, stdout, stderr) => {
         settle({ code: exitCodeFromExecError(error), stdout: stdout ?? '', stderr: stderr ?? '' })
       }
