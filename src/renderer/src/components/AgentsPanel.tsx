@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { AgentInfo, CliProviderInfo } from '../../../shared/ipc'
+import type {
+  AgentInfo,
+  CliProviderInfo,
+  HubInstallReport,
+  HubInstallStep
+} from '../../../shared/ipc'
+import { ExternalAgentPanel } from './ExternalAgentPanel'
 import { JobChat } from './JobChat'
 import { VideoPanel } from './VideoPanel'
 
@@ -38,7 +44,15 @@ const SCREENS: Record<string, (props: PanelProps) => React.JSX.Element> = {
    * Formulario y no chat, al revés que el de arriba: un pipeline determinista no
    * tiene nada que conversar. Se elige un archivo y se espera.
    */
-  video: (p) => <VideoPanel providerId={p.providerId} modelId={p.modelId} onError={p.onError} />
+  video: (p) => (
+    <VideoPanel providerId={p.providerId} modelId={p.modelId} onError={p.onError} agent={p.agent} />
+  ),
+  /*
+   * Every agent the hub discovers, installs and runs shares this ONE screen —
+   * see `.claude/docs/agents-hub.md`. An agent-specific component here would
+   * mean a user-installed agent can never have a face.
+   */
+  external: (p) => <ExternalAgentPanel agent={p.agent} onError={p.onError} />
 }
 
 /**
@@ -61,9 +75,14 @@ export interface PanelProps {
   providerId: string | null
   modelId: string | null
   onError: (message: string | null) => void
+  /** The selected agent's own data. Only `'external'` reads it today. */
+  agent: AgentInfo
 }
 
-interface Props extends PanelProps {
+interface Props {
+  providerId: string | null
+  modelId: string | null
+  onError: (message: string | null) => void
   providers: CliProviderInfo[]
 }
 
@@ -74,6 +93,14 @@ export function AgentsPanel({ providerId, modelId, onError, providers }: Props):
   /** Lo que el usuario está escribiendo, por pregunta. */
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [answering, setAnswering] = useState<string | null>(null)
+
+  // ── install an external agent ─────────────────────────────────────────
+  const [showInstallForm, setShowInstallForm] = useState(false)
+  const [installSource, setInstallSource] = useState('')
+  const [installLink, setInstallLink] = useState(false)
+  const [installing, setInstalling] = useState(false)
+  const [installSteps, setInstallSteps] = useState<HubInstallStep[]>([])
+  const [installReport, setInstallReport] = useState<HubInstallReport | null>(null)
 
   const load = useCallback((): void => {
     void window.api.listAgents().then((res) => {
@@ -89,6 +116,44 @@ export function AgentsPanel({ providerId, modelId, onError, providers }: Props):
   }, [onError])
 
   useEffect(load, [load])
+
+  // Returns the unsubscribe: without it StrictMode mounts the handler twice
+  // and every step of the install would be logged twice.
+  useEffect(() => window.api.onHubInstallStep((step) => setInstallSteps((prev) => [...prev, step])), [])
+
+  const browseAgentFolder = async (): Promise<void> => {
+    onError(null)
+    const res = await window.api.pickHubAgentFolder()
+    if (!res.ok) {
+      onError(res.error.message)
+      return
+    }
+    if (res.data !== null) setInstallSource(res.data)
+  }
+
+  const installAgent = async (): Promise<void> => {
+    const source = installSource.trim()
+    if (source === '') return
+
+    onError(null)
+    setInstalling(true)
+    setInstallSteps([])
+    setInstallReport(null)
+    try {
+      const res = await window.api.installHubAgent(source, installLink)
+      if (!res.ok) {
+        onError(res.error.message)
+        return
+      }
+      setInstallReport(res.data)
+      // The list needs reloading even on failure: a failed `check` still
+      // leaves the agent installed, just painted off with the reason.
+      load()
+      if (res.data.ok && res.data.id !== null) setActive(res.data.id)
+    } finally {
+      setInstalling(false)
+    }
+  }
 
   /**
    * Abre el `.md` y RECARGA al volver el foco a la ventana.
@@ -136,15 +201,120 @@ export function AgentsPanel({ providerId, modelId, onError, providers }: Props):
     window.addEventListener('focus', onFocusBack)
   }
 
+  /*
+   * The marketplace, minimal: a Git URL or a local folder becomes an agent
+   * under `agents-hub/agents/`. It is rendered even with zero agents — that
+   * is the one state where installing one matters most.
+   */
+  const installSection = (
+    <div className="hub-install">
+      {!showInstallForm ? (
+        <button type="button" className="hub-install-toggle" onClick={() => setShowInstallForm(true)}>
+          + install agent
+        </button>
+      ) : (
+        <div className="hub-install-form">
+          <div className="hub-install-row">
+            <input
+              className="hub-install-input"
+              placeholder="git URL or local folder"
+              value={installSource}
+              disabled={installing}
+              onChange={(e) => setInstallSource(e.target.value)}
+            />
+            <button
+              type="button"
+              className="reglas-editar"
+              disabled={installing}
+              onClick={() => void browseAgentFolder()}
+            >
+              browse…
+            </button>
+          </div>
+
+          <label className="hub-install-checkbox">
+            <input
+              type="checkbox"
+              checked={installLink}
+              disabled={installing}
+              onChange={(e) => setInstallLink(e.target.checked)}
+            />
+            link instead of copy (develop in place, keeps the agent&apos;s local session)
+          </label>
+
+          <div className="hub-install-actions">
+            <button
+              type="button"
+              className="btn-conectar"
+              disabled={installing || installSource.trim() === ''}
+              onClick={() => void installAgent()}
+            >
+              {installing ? 'installing…' : 'install'}
+            </button>
+            <button
+              type="button"
+              className="reglas-editar"
+              disabled={installing}
+              onClick={() => {
+                setShowInstallForm(false)
+                setInstallSteps([])
+                setInstallReport(null)
+                setInstallSource('')
+              }}
+            >
+              close
+            </button>
+          </div>
+
+          {installSteps.length > 0 && (
+            <ul className="hub-install-steps">
+              {installSteps.map((s, i) => (
+                <li key={i} className={s.ok ? 'hub-install-step-ok' : 'hub-install-step-fail'}>
+                  <span>{s.ok ? '✓' : '✗'}</span> {s.step}
+                  {s.detail !== '' && <span className="hub-install-step-detail"> — {s.detail}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {installReport !== null && (
+            <p className={installReport.ok ? 'hub-install-result-ok' : 'hub-install-result-fail'}>
+              {installReport.ok
+                ? `installed at ${installReport.dir ?? ''}`
+                : 'install failed — see the steps above'}
+            </p>
+          )}
+        </div>
+      )}
+
+      <button
+        type="button"
+        className="hub-install-footer"
+        onClick={() =>
+          void window.api.openAgentsHub().then((r) => {
+            if (!r.ok) onError(r.error.message)
+          })
+        }
+      >
+        open agents hub folder ↗
+      </button>
+    </div>
+  )
+
   if (loading) {
     return <div className="idle-state"><span className="idle-text">looking for agents…</span></div>
   }
 
   if (agents.length === 0) {
     return (
-      <div className="empty-state">
-        <div className="empty-title">no agents registered</div>
-        <div className="empty-subtitle">they are added in src/main/agents/registry.ts</div>
+      <div className="agentes">
+        <div className="empty-state">
+          <div className="empty-title">no agents registered</div>
+          <div className="empty-subtitle">
+            built-in ones are added in src/main/agents/registry.ts — or install one below
+          </div>
+        </div>
+        {installSection}
       </div>
     )
   }
@@ -164,12 +334,17 @@ export function AgentsPanel({ providerId, modelId, onError, providers }: Props):
             }`}
             onClick={() => setActive(active === a.id ? null : a.id)}
           >
-            <span className="agente-nombre">{a.name}</span>
+            <span className="agente-card-head">
+              <span className="agente-nombre">{a.name}</span>
+              {a.origin === 'external' && <span className="agente-tag-external">external</span>}
+            </span>
             <span className="agente-desc">{a.description}</span>
             {a.reason !== '' && <span className="agente-motivo">{a.reason}</span>}
           </button>
         ))}
       </div>
+
+      {installSection}
 
       {/*
         Las reglas del agente seleccionado.
@@ -304,8 +479,11 @@ export function AgentsPanel({ providerId, modelId, onError, providers }: Props):
       )}
 
       {selected !== null && Panel !== undefined ? (
-        <div className="agente-panel">
-          <Panel providerId={providerId} modelId={modelId} onError={onError} />
+        // `key` forces a remount on every switch: two external agents share
+        // this same component, and without it the second one would open
+        // showing the first one's log and results.
+        <div className="agente-panel" key={selected.id}>
+          <Panel providerId={providerId} modelId={modelId} onError={onError} agent={selected} />
         </div>
       ) : selected !== null ? (
         <div className="empty-state">

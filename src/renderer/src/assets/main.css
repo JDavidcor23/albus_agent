@@ -3207,3 +3207,398 @@ body::before {
   font-size: 11px;
   padding: 4px 10px;
 }
+
+/* ── external agents hub ──────────────────────────────────────────────────
+   One generic screen for every agent the hub runs, plus the installer and
+   the "external" tag that tell it apart from a builtin in the list.
+   See `.claude/docs/agents-hub.md`. */
+
+.agente-tag-external {
+  flex: none;
+  align-self: center;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+.agente-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.external-agent {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.external-agent-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.external-agent-title {
+  font-family: var(--font-serif);
+  font-size: 1.3rem;
+  font-weight: 400;
+  color: var(--ink);
+}
+
+.external-agent-version {
+  margin-left: 8px;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
+.external-agent-desc {
+  margin-top: 2px;
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.external-agent-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 6px;
+  max-width: 320px;
+}
+
+.external-agent-chip {
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+
+.external-agent-chip-schedule {
+  color: var(--brass);
+  border-color: var(--line-brass);
+}
+
+.external-agent-reason {
+  font-size: 0.8rem;
+  color: var(--ink);
+  background: rgba(180, 87, 74, 0.08);
+  border: 1px solid var(--failed);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+}
+
+.external-agent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.external-agent-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.external-agent-stage {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.external-agent-bar {
+  height: 4px;
+  background: var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.external-agent-bar-fill {
+  height: 100%;
+  background: var(--brass);
+  transition: width 200ms ease;
+}
+
+/* The log: every event the agent emits, in order. Capped client-side to the
+   last 300 lines — more than that and nobody is reading it live anyway. */
+.external-agent-log {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding: 10px 12px;
+  list-style: none;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  max-height: 280px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  line-height: 1.6;
+}
+
+.external-agent-log-line {
+  overflow-wrap: anywhere;
+}
+
+.external-agent-log-plain {
+  color: var(--muted);
+  opacity: 0.8;
+}
+
+.external-agent-log-progress {
+  color: var(--text);
+}
+
+.external-agent-log-error {
+  color: var(--failed);
+}
+
+.external-agent-log-result {
+  color: var(--qr);
+}
+
+.external-agent-log-question {
+  color: var(--profile);
+}
+
+.external-agent-log-note {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.external-agent-log-open {
+  margin-left: 8px;
+  background: none;
+  border: none;
+  color: var(--brass);
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.external-agent-log-open:hover {
+  color: var(--ink);
+}
+
+.external-agent-summary {
+  font-size: 0.82rem;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+}
+
+.external-agent-summary-ok {
+  color: var(--qr);
+  border-color: var(--qr);
+  background: rgba(111, 168, 160, 0.08);
+}
+
+.external-agent-summary-failed {
+  color: var(--failed);
+  border-color: var(--failed);
+  background: rgba(180, 87, 74, 0.08);
+}
+
+.external-agent-summary-timeout,
+.external-agent-summary-cancelled {
+  color: var(--receipt);
+  border-color: var(--line-brass);
+  background: var(--brass-glow);
+}
+
+.external-agent-results {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.external-agent-results-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.external-agent-results-head h4 {
+  font-family: var(--font-serif);
+  font-size: 1rem;
+  font-weight: 400;
+  color: var(--ink);
+}
+
+.external-agent-results-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  list-style: none;
+}
+
+.external-agent-result-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.external-agent-result-link {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.external-agent-result-link:hover {
+  color: var(--brass);
+}
+
+.external-agent-result-meta {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
+/* ── install an external agent (the minimal marketplace) ──────────────── */
+
+.hub-install {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.hub-install-toggle {
+  background: none;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: border-color 160ms ease, color 160ms ease;
+}
+
+.hub-install-toggle:hover {
+  border-color: var(--brass);
+  color: var(--brass);
+}
+
+.hub-install-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+}
+
+.hub-install-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hub-install-input {
+  flex: 1 1 280px;
+  min-width: 0;
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  padding: 8px 10px;
+}
+
+.hub-install-input:focus-visible {
+  outline: none;
+  border-color: var(--brass);
+}
+
+.hub-install-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+.hub-install-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hub-install-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 9px 11px;
+  list-style: none;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: 0.72rem;
+}
+
+.hub-install-step-ok {
+  color: var(--qr);
+}
+
+.hub-install-step-fail {
+  color: var(--failed);
+}
+
+.hub-install-step-detail {
+  color: var(--muted);
+}
+
+.hub-install-result-ok {
+  font-size: 0.8rem;
+  color: var(--qr);
+}
+
+.hub-install-result-fail {
+  font-size: 0.8rem;
+  color: var(--failed);
+}
+
+.hub-install-footer {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  padding: 0;
+}
+
+.hub-install-footer:hover {
+  color: var(--brass);
+}
