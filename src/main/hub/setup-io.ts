@@ -1,7 +1,7 @@
 import { execFile, spawn } from 'node:child_process'
-import { existsSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { extname, join } from 'node:path'
+import { extname, join, win32 } from 'node:path'
 
 import type { AgentManifest } from '../core/hub/manifest'
 import { parseDotenv, setDotenvValue } from '../core/hub/dotenv'
@@ -72,15 +72,33 @@ export function readEnvFile(dir: string, envFile: string): Map<string, string> {
  * in the SAME directory (so the final `renameSync` is a same-volume rename,
  * which is atomic on Windows) and then renamed over the real file. A crash
  * or a second writer mid-write can never leave a half-written `.env`.
+ *
+ * If anything in this sequence fails — most importantly the final rename,
+ * where Windows can throw `EPERM`/`EBUSY` over a file another process
+ * (antivirus, a watcher, the agent itself) has open — the tmp file is
+ * unlinked (best-effort) before rethrowing, so it never sits on disk holding
+ * every secret under a `.tmp-*` name nobody cleans up. The rethrown error
+ * carries the key name and file path only, never `value` or `updated` (the
+ * full file content) — those are never interpolated into any message here.
  */
 export function writeEnvValue(dir: string, envFile: string, key: string, value: string): void {
   const file = join(dir, envFile)
-  const existing = existsSync(file) ? readFileSync(file, 'utf8') : ''
-  const updated = setDotenvValue(existing, key, value)
-
   const tmpFile = join(dir, `.${envFile}.tmp-${process.pid}-${Date.now()}`)
-  writeFileSync(tmpFile, updated, 'utf8')
-  renameSync(tmpFile, file)
+
+  try {
+    const existing = existsSync(file) ? readFileSync(file, 'utf8') : ''
+    const updated = setDotenvValue(existing, key, value)
+    writeFileSync(tmpFile, updated, 'utf8')
+    renameSync(tmpFile, file)
+  } catch (error: unknown) {
+    try {
+      if (existsSync(tmpFile)) unlinkSync(tmpFile)
+    } catch {
+      // Best-effort cleanup — the error thrown below is what the caller sees.
+    }
+    const reason = error instanceof Error ? error.message : 'unknown error'
+    throw new Error(`failed to write "${key}" to ${file}: ${reason}`)
+  }
 }
 
 /** `where <name>`, 5s hard timeout. Never throws — not found and "took too long" both read as `false`. */
@@ -190,9 +208,41 @@ export async function runAgentCommandInteractive(target: SetupTarget, commandNam
 }
 
 /**
+ * Replaces every occurrence of each (non-empty) secret value with `***`.
+ * Plain substring replacement, not a regex — a secret can contain regex
+ * metacharacters, and this must never risk interpreting the value as a
+ * pattern instead of literal text.
+ */
+function redactSecrets(text: string, secretValues: string[]): string {
+  let result = text
+  for (const value of secretValues) {
+    if (value === '') continue
+    result = result.split(value).join('***')
+  }
+  return result
+}
+
+/** The target's declared secret env values that are actually set — what `runAgentCheck` must scrub from a check's output before anyone sees it. */
+function secretValuesFor(target: SetupTarget): string[] {
+  if (target.manifest === null) return []
+  const envValues = readEnvFile(target.dir, target.manifest.setup.envFile)
+  return target.manifest.setup.env
+    .filter((item) => item.secret)
+    .map((item) => envValues.get(item.key))
+    .filter((value): value is string => value !== undefined && value !== '')
+}
+
+const CHECK_TIMEOUT_MINUTES = CHECK_TIMEOUT_MS / 60_000
+
+/**
  * Runs the target's declared `check` command, piped (not attached to a
  * terminal) — this is the "is this agent healthy" probe the TUI runs
  * unattended, so stdout/stderr are captured instead of shown live.
+ *
+ * The raw output is NEVER returned as-is: a check that prints one of the
+ * target's own declared secrets (a token it just validated, say) would
+ * otherwise leak it straight into the TUI. Every non-empty value of an env
+ * entry marked `secret: true` is redacted to `***` before this resolves.
  */
 export async function runAgentCheck(target: SetupTarget): Promise<{ ok: boolean; output: string }> {
   if (target.manifest === null) {
@@ -209,8 +259,18 @@ export async function runAgentCheck(target: SetupTarget): Promise<{ ok: boolean;
     return { ok: false, output: `"check" command is not allowed: ${parsed.reason}` }
   }
 
-  const resolved = await resolveProgram(parsed.program, parsed.args)
+  let resolved: { file: string; args: string[] }
+  try {
+    resolved = await resolveProgram(parsed.program, parsed.args)
+  } catch (error: unknown) {
+    // Never reject: a target whose `node`/`npm` is not resolvable right now
+    // is a normal, reportable check failure, not a crash of the setup TUI.
+    const reason = error instanceof Error ? error.message : String(error)
+    return { ok: false, output: `could not resolve "${parsed.program}": ${reason}` }
+  }
+
   const env = { ...buildSystemEnv(process.env), NO_COLOR: '1' }
+  const secretValues = secretValuesFor(target)
 
   return new Promise((resolve) => {
     const child = spawn(resolved.file, resolved.args, {
@@ -229,15 +289,26 @@ export async function runAgentCheck(target: SetupTarget): Promise<{ ok: boolean;
       output += chunk.toString('utf8')
     })
 
-    const timer = setTimeout(() => killTree(child), CHECK_TIMEOUT_MS)
+    let timedOut = false
+    const timer = setTimeout(() => {
+      timedOut = true
+      killTree(child)
+    }, CHECK_TIMEOUT_MS)
+
+    const finalize = (ok: boolean, extraLine?: string): { ok: boolean; output: string } => {
+      let text = redactSecrets(output, secretValues).trim()
+      if (timedOut) text = `${text}\n[timed out after ${CHECK_TIMEOUT_MINUTES} min]`.trim()
+      if (extraLine !== undefined) text = `${text}\n${redactSecrets(extraLine, secretValues)}`.trim()
+      return { ok: ok && !timedOut, output: text.slice(-4000) }
+    }
 
     child.on('error', (err) => {
       clearTimeout(timer)
-      resolve({ ok: false, output: `${output}${String(err)}`.trim().slice(-4000) })
+      resolve(finalize(false, String(err)))
     })
     child.on('close', (code) => {
       clearTimeout(timer)
-      resolve({ ok: code === 0, output: output.trim().slice(-4000) })
+      resolve(finalize(code === 0))
     })
   })
 }
@@ -287,12 +358,28 @@ export function currentHubDir(): string {
 const SETX_TIMEOUT_MS = 10_000
 
 /**
+ * `setx` silently truncates a value over roughly 1024 characters and still
+ * exits 0 — a hub dir that long would "succeed" and persist garbage with no
+ * error anywhere. Checked before spawning anything.
+ */
+const SETX_VALUE_MAX_LENGTH = 1024
+
+/**
  * Persists the hub location for future shells/processes via `setx` (a
  * per-user environment variable on Windows — it does NOT affect the current
  * process, which is why `process.env` is also updated here so the rest of
  * THIS run sees the new value immediately).
  */
 export async function setHubDirPersistently(hubDir: string): Promise<void> {
+  if (hubDir.length > SETX_VALUE_MAX_LENGTH) {
+    throw new Error(
+      `hub dir is ${hubDir.length} characters, over the ${SETX_VALUE_MAX_LENGTH}-character limit setx silently truncates at`
+    )
+  }
+  if (!win32.isAbsolute(hubDir)) {
+    throw new Error('hub dir must be an absolute path')
+  }
+
   await new Promise<void>((resolve, reject) => {
     const child = spawn('setx', ['ALBUS_AGENTS_HUB_DIR', hubDir], {
       stdio: 'ignore',
@@ -322,10 +409,24 @@ export async function setHubDirPersistently(hubDir: string): Promise<void> {
 const ROBOCOPY_TIMEOUT_MS = 30 * 60_000
 
 /**
+ * `execFile`'s default `maxBuffer` is 1 MB of combined stdout+stderr. A real
+ * hub copy, even with `/NFL /NDL /NP /NJH` cutting most of robocopy's own
+ * chatter, can still exceed that on a hub with many agents — and when it
+ * does, Node kills the child outright (`ERR_CHILD_PROCESS_STDIO_MAXBUFFER`),
+ * aborting the copy mid-way. Raised well above anything a real run should
+ * produce.
+ */
+const ROBOCOPY_MAX_BUFFER = 16 * 1024 * 1024
+
+/**
  * Copies the whole hub (every installed agent's code AND its results) from
  * one location to another via `robocopy /E` — `node_modules` is excluded on
  * purpose: it is reinstalled per agent, not worth copying, and can be large
- * enough to make the move itself the thing that times out.
+ * enough to make the move itself the thing that times out. `/NFL /NDL /NP
+ * /NJH` drop the per-file list, per-directory list, progress percentage and
+ * job header from robocopy's own output — none of it is useful here, and
+ * skipping it is most of what keeps the captured output under
+ * `ROBOCOPY_MAX_BUFFER` on a hub with many files.
  *
  * Robocopy's own exit-code convention is NOT the usual "0 = success": any
  * code 0-7 means some combination of "files copied / no files needed
@@ -336,8 +437,8 @@ export async function copyHub(from: string, to: string): Promise<{ ok: boolean; 
   return new Promise((resolve) => {
     execFile(
       'robocopy',
-      [from, to, '/E', '/XD', 'node_modules', '/R:1', '/W:1'],
-      { timeout: ROBOCOPY_TIMEOUT_MS, windowsHide: true },
+      [from, to, '/E', '/XD', 'node_modules', '/R:1', '/W:1', '/NFL', '/NDL', '/NP', '/NJH'],
+      { timeout: ROBOCOPY_TIMEOUT_MS, windowsHide: true, maxBuffer: ROBOCOPY_MAX_BUFFER },
       (err, stdout, stderr) => {
         const output = `${stdout ?? ''}${stderr ?? ''}`.trim().slice(-4000)
         const code = err === null ? 0 : typeof err.code === 'number' ? err.code : 8
@@ -353,19 +454,27 @@ export async function copyHub(from: string, to: string): Promise<{ ok: boolean; 
  * either one is enough evidence the folder is really there and not an empty
  * shell `robocopy` created for some other reason. Returns one problem string
  * per agent that failed to verify; an empty array means the copy is sound.
+ *
+ * A missing or unreadable `from/agents` is ALSO a problem, never silently
+ * `[]` — an empty array has to mean "verified, nothing wrong", not "could
+ * not even look", or a caller that treats `[]` as success would report a
+ * copy of a hub that was never read as sound.
  */
 export async function verifyHubCopy(from: string, to: string): Promise<string[]> {
-  const problems: string[] = []
   const fromAgentsDir = join(from, 'agents')
-  if (!existsSync(fromAgentsDir)) return problems
+  if (!existsSync(fromAgentsDir)) {
+    return [`source has no "agents" folder: ${fromAgentsDir} does not exist`]
+  }
 
   let names: string[]
   try {
     names = readdirSync(fromAgentsDir)
-  } catch {
-    return problems
+  } catch (error: unknown) {
+    const reason = error instanceof Error ? error.message : 'unknown error'
+    return [`cannot read ${fromAgentsDir}: ${reason}`]
   }
 
+  const problems: string[] = []
   for (const name of names) {
     if (name.startsWith('.')) continue
 
@@ -391,7 +500,19 @@ export async function verifyHubCopy(from: string, to: string): Promise<string[]>
 const SCAN_EXTENSIONS = new Set(['.ts', '.js', '.mjs', '.cjs', '.vbs', '.ps1'])
 const SKIP_DIR_NAMES = new Set(['node_modules', '.git'])
 
-/** A literal hardcoded hub path, written as a backslash path, a forward-slash path, or a `path.join('Documents', 'agents-hub', ...)` call. */
+/**
+ * A literal hardcoded hub path, written as:
+ *  - a single OR double backslash path (`Documents\agents-hub` — one
+ *    backslash, exactly how a `.vbs`/`.ps1` string naturally reads once its
+ *    own escaping is accounted for — or `Documents\\agents-hub`, two), or
+ *  - a forward-slash path (`Documents/agents-hub`), or
+ *  - a `path.join('Documents', 'agents-hub', ...)` call.
+ * `[\\/]+` covers one-or-more of either slash direction in one pattern
+ * instead of three separate `.includes` checks, so a `.ps1`/`.vbs` file
+ * (which writes ONE backslash, not the doubled-up `\\` a JS/TS string
+ * literal needs) is caught the same as a `.ts`/`.js` one.
+ */
+const SEPARATOR_STYLE_PATTERN = /Documents[\\/]+agents-hub/
 const JOIN_STYLE_PATTERN = /['"`]Documents['"`]\s*,\s*['"`]agents-hub['"`]/
 
 function lineHasHardcodedHubPath(line: string): boolean {
@@ -400,15 +521,19 @@ function lineHasHardcodedHubPath(line: string): boolean {
   // this scan looks for.
   if (line.includes('ALBUS_AGENTS_HUB_DIR')) return false
 
-  // Two literal backslash CHARACTERS, as they appear in a source file's own
-  // text (e.g. the raw characters of `"Documents\\agents-hub"`), not an
-  // escape sequence evaluated by this file.
-  if (line.includes('Documents\\\\agents-hub')) return true
-  if (line.includes('Documents/agents-hub')) return true
-  return JOIN_STYLE_PATTERN.test(line)
+  return SEPARATOR_STYLE_PATTERN.test(line) || JOIN_STYLE_PATTERN.test(line)
 }
 
-function collectScannableFiles(dir: string, out: string[]): void {
+/**
+ * Belt-and-suspenders beyond the symlink skip below: no real agent folder
+ * nests this deep, so hitting this means something is looping regardless of
+ * why — the scan bails out of that branch instead of hanging forever.
+ */
+const MAX_SCAN_DEPTH = 64
+
+function collectScannableFiles(dir: string, out: string[], depth = 0): void {
+  if (depth > MAX_SCAN_DEPTH) return
+
   let entries: string[]
   try {
     entries = readdirSync(dir)
@@ -420,15 +545,22 @@ function collectScannableFiles(dir: string, out: string[]): void {
     if (SKIP_DIR_NAMES.has(entry)) continue
 
     const full = join(dir, entry)
-    let isDirectory = false
+    let stats: ReturnType<typeof lstatSync>
     try {
-      isDirectory = statSync(full).isDirectory()
+      // `lstatSync`, never `statSync`: a junction/symlink must be identified
+      // AS a symlink, which a `statSync` (follows links) would hide by
+      // reporting the TARGET's type instead. The hub has had junctions
+      // before (see `CLAUDE.md`'s "never --link" rule) — following one that
+      // loops back on itself would recurse forever.
+      stats = lstatSync(full)
     } catch {
       continue
     }
 
-    if (isDirectory) {
-      collectScannableFiles(full, out)
+    if (stats.isSymbolicLink()) continue
+
+    if (stats.isDirectory()) {
+      collectScannableFiles(full, out, depth + 1)
       continue
     }
 

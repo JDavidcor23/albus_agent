@@ -10,7 +10,7 @@
  */
 
 import path from 'node:path'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 
 import { AgentJsonSchema, parseAgentJson, type AgentSetup } from '../src/main/core/hub/manifest'
@@ -24,6 +24,8 @@ import {
   installTool,
   listSetupTargets,
   readEnvFile,
+  runAgentCheck,
+  setHubDirPersistently,
   verifyHubCopy,
   whichTool,
   writeEnvValue
@@ -250,6 +252,34 @@ section('setup-io: dotenv file I/O')
   }
 }
 
+/* ── setup-io: writeEnvValue cleans up and never leaks on failure ───────── */
+
+section('setup-io: writeEnvValue failure cleanup (fix round 1)')
+
+{
+  const dir = mkdtempSync(path.join(tmpdir(), 'albus-setup-fail-'))
+  try {
+    // Destination is a DIRECTORY, not a file — every step that would touch
+    // it (reading "existing", or the final rename) fails, forcing the same
+    // catch/cleanup/rethrow path a real EPERM/EBUSY rename failure takes.
+    mkdirSync(path.join(dir, '.env'))
+
+    let threw = ''
+    try {
+      writeEnvValue(dir, '.env', 'KEY', 'super-secret-value-xyz')
+    } catch (error) {
+      threw = String(error)
+    }
+
+    check('writeEnvValue throws when the destination cannot be written', threw !== '')
+    check('the thrown error does not leak the value', !threw.includes('super-secret-value-xyz'))
+    const leftovers = readdirSync(dir).filter((name) => name.includes('.tmp-'))
+    check('no tmp file is left behind after a failure', leftovers.length === 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 /* ── setup-io: findHardcodedHubPaths ─────────────────────────────────────── */
 
 section('setup-io: findHardcodedHubPaths')
@@ -287,6 +317,31 @@ section('setup-io: findHardcodedHubPaths')
       "const x = path.join(home, 'Documents', 'agents-hub')\n"
     )
 
+    // Fix round 1 — a .vbs/.ps1 writes the path with ONE backslash, not the
+    // doubled-up `\\` a JS/TS string literal needs. Must still be flagged.
+    writeFileSync(
+      path.join(agentDir, 'login.vbs'),
+      [
+        'Set shell = CreateObject("WScript.Shell")',
+        'home = shell.ExpandEnvironmentStrings("%USERPROFILE%")',
+        'resultsDir = home & "\\Documents\\agents-hub\\results\\x"',
+        ''
+      ].join('\r\n')
+    )
+
+    writeFileSync(
+      path.join(agentDir, 'login-fixed.vbs'),
+      [
+        'Set shell = CreateObject("WScript.Shell")',
+        'home = shell.ExpandEnvironmentStrings("%USERPROFILE%")',
+        // Same-line guard, like `good.ts` above: the fallback literal and
+        // ALBUS_AGENTS_HUB_DIR appear on the SAME line, which is the only
+        // thing `lineHasHardcodedHubPath` actually checks.
+        'hubDir = shell.ExpandEnvironmentStrings("%ALBUS_AGENTS_HUB_DIR%") Or home & "\\Documents\\agents-hub"',
+        ''
+      ].join('\r\n')
+    )
+
     const hits = findHardcodedHubPaths(hubDir)
     check(
       'flags the hardcoded path.join(...) line',
@@ -300,6 +355,34 @@ section('setup-io: findHardcodedHubPaths')
       'skips node_modules entirely',
       !hits.some((h) => h.file.includes(path.join('node_modules', 'dep')))
     )
+    check(
+      'flags a .vbs line with a SINGLE backslash (Documents\\agents-hub)',
+      hits.some((h) => h.file === path.join(agentDir, 'login.vbs') && h.line === 3)
+    )
+    check(
+      'does NOT flag the .vbs line guarded by ALBUS_AGENTS_HUB_DIR',
+      !hits.some((h) => h.file === path.join(agentDir, 'login-fixed.vbs'))
+    )
+
+    // Fix round 1 — a junction/symlink must never be followed: a loop back
+    // to its own parent would otherwise recurse forever.
+    let junctionCreated = true
+    try {
+      symlinkSync(agentDir, path.join(agentDir, 'self-loop'), 'junction')
+    } catch {
+      junctionCreated = false
+    }
+    if (junctionCreated) {
+      const start = Date.now()
+      const hitsWithJunction = findHardcodedHubPaths(hubDir)
+      check('findHardcodedHubPaths returns promptly despite a self-referencing junction', Date.now() - start < 5_000)
+      check(
+        'junction target is not double-scanned as a new tree',
+        hitsWithJunction.filter((h) => h.file === path.join(agentDir, 'bad.ts')).length === 1
+      )
+    } else {
+      check('junction skip test: creating a junction requires no special setup on this host', true, '(skipped — could not create a junction here)')
+    }
   } finally {
     rmSync(hubDir, { recursive: true, force: true })
   }
@@ -374,6 +457,19 @@ async function checkVerifyHubCopy(): Promise<void> {
     const problems = await verifyHubCopy(from, to)
     check('verifyHubCopy: present agent has no problem', !problems.some((p) => p.includes('copied-ok')))
     check('verifyHubCopy: missing agent is reported', problems.some((p) => p.includes('missing-in-dest')))
+
+    // Fix round 1 — a `from` with no "agents" folder at all must be reported
+    // as a problem, never silently `[]` (which would read as "verified fine").
+    const emptyFrom = mkdtempSync(path.join(tmpdir(), 'albus-setup-emptyfrom-'))
+    try {
+      const noAgentsProblems = await verifyHubCopy(emptyFrom, to)
+      check(
+        'verifyHubCopy: missing "from/agents" is reported, not []',
+        noAgentsProblems.length > 0 && noAgentsProblems[0].includes('agents')
+      )
+    } finally {
+      rmSync(emptyFrom, { recursive: true, force: true })
+    }
   } finally {
     rmSync(from, { recursive: true, force: true })
     rmSync(to, { recursive: true, force: true })
@@ -402,11 +498,81 @@ async function checkAsyncRest(): Promise<void> {
   }
 }
 
+/* ── setup-io: setHubDirPersistently validates before spawning setx ──────── */
+
+section('setup-io: setHubDirPersistently validation (fix round 1 — never actually spawns setx)')
+
+async function checkSetHubDirValidation(): Promise<void> {
+  let tooLongThrew = ''
+  try {
+    await setHubDirPersistently('D:\\' + 'x'.repeat(2000))
+  } catch (error) {
+    tooLongThrew = String(error)
+  }
+  check('setHubDirPersistently rejects a path over 1024 chars before spawning setx', tooLongThrew !== '')
+
+  let relativeThrew = ''
+  try {
+    await setHubDirPersistently('relative\\path')
+  } catch (error) {
+    relativeThrew = String(error)
+  }
+  check('setHubDirPersistently rejects a relative path before spawning setx', relativeThrew !== '')
+}
+
+/* ── setup-io: runAgentCheck redacts secret env values (fix round 1) ─────── */
+
+section('setup-io: runAgentCheck redacts secrets')
+
+async function checkRunAgentCheckRedaction(): Promise<void> {
+  const dir = mkdtempSync(path.join(tmpdir(), 'albus-setup-secret-'))
+  try {
+    writeFileSync(path.join(dir, '.env'), 'MY_SECRET=supersecrettoken123\n')
+    writeFileSync(
+      path.join(dir, 'check.mjs'),
+      [
+        "import { readFileSync } from 'node:fs'",
+        "import { join, dirname } from 'node:path'",
+        "import { fileURLToPath } from 'node:url'",
+        'const here = dirname(fileURLToPath(import.meta.url))',
+        "const env = readFileSync(join(here, '.env'), 'utf8')",
+        'const match = env.match(/MY_SECRET=(.*)/)',
+        "console.log('leaking token: ' + (match ? match[1].trim() : 'none'))",
+        ''
+      ].join('\n')
+    )
+
+    const manifest = AgentJsonSchema.parse({
+      protocol: 1,
+      id: 'secret-check-agent',
+      name: 'Secret check agent',
+      commands: { run: 'node check.mjs', check: 'node check.mjs' },
+      setup: {
+        tools: [],
+        envFile: '.env',
+        env: [{ key: 'MY_SECRET', label: 'Secret', secret: true }],
+        auth: []
+      }
+    })
+
+    const target = { id: 'secret-check-agent', name: 'Secret check agent', dir, manifest, problem: '' }
+    const result = await runAgentCheck(target)
+
+    check('runAgentCheck: check command ran ok', result.ok, result.output)
+    check('runAgentCheck redacts the secret value from output', !result.output.includes('supersecrettoken123'))
+    check('runAgentCheck output contains the *** redaction marker', result.output.includes('***'))
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 // `tsx` compiles this script to CJS, where there is no top-level `await` —
 // same reason `scripts/check-hub.ts` wraps its async section in `main()`.
 void (async () => {
   await checkVerifyHubCopy()
   await checkAsyncRest()
+  await checkSetHubDirValidation()
+  await checkRunAgentCheckRedaction()
 
   console.log('\n' + '='.repeat(60))
   console.log(failed === 0 ? `SETUP todo ✓ (${passed} ok)` : `SETUP ${failed} fallo(s), ${passed} ok`)
