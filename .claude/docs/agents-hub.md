@@ -47,6 +47,37 @@ El log de cada corrida va a `cacheDir()`, no a `results/`: es diagnóstico de Al
 no un entregable del agente, y "Albus nunca escribe en la carpeta del agente" es la
 misma regla en las dos direcciones.
 
+## Dónde vive el hub: lo elige el usuario, copiar nunca mover
+
+El primer paso de `npm run setup` en una máquina nueva es elegir la carpeta
+**padre**; el hub queda en `<esa carpeta>\agents-hub` (`hubDirFromParent()`,
+`core/hub/hub-location.ts`) — salvo que la carpeta elegida ya termine en
+`agents-hub`, en cuyo caso se usa tal cual, para no anidar un segundo
+`agents-hub` adentro.
+
+La elección se guarda en la variable de entorno **de usuario**
+`ALBUS_AGENTS_HUB_DIR` (`setx`, sin admin). `resolveHubDir()` la lee (recortada
+— un valor solo de espacios cae al default) y por default cae a
+`Documents\agents-hub`. Es de usuario y no de una app para que la vean todos
+por igual: Albus, `scripts/agents.ps1`, Orca, el programador de tareas y cada
+agente corriendo solo. `setx` no afecta a una terminal ya abierta: el TUI lo
+avisa al terminar.
+
+Cambiar la ubicación con un hub que ya existe **copia, nunca mueve**: el TUI
+copia la carpeta entera (`.env`, `.secrets\`, resultados y trabajo sin
+commitear — nada de eso está en GitHub), verifica que cada agente quedó
+completo en el destino, recién entonces cambia la variable, y deja la carpeta
+vieja intacta para borrarla a mano cuando todo funcione.
+
+**El guardia del literal:** todo lo que antes tenía `Documents\agents-hub`
+escrito a mano pasa a leer la variable primero, con el mismo orden en cada
+agente: `AGENT_RESULTS_DIR` (lo pasa Albus) → `ALBUS_AGENTS_HUB_DIR\results\<id>`
+→ `Documents\agents-hub\results\<id>` (el default, para una máquina sin la
+variable). Si un agente se olvida, sigue escribiendo en la carpeta vieja **sin
+error** — por eso `npm run hub:check` corre `findHardcodedHubPaths()` sobre el
+hub real e imprime **WARN, nunca FALLA**, por cada archivo que todavía
+hardcodea la ruta literal en vez de leer `ALBUS_AGENTS_HUB_DIR`.
+
 ## El contrato: `agent.json`
 
 ```json
@@ -80,6 +111,50 @@ misma regla en las dos direcciones.
 | `exitCodes` | `{ "<código>": "mensaje" }` | el `2 = hay que escanear el QR` de WhatsApp, generalizado. Es dato, no un `if` por agente |
 | `runLabel` | string, 0–40 caracteres, default `''` | la etiqueta del botón primario en la pantalla del agente (p. ej. `"Generate digest"`). `''` (o un manifiesto viejo sin el campo) hace que la UI muestre `"Run"` — ningún `.min(1)`: un `runLabel: ""` explícito cae en el mismo fallback en vez de rechazar el manifiesto por un campo cosmético |
 | `hidden` | boolean, default `false` | opt-out EXPLÍCITO del dueño del agente: "corro esto solo desde CLI/Orca, no lo quiero en la lista de Albus". Un manifiesto viejo sin el campo sigue viéndose, igual que siempre. Se filtra únicamente en `hub/agent-info.ts` (lo que arma `agents:list` para el renderer) — `hub/discover.ts#listExternalAgents` nunca lo filtra, porque `runner.ts` y `npm run hub -- run <id>` tienen que seguir encontrando el agente por id. `npm run hub -- list` también lo sigue imprimiendo, marcado `(hidden)`. **No es la misma regla que un `agent.json` roto**: un manifiesto inválido siempre se lista con su problema (`entry.manifest === null`, nunca `hidden`); `hidden: true` es lo contrario — un manifiesto SANO que el dueño pidió no mostrar |
+
+### El campo `setup`: lo que guía a `npm run setup`
+
+Opcional, default `{}` — un manifiesto sin el campo sigue siendo válido, misma
+regla que `runLabel` y `hidden`. Se valida en el mismo `manifest.ts`
+(`SetupSchema`), el único lugar donde se valida un `agent.json`: el TUI
+(`src/tui/`) importa ese schema, no tiene una copia propia.
+
+```json
+"setup": {
+  "tools": ["ffmpeg", "whisper", "claude"],
+  "env": [
+    { "key": "NOTION_TOKEN", "label": "Notion integration token",
+      "help": "notion.so/my-integrations → tu integración → Secret",
+      "secret": true, "optional": false }
+  ],
+  "envFile": ".env",
+  "auth": [
+    { "label": "Gmail personal (read-only)", "command": "auth",
+      "doneWhen": ".secrets/gmail-token.json" }
+  ]
+}
+```
+
+| Campo | Regla | Por qué |
+|---|---|---|
+| `tools` | nombres de binario, `^[a-z0-9._-]+$` | se buscan con `where`, igual que cualquier CLI del proyecto. Las conocidas (`git`, `node`, `gh`, `ffmpeg`, `whisper`, `claude`) traen su comando `winget install`; una desconocida se reporta sin ofrecer instalar nada |
+| `env[].key` | `^[A-Z][A-Z0-9_]*$` | es un nombre de variable; cualquier otra cosa rompería el archivo |
+| `env[].secret` | default `true` | se pide enmascarado y **nunca** se imprime, ni en logs ni en errores |
+| `envFile` | `.env` (default) o `.env.local` | se resuelve dentro de la carpeta del agente; un `../` se rechaza |
+| `auth[].command` | nombre de una entrada de `commands`, nunca un comando nuevo | pasa por la allowlist que ya existe (`command.ts`): un `agent.json` sigue sin poder tocar un shell. `parseAgentJson` rechaza el manifiesto si el nombre no está declarado en `commands` |
+| `auth[].doneWhen` | ruta relativa dentro de la carpeta del agente | si el archivo existe, el permiso está dado; sin esto el TUI no sabría si el OAuth se completó |
+
+La validación de cada clave **no** se declara: al terminar, el TUI corre el
+`commands.check` del agente (que ya existe para eso) y muestra su veredicto.
+
+`setup.json`, en la **raíz de `albus_agent`** (no en el hub), declara las
+claves de Albus mismo con el mismo schema — `SUPABASE_*`, `GOOGLE_*`,
+`NOTION_*` — para que el TUI lo muestre como una fila más, junto a los
+agentes del hub.
+
+`whatsapp-digest` todavía no declara `setup` (sesión concurrente con trabajo
+sin commitear cuando se escribió esto): aparece en el TUI como "nada que
+configurar", no como roto, hasta que se le agregue.
 
 ### Los comandos: allowlist, no shell
 

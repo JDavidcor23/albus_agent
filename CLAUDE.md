@@ -6,6 +6,28 @@ contactos, pendientes, un grafo. Y es el **contenedor de los agentes del
 usuario**: hoy vive ahí el de búsqueda de trabajo. **No es una app de notas** —
 My Notes escribe; Albus lee y escribe de vuelta.
 
+## Operar los agentes del usuario
+
+Esta carpeta es la casa de Claude: el usuario abre `claude` acá y pide lo que
+necesita de sus agentes. La otra puerta es el TUI (`npm run setup`), del
+usuario — ahí van las claves y los permisos, nunca acá: **Claude nunca pide un
+secreto por chat**, eso es trabajo del usuario en el TUI.
+
+| Pedido | Comando |
+|---|---|
+| Listar agentes y su estado | `npm run hub -- list` |
+| Correr uno | `npm run hub -- run <id> [comando]` |
+| Estado (ahead/behind/dirty/local-only) | `powershell -File scripts/agents.ps1 status` |
+| Traer los que faltan / actualizar los instalados | `powershell -File scripts/agents.ps1 clone` / `update` |
+
+Resultados en `<hub>\results\<id>\`, con `<hub>` = `ALBUS_AGENTS_HUB_DIR` si
+está seteada, si no `Documents\agents-hub`.
+
+**Agente nuevo:** carpeta física en el hub (`agents-hub/agents/<id>/`, nunca en
+otra carpeta ni con `--link`) + repo privado con el topic `albus-agent` +, si
+necesita claves, herramientas o permisos, el bloque `setup` en su `agent.json`
+— el usuario completa eso después con `npm run setup`.
+
 ## Índice — este archivo es lo único que se carga solo; el resto hay que ir a buscarlo
 
 | Antes de tocar… | Leé |
@@ -139,6 +161,8 @@ npm run video:check      # dominio del video + binarios. Con una ruta, corre el 
 npm run hub:check       # contrato de agentes externos + un agente de prueba de punta a punta
 npm run hub -- list | run <id> [comando] | install <url|carpeta> [--link]   # el hub, sin Electron
 powershell -File scripts/agents.ps1 sync|clone|update|status|install   # todos los agentes ⇄ GitHub (repos con topic albus-agent)
+npm run setup            # TUI (Ink), del USUARIO: hub, claves, permisos de Google, check de cada agente
+npm run setup:check      # dominio puro de `setup` + temp-dir — nunca toca la máquina real
 npm run jobs:check:live  # los que tocan red y credenciales (scraping, Notion, Gmail)
 npm run jobs:selftest    # navegador contra resources/job-form-fixture.html
 npm run nav:check        # "el agente mira la página", con un modelo falso

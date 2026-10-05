@@ -36,24 +36,27 @@ gh repo clone JDavidcor23/albus_agent
 cd albus_agent; npm install
 ```
 
-**4. Todos tus agentes, de un golpe** (de paso deja instalados los comandos de abajo):
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\agents.ps1 install
-```
+**4. `npm run setup`** (el TUI, con flechas y Enter): elige en qué carpeta
+guardar tus agentes (el hub), sincroniza los que ya tienes en GitHub, te pide
+una por una las claves que falten y abre los permisos de Google.
 
 **5. Lo que GitHub no lleva: cópialo del otro PC con una USB.** Nunca por WhatsApp, correo
 ni Drive.
 
 | Copia esto | Por qué |
 |---|---|
-| `Documents\web\albus_agent\.env` | Las claves de Albus. La de Supabase **abre tu base de datos entera** |
 | `Documents\albus_agent\` (la carpeta entera) | Tus reglas para los agentes, conexiones y videos |
-| `.env`, `.env.local` y `.secrets\` de cada agente | Las claves de cada agente |
 
-Las sesiones (WhatsApp, LinkedIn, Google en el navegador) **no se copian**: en la máquina
-nueva vuelves a iniciar sesión.
+Las sesiones (WhatsApp, LinkedIn, Google en el navegador) se rehacen a mano; las
+claves ya no viajan por USB, se ingresan en el TUI (`npm run setup`).
 
 **6. Listo.** Abre Albus con `npm run dev`.
+
+---
+
+**Día a día:** entra a la carpeta de Albus y escribe `claude`. Pídele lo que
+necesites de un agente — correrlo, ver su estado, actualizarlo — él sabe qué
+comando usar.
 
 ---
 
@@ -106,5 +109,5 @@ Nunca te borra trabajo: si un agente tiene cambios sin commitear, lo salta y te 
 | `Authentication failed` al hacer `git push` en este PC | En este PC gh usa por defecto la cuenta de 30X. Antes del push: `$env:GH_TOKEN = gh auth token -u JDavidcor23` |
 | `[skipped] … uncommitted changes` | Commitea o guarda tus cambios en ese agente y vuelve a correr `update-agents` |
 | `[diverged]` | Cambiaste el mismo agente en las dos máquinas sin sincronizar. Pídele a Claude que lo junte |
-| `update-agents` no se reconoce | Abre una ventana nueva de PowerShell. Si sigue, repite el paso 4 |
-| Quiero la última versión de estos comandos | Repite el paso 4: `install` se baja la versión nueva |
+| `update-agents` no se reconoce | Corre `powershell -ExecutionPolicy Bypass -File scripts\agents.ps1 install` una vez: instala estos atajos en tu perfil de PowerShell. Si ya lo hiciste, abre una ventana nueva |
+| Quiero la última versión de estos comandos | Corre `powershell -File scripts\agents.ps1 install` de nuevo: baja la versión nueva del script |
