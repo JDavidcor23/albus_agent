@@ -31,6 +31,7 @@
     "udemy:login": "node scripts/run-jobs.mjs udemy-login",
     "udemy": "node scripts/run-jobs.mjs udemy",
     "udemy:whoami": "node scripts/run-jobs.mjs udemy-whoami",
+    "udemy:transcripts": "tsx scripts/udemy-transcripts.ts",
     "hub:check": "tsx scripts/check-hub.ts",
     "hub": "tsx scripts/hub.ts"
   },

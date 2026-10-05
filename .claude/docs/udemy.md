@@ -228,3 +228,25 @@ nadie va a leer.
 Y cada `.md` lleva adentro la marca de PRIVADO. Un `.gitignore` protege un repo;
 el archivo se va a copiar y se va a abrir en otra carpeta, y ahí el único que
 sigue avisando es el texto de adentro.
+
+## Solo transcripts: la vía que reemplazó a todo lo de arriba (2026-10-05)
+
+Si lo único que se quiere es el texto, no hace falta abrir una sola lección.
+La API de Udemy, pedida **desde el Chrome real del usuario** (ya logueado y del
+otro lado de Cloudflare), devuelve el índice entero del curso con la URL firmada
+del `.vtt` de cada clase. Esas URLs son de CDN y se bajan con un `fetch` pelado.
+
+```bash
+npm run udemy:transcripts -- 3142166 "C:/…/course-transcripts" --section 4
+```
+
+- Una sola página en Chrome (`--new-window`), leída por el árbol de accesibilidad
+  con `orca computer`. El JSON viene partido en nodos `text` de ~64 KB: hay que
+  concatenarlos hasta que `JSON.parse` acepte.
+- El `set-value` + `Return` sobre la barra de direcciones de una ventana en
+  segundo plano **no navega** (devuelve ok y no pasa nada). Por eso se lanza
+  `chrome.exe --new-window <url>` en vez de manejar la barra.
+- Las URLs firmadas vencen a las ~4 h. Cada corrida pide el índice de nuevo.
+- Se saltean las clases de setup en Mac o Linux (el usuario trabaja en Windows).
+- Reanudable: un archivo que ya existe con contenido no se vuelve a bajar.
+- La numeración es `object_index` de la API, que coincide con la del player.
