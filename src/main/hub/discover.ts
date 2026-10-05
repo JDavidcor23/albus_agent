@@ -44,12 +44,33 @@ function readManifest(dir: string, folderName: string): { manifest: AgentManifes
   return { manifest: parsed.manifest, problem: '' }
 }
 
+/**
+ * True when package.json declares at least one dependency. An agent with
+ * none never gets a `node_modules` folder (npm install creates nothing), so
+ * requiring one would flag it as broken forever. An unreadable package.json
+ * counts as "has dependencies": better a false alarm than a silent crash.
+ */
+function declaresDependencies(packageJsonFile: string): boolean {
+  try {
+    const pkg: unknown = JSON.parse(readFileSync(packageJsonFile, 'utf8'))
+    if (typeof pkg !== 'object' || pkg === null) return true
+    const { dependencies, devDependencies } = pkg as Record<string, unknown>
+    const count = (field: unknown) =>
+      typeof field === 'object' && field !== null ? Object.keys(field).length : 0
+    return count(dependencies) + count(devDependencies) > 0
+  } catch {
+    return true
+  }
+}
+
 function availabilityProblem(dir: string, nodeAvailable: boolean): string {
   if (!nodeAvailable) return 'node is not resolvable on PATH'
 
-  const hasPackageJson = existsSync(join(dir, 'package.json'))
+  const packageJsonFile = join(dir, 'package.json')
   const hasNodeModules = existsSync(join(dir, 'node_modules'))
-  if (hasPackageJson && !hasNodeModules) return 'dependencies not installed'
+  if (existsSync(packageJsonFile) && !hasNodeModules && declaresDependencies(packageJsonFile)) {
+    return 'dependencies not installed'
+  }
 
   return ''
 }
