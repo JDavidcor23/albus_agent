@@ -34,8 +34,12 @@ param(
 $ErrorActionPreference = 'Continue'
 
 $Topic = 'albus-agent'
-# The user picks the hub folder in `npm run setup`; it is stored as a user env var.
-$Hub = if ($env:ALBUS_AGENTS_HUB_DIR) { $env:ALBUS_AGENTS_HUB_DIR } else { Join-Path $env:USERPROFILE 'Documents\agents-hub' }
+# The user picks the hub folder in `npm run setup`; it is stored as a user env
+# var. Trimmed the same way resolveHubDir() (core/hub/hub-location.ts) trims
+# it, so a whitespace-only value falls back to the default on both sides
+# instead of being treated as a real path on this one.
+$EnvHub = "$env:ALBUS_AGENTS_HUB_DIR".Trim()
+$Hub = if ($EnvHub) { $EnvHub } else { Join-Path $env:USERPROFILE 'Documents\agents-hub' }
 $AgentsDir = Join-Path $Hub 'agents'
 $IdPattern = '^[a-z0-9][a-z0-9-]{1,48}$'
 $SelfRepo = 'albus_agent'
