@@ -232,10 +232,12 @@ const AGENTS_HUB_RESULTS_FOLDER = 'results'
 /**
  * Root of the agents hub: external agents' own CODE and what they PRODUCE.
  *
- * Lives in `Documents/`, same reasoning as `dataDir()` — computed by hand via
- * `documentsDir()`, never `app.getPath('documents')` (see that comment above:
- * it hung the boot on a machine with OneDrive). `ALBUS_AGENTS_HUB_DIR` moves
- * it, the same escape hatch `ALBUS_DATA_DIR` is for `dataDir()`.
+ * Lives in `Documents/` by default, computed by `resolveHubDir(process.env,
+ * homeDir())` in `core/hub/hub-location.ts` — the single source of truth
+ * shared with the setup TUI, never `app.getPath('documents')` (see that
+ * comment above `documentsDir()`: it hung the boot on a machine with
+ * OneDrive). `ALBUS_AGENTS_HUB_DIR` moves it, the same escape hatch
+ * `ALBUS_DATA_DIR` is for `dataDir()`.
  *
  * Test mode gets its own throwaway folder under `cacheDir()` so a check
  * script never touches a real installed agent or its real results — same

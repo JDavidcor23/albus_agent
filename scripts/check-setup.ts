@@ -90,6 +90,22 @@ try {
 }
 check('newline in value rejected without echoing it', threw !== '' && !threw.includes('line1'))
 
+// Fix round 1 — new-file write must not start with a blank line.
+check('new file: no leading blank line', setDotenvValue('', 'K', 'v') === 'K=v\n')
+
+// Fix round 1 — single-quoted values are literal (no escape handling).
+check("single-quoted value unquotes literally", parseDotenv("KEY='value'").get('KEY') === 'value')
+check(
+  "single-quoted value keeps backslashes literal",
+  parseDotenv("KEY='a\\nb'").get('KEY') === 'a\\nb'
+)
+
+// Fix round 1 — replacing an `export KEY=...` line must keep the `export ` prefix.
+check(
+  'replacing an export line keeps the export prefix',
+  setDotenvValue('export A=1\n', 'A', '2') === 'export A=2\n'
+)
+
 /* ── hub-location ─────────────────────────────────────────────────────── */
 
 section('hub-location')

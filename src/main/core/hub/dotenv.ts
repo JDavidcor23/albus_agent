@@ -22,7 +22,8 @@ function detectLineEnding(text: string): string {
 
 /**
  * Unquotes a raw value from the right-hand side of `KEY=`. Handles
- * double-quoted values (with `\"` and `\\` escapes) and unquoted values,
+ * double-quoted values (with `\"` and `\\` escapes), single-quoted values
+ * (literal — no escapes inside, by dotenv convention), and unquoted values,
  * where anything from an unescaped ` #` onward is a trailing comment.
  */
 function unquoteValue(raw: string): string {
@@ -44,6 +45,13 @@ function unquoteValue(raw: string): string {
       result += char
     }
     return result
+  }
+
+  if (trimmed.startsWith("'")) {
+    // Single-quoted values are literal: no escape handling, take everything
+    // up to the next single quote (or to the end, if it is never closed).
+    const closingIndex = trimmed.indexOf("'", 1)
+    return closingIndex === -1 ? trimmed.slice(1) : trimmed.slice(1, closingIndex)
   }
 
   // Unquoted: an inline comment starts at an unescaped ` #` (space then hash).
@@ -94,7 +102,10 @@ export function setDotenvValue(text: string, key: string, value: string): string
   }
 
   const eol = detectLineEnding(text)
-  const lines = text.split(/\r\n|\n/)
+  // An empty file has ZERO lines, not one empty line — `''.split(/\n/)`
+  // would otherwise yield `['']` and a brand-new `.env` would get a leading
+  // blank line before the first key.
+  const lines = text === '' ? [] : text.split(/\r\n|\n/)
   // split on a line ending leaves a trailing '' entry when text ends in one.
   const endsWithNewline = text.length > 0 && (text.endsWith('\n') || text.endsWith('\r\n'))
   if (endsWithNewline) lines.pop()
@@ -109,7 +120,8 @@ export function setDotenvValue(text: string, key: string, value: string): string
 
     if (match !== null && match[1] === key) {
       if (replaced) continue // drop later duplicates
-      output.push(formatted)
+      // Keep an `export ` prefix the original line had.
+      output.push(/^export\s+/.test(trimmed) ? `export ${formatted}` : formatted)
       replaced = true
       continue
     }
