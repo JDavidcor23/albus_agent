@@ -34,9 +34,8 @@ param(
 $ErrorActionPreference = 'Continue'
 
 $Topic = 'albus-agent'
-# Same root Albus computes by hand (never the shell's Documents folder, which
-# OneDrive can redirect): see documentsDir() in src/main/paths.ts.
-$Hub = Join-Path $env:USERPROFILE 'Documents\agents-hub'
+# The user picks the hub folder in `npm run setup`; it is stored as a user env var.
+$Hub = if ($env:ALBUS_AGENTS_HUB_DIR) { $env:ALBUS_AGENTS_HUB_DIR } else { Join-Path $env:USERPROFILE 'Documents\agents-hub' }
 $AgentsDir = Join-Path $Hub 'agents'
 $IdPattern = '^[a-z0-9][a-z0-9-]{1,48}$'
 $SelfRepo = 'albus_agent'
