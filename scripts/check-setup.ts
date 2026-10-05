@@ -10,6 +10,7 @@
  */
 
 import { AgentJsonSchema, parseAgentJson } from '../src/main/core/hub/manifest'
+import { parseDotenv, setDotenvValue } from '../src/main/core/hub/dotenv'
 
 let passed = 0
 let failed = 0
@@ -58,6 +59,32 @@ check('envFile other than .env/.env.local rejected', bad({ envFile: '../.env' })
 check('doneWhen escaping folder rejected', bad({ auth: [{ label: 'x', command: 'auth', doneWhen: '../x' }] }))
 check('auth command not in commands rejected', bad({ auth: [{ label: 'x', command: 'nope', doneWhen: 'a' }] }))
 check('tool with space rejected', bad({ tools: ['rm -rf'] }))
+
+/* ── dotenv ────────────────────────────────────────────────────────────── */
+
+section('dotenv')
+
+const src = '# comment\nA=1\nB="two words"\n\nC=x # trailing\n'
+const m = parseDotenv(src)
+check('plain', m.get('A') === '1')
+check('quoted', m.get('B') === 'two words')
+check('inline comment stripped on unquoted', m.get('C') === 'x')
+const up = setDotenvValue(src, 'A', '9')
+check('update in place keeps comment and order', up.startsWith('# comment\nA=9\nB="two words"'))
+const add = setDotenvValue(src, 'NEW', 'v')
+check('append new key at end', add.trimEnd().endsWith('NEW=v') && add.includes('C=x # trailing'))
+const hash = setDotenvValue('', 'K', 'a#b c')
+check('value with # or space is quoted', hash.trim() === 'K="a#b c"' && parseDotenv(hash).get('K') === 'a#b c')
+const quote = setDotenvValue('', 'K', 'say "hi"')
+check('embedded quote round-trips', parseDotenv(quote).get('K') === 'say "hi"')
+check('CRLF input keeps CRLF', setDotenvValue('A=1\r\nB=2\r\n', 'A', '3') === 'A=3\r\nB=2\r\n')
+let threw = ''
+try {
+  setDotenvValue('', 'K', 'line1\nline2')
+} catch (e) {
+  threw = String(e)
+}
+check('newline in value rejected without echoing it', threw !== '' && !threw.includes('line1'))
 
 console.log('\n' + '='.repeat(60))
 console.log(failed === 0 ? `SETUP todo ✓ (${passed} ok)` : `SETUP ${failed} fallo(s), ${passed} ok`)
