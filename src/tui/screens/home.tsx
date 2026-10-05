@@ -1,6 +1,7 @@
 import { useMemo, type ReactNode } from 'react'
 import { Box, Text, useApp, useInput } from 'ink'
 
+import { Logo } from '../components/logo'
 import { SelectList, type SelectItem } from '../components/select-list'
 import type { Screen } from '../screen'
 import { summarize, type SetupData } from '../setup-data'
@@ -86,9 +87,7 @@ export function Home({ data, loadError, loading, onNavigate, onRefresh, focusKey
 
   return (
     <Box flexDirection="column">
-      <Text bold color="cyan">
-        Albus setup
-      </Text>
+      <Logo />
       <Box marginY={1}>
         <SelectList items={items} onSelect={onSelect} initialKey={focusKey} />
       </Box>

@@ -11,6 +11,7 @@
     "typecheck:tui": "tsc --noEmit -p tsconfig.tui.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web && npm run typecheck:tui",
     "setup": "tsx --tsconfig tsconfig.tui.json src/tui/index.tsx",
+    "logo:render": "tsx scripts/render-logo.ts",
     "setup:check": "tsx scripts/check-setup.ts",
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
