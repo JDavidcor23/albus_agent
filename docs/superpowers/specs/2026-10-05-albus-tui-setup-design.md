@@ -63,6 +63,7 @@ La validación de cada clave **no** se declara: al terminar, el TUI corre el
 
 ```
 Albus setup
+  Hub                  C:\Users\PC\Documents\web\agents-hub   → [Enter] cambiar
   Esta máquina         ✔ git ✔ node ✔ gh ✘ ffmpeg   → [Enter] instalar
   Albus (la app)       ✔ 5/5 claves
   mail-triage          ✘ falta NOTION_TOKEN · ✔ Gmail
@@ -86,6 +87,37 @@ Albus setup
 6. **Albus mismo** aparece como una fila más mientras exista la app: sus claves
    (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GOOGLE_*`, `NOTION_*`) se declaran en
    `setup.json`, en la raíz del repo, con el mismo schema que `agent.json#setup`.
+
+### Dónde vive el hub: lo elige el usuario
+
+El primer paso del TUI en una máquina nueva: **"¿En qué carpeta guardo tus agentes?"**,
+con `Documents` como default. El usuario da una carpeta padre (p. ej.
+`C:\Users\PC\Documents\web`) y el hub queda en **`<esa carpeta>\agents-hub\`**:
+
+- **El nombre `agents-hub` no cambia**, y tampoco `agents\` ni `results\` adentro. Son
+  valores congelados (`frozen-contracts.md`), y meter `agents\` y `results\` sueltos en
+  `web\` los mezclaría con otros proyectos.
+- **La elección se guarda en UNA variable de entorno de usuario de Windows,
+  `ALBUS_AGENTS_HUB_DIR`** (`setx`, sin admin). Ya es la llave que respeta
+  `agentsHubDir()` en `paths.ts`. Al ser de usuario y no de una app, la ven **todos**: Albus,
+  `agents.ps1`, Orca, el programador de tareas y cada agente corriendo solo. Un archivo de
+  config en una ruta fija obligaría a cada uno de esos a saber leerlo.
+- **Todo lo que hoy tiene `Documents\agents-hub` escrito a mano pasa a leer la variable
+  primero.** Hoy son: `scripts/agents.ps1`, `mail-triage/src/shared/config.ts`,
+  `utel-study/src/shared/config.ts`, `utel-study/scripts/run-hidden.vbs` y
+  `whatsapp-digest/src/features/self-inbox/code-roots.ts`. El orden en cada agente queda
+  así: `AGENT_RESULTS_DIR` (lo pasa Albus) → `ALBUS_AGENTS_HUB_DIR\results\<id>` →
+  `Documents\agents-hub\results\<id>` (el default de siempre, para una máquina sin la
+  variable). Si uno se olvida, sigue escribiendo en la carpeta vieja **sin error**: por eso
+  `hub:check` lo verifica buscando la ruta literal en los agentes instalados.
+- **Cambiar la ubicación con un hub que ya existe = COPIAR, nunca mover.** El TUI copia la
+  carpeta entera (`robocopy /E`, que trae `.env`, `.secrets\`, resultados y trabajo sin
+  commitear: nada de eso está en GitHub), verifica que cada agente esté completo en el
+  destino, recién entonces cambia la variable, y **deja la carpeta vieja intacta**,
+  avisando que se puede borrar a mano cuando todo funcione. Una tarea programada o una
+  automatización de Orca con la ruta vieja escrita adentro se lista como advertencia.
+- `setx` no afecta a las terminales ya abiertas: el TUI lo dice al terminar ("abre una
+  terminal nueva").
 
 ### Escribir un `.env` sin romperlo
 
