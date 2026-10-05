@@ -19,6 +19,7 @@ import { HUB_FOLDER, hubDirFromParent, resolveHubDir, validateHubParent } from '
 import { agentsHavingKey, computeSetupStatus, type DiskFacts } from '../src/main/core/hub/setup-status'
 import {
   KNOWN_TOOLS,
+  copyHub,
   currentHubDir,
   findHardcodedHubPaths,
   installTool,
@@ -28,7 +29,9 @@ import {
   setHubDirPersistently,
   verifyHubCopy,
   whichTool,
-  writeEnvValue
+  writeEnvValue,
+  type CommandRunner,
+  type RunnerResult
 } from '../src/main/hub/setup-io'
 import { albusSetupTarget } from '../src/main/hub/albus-setup'
 
@@ -47,6 +50,27 @@ function check(name: string, ok: boolean, detail = ''): void {
 
 function section(title: string): void {
   console.log(`\n── ${title}`)
+}
+
+/**
+ * RULE: every call to a setup-io function that changes the machine
+ * (setHubDirPersistently → setx, copyHub → robocopy, installTool → winget)
+ * goes through one of these fakes, and the check asserts how many times it
+ * was called. A check must never be able to touch the machine, not even
+ * when the validation in front of the spawn regresses — that is exactly how
+ * a check run once left the user's real ALBUS_AGENTS_HUB_DIR set to
+ * `relative\path`.
+ */
+function fakeRunner(result: Partial<RunnerResult> = {}): {
+  runner: CommandRunner
+  calls: { file: string; args: string[] }[]
+} {
+  const calls: { file: string; args: string[] }[] = []
+  const runner: CommandRunner = async (file, args) => {
+    calls.push({ file, args })
+    return { code: 0, output: '', timedOut: false, error: '', ...result }
+  }
+  return { runner, calls }
 }
 
 /* ── setup: agent.json ────────────────────────────────────────────────── */
@@ -484,9 +508,39 @@ async function checkAsyncRest(): Promise<void> {
   check('whichTool finds "node" on PATH', await whichTool('node'))
   check('whichTool reports false for a bogus name', !(await whichTool('definitely-not-a-real-tool-xyz')))
 
-  // Only exercises the early-return guard — never actually spawns `winget`.
-  const installGuard = await installTool('whisper')
-  check('installTool refuses a tool with no winget id, without spawning winget', !installGuard.ok)
+  const noWinget = fakeRunner()
+  const installGuard = await installTool('whisper', noWinget.runner)
+  check('installTool refuses a tool with no winget id', !installGuard.ok)
+  check('installTool: no winget id → runner called 0 times', noWinget.calls.length === 0)
+
+  const wingetOk = fakeRunner({ code: 0, output: 'Successfully installed' })
+  const installed = await installTool('git', wingetOk.runner)
+  check('installTool: winget id → runner called exactly once', wingetOk.calls.length === 1)
+  check(
+    'installTool: runs winget install --id Git.Git -e (args array)',
+    wingetOk.calls[0]?.file === 'winget' && wingetOk.calls[0]?.args.slice(0, 4).join(' ') === 'install --id Git.Git -e'
+  )
+  check('installTool: exit 0 → ok', installed.ok)
+
+  const wingetFail = fakeRunner({ code: 1, output: 'No package found' })
+  const notInstalled = await installTool('git', wingetFail.runner)
+  check('installTool: non-zero exit → not ok, output kept', !notInstalled.ok && notInstalled.output.includes('No package'))
+
+  const robocopyOk = fakeRunner({ code: 1 })
+  const copied = await copyHub('C:\\from-hub', 'D:\\to-hub', robocopyOk.runner)
+  check('copyHub: runner called exactly once', robocopyOk.calls.length === 1)
+  check(
+    'copyHub: robocopy <from> <to> /E /XD node_modules',
+    robocopyOk.calls[0]?.file === 'robocopy' &&
+      robocopyOk.calls[0]?.args.slice(0, 5).join('|') === 'C:\\from-hub|D:\\to-hub|/E|/XD|node_modules'
+  )
+  check('copyHub: robocopy exit 1 (files copied) → ok', copied.ok)
+
+  const robocopyFail = fakeRunner({ code: 8, output: 'ERROR 5 Access is denied' })
+  check('copyHub: robocopy exit 8 → not ok', !(await copyHub('C:\\a', 'D:\\b', robocopyFail.runner)).ok)
+
+  const robocopyKilled = fakeRunner({ code: null, timedOut: true, error: 'killed' })
+  check('copyHub: no exit code (timeout/maxBuffer) → not ok', !(await copyHub('C:\\a', 'D:\\b', robocopyKilled.runner)).ok)
 
   const hubDir = mkdtempSync(path.join(tmpdir(), 'albus-setup-targets-'))
   try {
@@ -500,24 +554,59 @@ async function checkAsyncRest(): Promise<void> {
 
 /* ── setup-io: setHubDirPersistently validates before spawning setx ──────── */
 
-section('setup-io: setHubDirPersistently validation (fix round 1 — never actually spawns setx)')
+section('setup-io: setHubDirPersistently (fake runner — never spawns setx)')
 
 async function checkSetHubDirValidation(): Promise<void> {
-  let tooLongThrew = ''
-  try {
-    await setHubDirPersistently('D:\\' + 'x'.repeat(2000))
-  } catch (error) {
-    tooLongThrew = String(error)
+  const before = process.env.ALBUS_AGENTS_HUB_DIR
+  const restoreEnv = (): void => {
+    if (before === undefined) delete process.env.ALBUS_AGENTS_HUB_DIR
+    else process.env.ALBUS_AGENTS_HUB_DIR = before
   }
-  check('setHubDirPersistently rejects a path over 1024 chars before spawning setx', tooLongThrew !== '')
 
-  let relativeThrew = ''
   try {
-    await setHubDirPersistently('relative\\path')
-  } catch (error) {
-    relativeThrew = String(error)
+    const tooLong = fakeRunner()
+    let tooLongThrew = ''
+    try {
+      await setHubDirPersistently('D:\\' + 'x'.repeat(2000), tooLong.runner)
+    } catch (error) {
+      tooLongThrew = String(error)
+    }
+    check('setHubDirPersistently rejects a path over 1024 chars', tooLongThrew !== '')
+    check('setHubDirPersistently: too long → runner called 0 times', tooLong.calls.length === 0)
+
+    const relative = fakeRunner()
+    let relativeThrew = ''
+    try {
+      await setHubDirPersistently('relative\\path', relative.runner)
+    } catch (error) {
+      relativeThrew = String(error)
+    }
+    check('setHubDirPersistently rejects a relative path', relativeThrew !== '')
+    check('setHubDirPersistently: relative → runner called 0 times', relative.calls.length === 0)
+
+    const valid = fakeRunner({ code: 0 })
+    await setHubDirPersistently('D:\\hub-for-check\\agents-hub', valid.runner)
+    check('setHubDirPersistently: valid path → runner called exactly once', valid.calls.length === 1)
+    check(
+      'setHubDirPersistently: runs setx ALBUS_AGENTS_HUB_DIR <path>',
+      valid.calls[0]?.file === 'setx' && valid.calls[0]?.args.join('|') === 'ALBUS_AGENTS_HUB_DIR|D:\\hub-for-check\\agents-hub'
+    )
+    check('setHubDirPersistently: updates this process env', process.env.ALBUS_AGENTS_HUB_DIR === 'D:\\hub-for-check\\agents-hub')
+    restoreEnv()
+
+    const failing = fakeRunner({ code: 1 })
+    let failThrew = ''
+    try {
+      await setHubDirPersistently('D:\\hub-for-check\\agents-hub', failing.runner)
+    } catch (error) {
+      failThrew = String(error)
+    }
+    check('setHubDirPersistently: setx exit 1 → throws', failThrew.includes('exited with code 1'))
+    check('setHubDirPersistently: setx exit 1 → runner called once', failing.calls.length === 1)
+    check('setHubDirPersistently: a failed setx leaves this process env untouched', process.env.ALBUS_AGENTS_HUB_DIR === before)
+  } finally {
+    restoreEnv()
   }
-  check('setHubDirPersistently rejects a relative path before spawning setx', relativeThrew !== '')
 }
 
 /* ── setup-io: runAgentCheck redacts secret env values (fix round 1) ─────── */

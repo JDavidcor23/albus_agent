@@ -18,6 +18,7 @@ interface Props {
 type Phase =
   | { name: 'input' }
   | { name: 'confirm'; newHub: string; count: number }
+  | { name: 'use-existing'; newHub: string }
   | { name: 'working'; message: string }
   | { name: 'done'; changed: boolean; lines: string[]; warnings: string[] }
   | { name: 'failed'; lines: string[] }
@@ -37,6 +38,20 @@ function samePath(a: string, b: string): boolean {
 function isInside(inner: string, outer: string): boolean {
   const o = win32.resolve(outer).toLowerCase().replace(/\\+$/, '')
   return win32.resolve(inner).toLowerCase().startsWith(`${o}\\`)
+}
+
+/**
+ * Something is already at `dir`: a folder with anything in it, or a file.
+ * Copying INTO it would merge — robocopy /E overwrites same-named files, so
+ * another hub's agents' `.env` files would be replaced. An empty folder is fine.
+ */
+function isOccupied(dir: string): boolean {
+  if (!existsSync(dir)) return false
+  try {
+    return readdirSync(dir).length > 0
+  } catch {
+    return true
+  }
 }
 
 function countAgents(hubDir: string): number {
@@ -65,9 +80,15 @@ function hardcodedWarnings(hubDir: string): string[] {
 /**
  * Where the hub lives. The old hub is NEVER moved or deleted: the flow is
  * copy → verify → only then persist the new setting. Any copy or verify
- * problem aborts with the old setting untouched.
+ * problem aborts with the old setting untouched. A destination that already
+ * holds something is never copied into: the user can adopt it as is, or not.
  */
 export function HubLocation({ currentHub, onDone }: Props): ReactNode {
+  // A relative ALBUS_AGENTS_HUB_DIR is not a hub (it resolves against
+  // whatever cwd this runs in): there is no current hub to copy from.
+  const currentIsReal = win32.isAbsolute(currentHub)
+  const hasCurrent = currentIsReal && existsSync(currentHub)
+
   const [parent, setParent] = useState(defaultParent)
   const [error, setError] = useState('')
   const [phase, setPhase] = useState<Phase>({ name: 'input' })
@@ -112,14 +133,22 @@ export function HubLocation({ currentHub, onDone }: Props): ReactNode {
 
       setPhase({ name: 'working', message: 'Saving ALBUS_AGENTS_HUB_DIR…' })
       await setHubDirPersistently(newHub)
-
-      const lines = [`The hub is now ${newHub}.`]
-      if (copyFrom !== null) lines.push(`The old folder ${copyFrom} was left untouched.`)
-      lines.push('Open a new terminal for the change to apply everywhere.')
-      setPhase({ name: 'done', changed: true, lines, warnings: hardcodedWarnings(newHub) })
     } catch (err: unknown) {
       setPhase({ name: 'failed', lines: ['The hub setting was NOT changed.', errorMessage(err)] })
+      return
     }
+
+    // Past this point the setting HAS changed — nothing below may report otherwise.
+    const lines = [`The hub is now ${newHub}.`]
+    if (copyFrom !== null) lines.push(`The old folder ${copyFrom} was left untouched.`)
+    lines.push('Open a new terminal for the change to apply everywhere.')
+    let warnings: string[]
+    try {
+      warnings = hardcodedWarnings(newHub)
+    } catch (err: unknown) {
+      warnings = [`Could not scan the new hub for hardcoded paths: ${errorMessage(err)}`]
+    }
+    setPhase({ name: 'done', changed: true, lines, warnings })
   }
 
   const onSubmit = (value: string): void => {
@@ -131,7 +160,7 @@ export function HubLocation({ currentHub, onDone }: Props): ReactNode {
     setError('')
 
     const newHub = hubDirFromParent(value.trim())
-    if (samePath(newHub, currentHub)) {
+    if (currentIsReal && samePath(newHub, currentHub)) {
       if (existsSync(currentHub)) {
         setPhase({ name: 'done', changed: false, lines: [`The hub stays at ${currentHub}.`], warnings: [] })
       } else {
@@ -148,12 +177,14 @@ export function HubLocation({ currentHub, onDone }: Props): ReactNode {
       return
     }
 
-    if (isInside(newHub, currentHub) || isInside(currentHub, newHub)) {
+    if (hasCurrent && (isInside(newHub, currentHub) || isInside(currentHub, newHub))) {
       setError('The new hub cannot be inside the current one, or the other way around.')
       return
     }
 
-    if (existsSync(currentHub)) {
+    if (isOccupied(newHub)) {
+      setPhase({ name: 'use-existing', newHub })
+    } else if (hasCurrent) {
       setPhase({ name: 'confirm', newHub, count: countAgents(currentHub) })
     } else {
       void finish(newHub, null)
@@ -169,6 +200,23 @@ export function HubLocation({ currentHub, onDone }: Props): ReactNode {
           defaultYes={false}
           onAnswer={(yes) => {
             if (yes) void finish(phase.newHub, currentHub)
+            else setPhase({ name: 'input' })
+          }}
+        />
+      </Box>
+    )
+  }
+
+  if (phase.name === 'use-existing') {
+    return (
+      <Box flexDirection="column">
+        <Text bold>Hub location</Text>
+        <Text color="yellow">{phase.newHub} already exists and is not empty, so nothing will be copied into it.</Text>
+        <Confirm
+          question={`Use the existing hub at ${phase.newHub} as is (no copy)?`}
+          defaultYes={false}
+          onAnswer={(yes) => {
+            if (yes) void finish(phase.newHub, null)
             else setPhase({ name: 'input' })
           }}
         />
@@ -214,7 +262,10 @@ export function HubLocation({ currentHub, onDone }: Props): ReactNode {
   return (
     <Box flexDirection="column">
       <Text bold>Hub location</Text>
-      <Text>Current hub: {currentHub}</Text>
+      <Text>
+        Current hub: {currentHub}
+        {!currentIsReal && <Text color="yellow"> (not an absolute path: ignored, nothing will be copied from it)</Text>}
+      </Text>
       <Box marginTop={1}>
         <Text>Parent folder: </Text>
         <TextInput value={parent} onChange={setParent} onSubmit={onSubmit} />

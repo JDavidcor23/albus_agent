@@ -101,6 +101,58 @@ export function writeEnvValue(dir: string, envFile: string, key: string, value: 
   }
 }
 
+/** What one captured external command came back with. */
+export interface RunnerResult {
+  /** Exit code; `null` when there is none (could not spawn, killed by the timeout or by maxBuffer). */
+  code: number | null
+  /** stdout + stderr, untrimmed. */
+  output: string
+  timedOut: boolean
+  /** Why there is no exit code, when there is none. Empty otherwise. */
+  error: string
+}
+
+/**
+ * Runs one external command, captured, args array, never a shell. The three
+ * functions here that CHANGE the machine — `setHubDirPersistently` (setx),
+ * `copyHub` (robocopy), `installTool` (winget) — take one of these as an
+ * optional last parameter so checks can pass a fake and count calls: a check
+ * must never be able to touch the machine, even if a validation guard
+ * regresses. (That happened once: a check run against older code really
+ * spawned `setx` and left the user's ALBUS_AGENTS_HUB_DIR set to garbage.)
+ */
+export type CommandRunner = (
+  file: string,
+  args: string[],
+  options: { timeoutMs: number; maxBuffer?: number }
+) => Promise<RunnerResult>
+
+/** The real thing: `execFile`, hidden window, hard timeout. Never rejects. */
+export const realRunner: CommandRunner = (file, args, options) =>
+  new Promise((resolve) => {
+    execFile(
+      file,
+      args,
+      { timeout: options.timeoutMs, windowsHide: true, maxBuffer: options.maxBuffer ?? 1024 * 1024 },
+      (err, stdout, stderr) => {
+        const output = `${stdout ?? ''}${stderr ?? ''}`
+        if (err === null) {
+          resolve({ code: 0, output, timedOut: false, error: '' })
+          return
+        }
+        const code = typeof err.code === 'number' ? err.code : null
+        const timedOut = err.killed === true && code === null
+        resolve({ code, output, timedOut, error: code === null ? err.message : '' })
+      }
+    )
+  })
+
+/** The last 4000 chars of what the command printed, plus why it failed to run when it did. */
+function runnerOutputTail(result: RunnerResult): string {
+  const text = result.error !== '' ? `${result.output}\n${result.error}` : result.output
+  return text.trim().slice(-4000)
+}
+
 /** `where <name>`, 5s hard timeout. Never throws — not found and "took too long" both read as `false`. */
 export async function whichTool(name: string): Promise<boolean> {
   return new Promise((resolve) => {
@@ -130,7 +182,10 @@ export const KNOWN_TOOLS: Record<string, { winget?: string; hint: string }> = {
 const INSTALL_TIMEOUT_MS = 5 * 60_000
 
 /** Only ever spawns `winget` for a `KNOWN_TOOLS` entry that declares a winget id. */
-export async function installTool(name: string): Promise<{ ok: boolean; output: string }> {
+export async function installTool(
+  name: string,
+  runner: CommandRunner = realRunner
+): Promise<{ ok: boolean; output: string }> {
   const known = KNOWN_TOOLS[name]
   if (known === undefined || known.winget === undefined) {
     return {
@@ -139,18 +194,13 @@ export async function installTool(name: string): Promise<{ ok: boolean; output: 
     }
   }
 
-  const wingetId = known.winget
-  return new Promise((resolve) => {
-    execFile(
-      'winget',
-      ['install', '--id', wingetId, '-e', '--accept-package-agreements', '--accept-source-agreements'],
-      { timeout: INSTALL_TIMEOUT_MS, windowsHide: true },
-      (err, stdout, stderr) => {
-        const output = `${stdout ?? ''}${stderr ?? ''}`.trim().slice(-4000)
-        resolve({ ok: err === null, output })
-      }
-    )
-  })
+  const result = await runner(
+    'winget',
+    ['install', '--id', known.winget, '-e', '--accept-package-agreements', '--accept-source-agreements'],
+    { timeoutMs: INSTALL_TIMEOUT_MS }
+  )
+  const output = runnerOutputTail(result)
+  return { ok: result.code === 0 && !result.timedOut, output }
 }
 
 const INTERACTIVE_TIMEOUT_MS = 15 * 60_000
@@ -370,7 +420,7 @@ const SETX_VALUE_MAX_LENGTH = 1024
  * process, which is why `process.env` is also updated here so the rest of
  * THIS run sees the new value immediately).
  */
-export async function setHubDirPersistently(hubDir: string): Promise<void> {
+export async function setHubDirPersistently(hubDir: string, runner: CommandRunner = realRunner): Promise<void> {
   if (hubDir.length > SETX_VALUE_MAX_LENGTH) {
     throw new Error(
       `hub dir is ${hubDir.length} characters, over the ${SETX_VALUE_MAX_LENGTH}-character limit setx silently truncates at`
@@ -380,28 +430,10 @@ export async function setHubDirPersistently(hubDir: string): Promise<void> {
     throw new Error('hub dir must be an absolute path')
   }
 
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn('setx', ['ALBUS_AGENTS_HUB_DIR', hubDir], {
-      stdio: 'ignore',
-      shell: false,
-      windowsHide: true
-    })
-
-    const timer = setTimeout(() => {
-      killTree(child)
-      reject(new Error('setx timed out'))
-    }, SETX_TIMEOUT_MS)
-
-    child.on('error', (err) => {
-      clearTimeout(timer)
-      reject(err)
-    })
-    child.on('close', (code) => {
-      clearTimeout(timer)
-      if (code === 0) resolve()
-      else reject(new Error(`setx exited with code ${code}`))
-    })
-  })
+  const result = await runner('setx', ['ALBUS_AGENTS_HUB_DIR', hubDir], { timeoutMs: SETX_TIMEOUT_MS })
+  if (result.timedOut) throw new Error('setx timed out')
+  if (result.code === null) throw new Error(`setx could not run: ${result.error}`)
+  if (result.code !== 0) throw new Error(`setx exited with code ${result.code}`)
 
   process.env.ALBUS_AGENTS_HUB_DIR = hubDir
 }
@@ -433,19 +465,20 @@ const ROBOCOPY_MAX_BUFFER = 16 * 1024 * 1024
  * copying / extra files present", all success; 8 or higher is a real
  * failure (see Microsoft's robocopy docs).
  */
-export async function copyHub(from: string, to: string): Promise<{ ok: boolean; output: string }> {
-  return new Promise((resolve) => {
-    execFile(
-      'robocopy',
-      [from, to, '/E', '/XD', 'node_modules', '/R:1', '/W:1', '/NFL', '/NDL', '/NP', '/NJH'],
-      { timeout: ROBOCOPY_TIMEOUT_MS, windowsHide: true, maxBuffer: ROBOCOPY_MAX_BUFFER },
-      (err, stdout, stderr) => {
-        const output = `${stdout ?? ''}${stderr ?? ''}`.trim().slice(-4000)
-        const code = err === null ? 0 : typeof err.code === 'number' ? err.code : 8
-        resolve({ ok: code < 8, output })
-      }
-    )
-  })
+export async function copyHub(
+  from: string,
+  to: string,
+  runner: CommandRunner = realRunner
+): Promise<{ ok: boolean; output: string }> {
+  const result = await runner(
+    'robocopy',
+    [from, to, '/E', '/XD', 'node_modules', '/R:1', '/W:1', '/NFL', '/NDL', '/NP', '/NJH'],
+    { timeoutMs: ROBOCOPY_TIMEOUT_MS, maxBuffer: ROBOCOPY_MAX_BUFFER }
+  )
+  const output = runnerOutputTail(result)
+  // No numeric exit code (spawn error, timeout, maxBuffer kill) counts as a failure.
+  const code = result.code ?? 8
+  return { ok: code < 8, output }
 }
 
 /**

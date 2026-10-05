@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 
+import { killTree } from '../main/hub/process'
 import type { RunResult } from './screen'
 
 /** `src/tui/` is its own ESM package, so the repo root comes from this file's URL, never from cwd. */
@@ -40,7 +41,8 @@ export function syncAgents(): Promise<RunResult> {
     let timedOut = false
     const timer = setTimeout(() => {
       timedOut = true
-      child.kill()
+      // The whole tree: agents.ps1 runs git/gh/npm children that child.kill() would orphan.
+      killTree(child)
     }, SYNC_TIMEOUT_MS)
 
     child.on('error', (error) => {
