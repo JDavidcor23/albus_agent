@@ -21,11 +21,50 @@ const INTEGER_KEY_PATTERN = /^\d+$/
  * needs. `z.record` cannot express "this one key is required" on its own, so
  * that rule is a `.refine` instead.
  */
-const CommandsSchema = z
+export const CommandsSchema = z
   .record(z.string(), z.string())
   .refine((commands) => typeof commands.run === 'string' && commands.run.trim() !== '', {
     message: 'commands.run is required'
   })
+
+const ENV_KEY_PATTERN = /^[A-Z][A-Z0-9_]*$/
+const TOOL_PATTERN = /^[a-z0-9._-]+$/
+
+/** A path relative to the agent folder that can never climb out of it. */
+const InsidePath = z.string().min(1).refine(
+  (p) => !p.split(/[\\/]/).includes('..') && !/^([a-zA-Z]:|[\\/])/.test(p),
+  { message: 'path must stay inside the agent folder' }
+)
+
+export const SetupSchema = z
+  .object({
+    tools: z.array(z.string().regex(TOOL_PATTERN)).default([]),
+    env: z
+      .array(
+        z.object({
+          key: z.string().regex(ENV_KEY_PATTERN),
+          label: z.string().min(1),
+          help: z.string().default(''),
+          secret: z.boolean().default(true),
+          optional: z.boolean().default(false)
+        })
+      )
+      .default([]),
+    envFile: z.enum(['.env', '.env.local']).default('.env'),
+    auth: z
+      .array(
+        z.object({
+          label: z.string().min(1),
+          /** The NAME of an entry in `commands` — never a command line: it must go through the allowlist. */
+          command: z.string().min(1),
+          doneWhen: InsidePath
+        })
+      )
+      .default([])
+  })
+  .default({ tools: [], env: [], envFile: '.env', auth: [] })
+
+export type AgentSetup = z.infer<typeof SetupSchema>
 
 /**
  * Exit codes are keyed by the process's numeric exit code, carried as a
@@ -72,7 +111,13 @@ export const AgentJsonSchema = z.object({
    * it." `hub -- list` still prints it, marked `(hidden)`, and `hub -- run
    * <id>` still runs it — only the renderer-facing list filters it out.
    */
-  hidden: z.boolean().default(false)
+  hidden: z.boolean().default(false),
+  /**
+   * Optional setup contract: tools, environment variables, files, and auth commands.
+   * The TUI reads this to guide the user through initial setup of a newly installed agent.
+   * Defaults to empty when not present — old manifests stay valid.
+   */
+  setup: SetupSchema
 })
 
 export type AgentManifest = z.infer<typeof AgentJsonSchema>
@@ -103,6 +148,20 @@ export function parseAgentJson(folderName: string, raw: string): ParsedAgentJson
     return {
       ok: false,
       reason: `agent.json id "${parsed.data.id}" does not match its folder name "${folderName}"`
+    }
+  }
+
+  // Cross-field validation: auth commands must exist in the commands list.
+  // This is enforced here instead of in the schema because it requires checking
+  // two fields against each other, and the allowlist pattern (commands are declared,
+  // not arbitrary) is critical for security — we only run commands that the agent
+  // explicitly declared, never a string from `setup.auth[].command`.
+  for (const auth of parsed.data.setup.auth) {
+    if (!(auth.command in parsed.data.commands)) {
+      return {
+        ok: false,
+        reason: `setup.auth command "${auth.command}" is not declared in commands`
+      }
     }
   }
 
