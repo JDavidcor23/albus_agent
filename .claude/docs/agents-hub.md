@@ -180,6 +180,32 @@ motivo.
 `rmSync({ recursive: true })` equivocado borra la carpeta ORIGINAL del agente. Va
 cuando haya tiempo de probarlo con cuidado.
 
+## Dos máquinas: GitHub es el puente (2026-10-05)
+
+El usuario trabaja en el desktop y en una laptop. **Cada agente es un repo PRIVADO en
+`JDavidcor23` con el topic de GitHub `albus-agent`**, y eso es todo lo que hace falta
+para que la otra máquina lo vea. `scripts/agents.ps1` (Windows PowerShell 5.1, ASCII)
+lista por la API autenticada los repos con ese topic, nombra cada carpeta con el `id` de
+su `agent.json` (por eso `whatssapp-groups` cae en `agents/whatsapp-digest/`) y los clona
+o les hace fast-forward. Una vez instalado (`install` agrega funciones al `$PROFILE`):
+`clone-agents`, `update-agents`, `sync-agents`, `agents-status`.
+
+- **Un agente nuevo sin el topic no existe para la laptop.** Al crearlo:
+  `gh repo create JDavidcor23/<id> --private` + `gh repo edit --add-topic albus-agent`.
+  `agents-status` lo marca `[local only]` mientras falte.
+- **Nunca pisa trabajo:** con cambios sin commitear, o con commits divergentes, lo salta
+  y lo reporta. Nunca `reset`, nunca `pull` con merge.
+- **`gh` tiene la cuenta de 30X como activa en el desktop.** El script mete el token de
+  `JDavidcor23` en `GH_TOKEN` solo durante la corrida y lo restaura. Un `git push` a mano
+  necesita lo mismo: `export GH_TOKEN=$(gh auth token -u JDavidcor23)`.
+- **Lo que NO viaja:** `.env`, `.secrets/`, `.wa-data/`. Se copian a mano y por USB. La
+  sesión de WhatsApp y las tareas programadas viven en UNA sola máquina: dos vigilantes
+  de Baileys se pelean la conexión, y dos triages duplican filas en Notion.
+- **La llave SSH de hermes-vps no se copia:** cada máquina genera la suya y se autoriza
+  en el VPS. Perder la laptop significa borrar una línea de `authorized_keys`.
+- jq dentro del script **sin literales de string**: PowerShell 5.1 se come las comillas
+  internas al pasarle argumentos a un `.exe` (`join(",")` le llega a gh como `join(,)`).
+
 ## En la pestaña de agentes
 
 Los externos entran a la misma lista (`agents:list`) con `origin: 'external'` y

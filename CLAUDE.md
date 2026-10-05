@@ -137,6 +137,7 @@ npm run video:check      # dominio del video + binarios. Con una ruta, corre el 
                          #   npm run video:check -- "grabacion.mp4" 210
 npm run hub:check       # contrato de agentes externos + un agente de prueba de punta a punta
 npm run hub -- list | run <id> [comando] | install <url|carpeta> [--link]   # el hub, sin Electron
+powershell -File scripts/agents.ps1 sync|clone|update|status|install   # todos los agentes ⇄ GitHub (repos con topic albus-agent)
 npm run jobs:check:live  # los que tocan red y credenciales (scraping, Notion, Gmail)
 npm run jobs:selftest    # navegador contra resources/job-form-fixture.html
 npm run nav:check        # "el agente mira la página", con un modelo falso
