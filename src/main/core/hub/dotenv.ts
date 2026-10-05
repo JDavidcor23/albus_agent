@@ -54,6 +54,17 @@ function unquoteValue(raw: string): string {
     return closingIndex === -1 ? trimmed.slice(1) : trimmed.slice(1, closingIndex)
   }
 
+  if (trimmed.startsWith('`')) {
+    // Backtick-quoted values are ALSO literal — same rule as single quotes,
+    // no escape handling. `formatValue` falls back to this style precisely
+    // because neither the `dotenv` package nor `process.loadEnvFile` give a
+    // backtick-quoted value any special-character treatment at all, so it is
+    // the one quoting style that round-trips a value containing both an
+    // apostrophe and a backslash or a double quote.
+    const closingIndex = trimmed.indexOf('`', 1)
+    return closingIndex === -1 ? trimmed.slice(1) : trimmed.slice(1, closingIndex)
+  }
+
   // Unquoted: an inline comment starts at an unescaped ` #` (space then hash).
   const commentIndex = trimmed.indexOf(' #')
   const value = commentIndex === -1 ? trimmed : trimmed.slice(0, commentIndex)
@@ -79,13 +90,39 @@ export function parseDotenv(text: string): Map<string, string> {
   return result
 }
 
-/** Quotes a value for output if it contains anything that would otherwise be ambiguous, or is empty. */
-function formatValue(value: string): string {
-  if (value === '' || NEEDS_QUOTING_PATTERN.test(value)) {
-    const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-    return `"${escaped}"`
-  }
-  return value
+/**
+ * Quotes a value for output if it contains anything that would otherwise be
+ * ambiguous, or is empty — chosen so the result round-trips through the TWO
+ * real readers of these files: the `dotenv` package (`src/main/index.ts`) and
+ * Node's `process.loadEnvFile` (every agent). Neither unescapes a backslash
+ * the way a JS/TS string literal would, so `formatValue` never emits a style
+ * whose own reader would mangle the value back:
+ *
+ *  - Single quotes are preferred: both readers treat them as fully literal,
+ *    no escapes at all.
+ *  - If the value itself contains `'`, single quotes cannot be used. Double
+ *    quotes are the next choice, but ONLY when the value has no backslash and
+ *    no `"` — both readers expand `\n` inside double quotes to a real newline
+ *    and leave every OTHER backslash exactly as written, and neither escapes
+ *    an embedded `"`, so a literal backslash or quote inside would come back
+ *    corrupted or truncated.
+ *  - Backticks are the last resort: neither reader gives them any
+ *    special-character treatment, so they round-trip a value with both an
+ *    apostrophe and a backslash or `"`.
+ *  - A value that mixes an apostrophe, a backslash or `"`, AND a backtick has
+ *    no safe quoting style here — `formatValue` throws rather than silently
+ *    writing something that will not read back the same.
+ */
+function formatValue(value: string, key: string): string {
+  if (value !== '' && !NEEDS_QUOTING_PATTERN.test(value)) return value
+
+  if (!value.includes("'")) return `'${value}'`
+  if (!value.includes('\\') && !value.includes('"')) return `"${value}"`
+  if (!value.includes('`')) return `\`${value}\``
+
+  throw new Error(
+    `cannot safely quote the value for "${key}": it mixes an apostrophe, a backslash or double quote, and a backtick — no quoting style round-trips`
+  )
 }
 
 /**
@@ -110,7 +147,7 @@ export function setDotenvValue(text: string, key: string, value: string): string
   const endsWithNewline = text.length > 0 && (text.endsWith('\n') || text.endsWith('\r\n'))
   if (endsWithNewline) lines.pop()
 
-  const formatted = `${key}=${formatValue(value)}`
+  const formatted = `${key}=${formatValue(value, key)}`
   let replaced = false
   const output: string[] = []
 

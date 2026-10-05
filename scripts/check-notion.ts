@@ -75,7 +75,7 @@ async function main(): Promise<void> {
     `token:      ${
       token.trim() === ''
         ? 'NO HAY'
-        : `${token.slice(0, 8)}… (${token.length} caracteres) — de ${fromYml.trim() !== '' ? 'albus.yml' : '.env'}`
+        : `presente (${token.length} caracteres) — de ${fromYml.trim() !== '' ? 'albus.yml' : '.env'}`
     }`
   )
 

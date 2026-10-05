@@ -10,7 +10,17 @@
  */
 
 import path from 'node:path'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 
 import { AgentJsonSchema, parseAgentJson, type AgentSetup } from '../src/main/core/hub/manifest'
@@ -22,6 +32,7 @@ import {
   copyHub,
   currentHubDir,
   findHardcodedHubPaths,
+  findScheduledTasksUsing,
   installTool,
   listSetupTargets,
   readEnvFile,
@@ -73,6 +84,25 @@ function fakeRunner(result: Partial<RunnerResult> = {}): {
   return { runner, calls }
 }
 
+/**
+ * Loads `file` with the EXACT reader every agent uses — `process.loadEnvFile`
+ * — and reads back `keys`. Run in a throwaway child process (never this
+ * process's own `process.env`): `loadEnvFile` has no return value, it writes
+ * straight into the env of whatever process calls it, and this check must
+ * never let a temp-file secret leak into its own `process.env`.
+ */
+function loadEnvFileViaChildProcess(file: string, keys: string[]): Record<string, string | undefined> {
+  const script = [
+    'process.loadEnvFile(process.argv[1]);',
+    'const keys = JSON.parse(process.argv[2]);',
+    'const out = {};',
+    'for (const k of keys) out[k] = process.env[k];',
+    'process.stdout.write(JSON.stringify(out));'
+  ].join('\n')
+  const output = execFileSync(process.execPath, ['-e', script, file, JSON.stringify(keys)], { encoding: 'utf8' })
+  return JSON.parse(output) as Record<string, string | undefined>
+}
+
 /* ── setup: agent.json ────────────────────────────────────────────────── */
 
 section('manifest: setup')
@@ -118,7 +148,10 @@ check('update in place keeps comment and order', up.startsWith('# comment\nA=9\n
 const add = setDotenvValue(src, 'NEW', 'v')
 check('append new key at end', add.trimEnd().endsWith('NEW=v') && add.includes('C=x # trailing'))
 const hash = setDotenvValue('', 'K', 'a#b c')
-check('value with # or space is quoted', hash.trim() === 'K="a#b c"' && parseDotenv(hash).get('K') === 'a#b c')
+check(
+  'value with # or space is quoted with single quotes (preferred: literal in both real readers)',
+  hash.trim() === "K='a#b c'" && parseDotenv(hash).get('K') === 'a#b c'
+)
 const quote = setDotenvValue('', 'K', 'say "hi"')
 check('embedded quote round-trips', parseDotenv(quote).get('K') === 'say "hi"')
 check('CRLF input keeps CRLF', setDotenvValue('A=1\r\nB=2\r\n', 'A', '3') === 'A=3\r\nB=2\r\n')
@@ -144,6 +177,41 @@ check(
 check(
   'replacing an export line keeps the export prefix',
   setDotenvValue('export A=1\n', 'A', '2') === 'export A=2\n'
+)
+
+/*
+ * Fix round 2 (finding 4) — quoting must pick a style that round-trips
+ * through the TWO real readers of these files (`dotenv` package,
+ * `process.loadEnvFile`), not just our own `parseDotenv`. Preference order:
+ * single quotes (literal in both) > double quotes (safe only with no `'`
+ * inside — wait, no `\` and no `"` inside) > backticks (no special handling
+ * in either reader) > throw, naming only the key.
+ */
+check('backtick-quoted value unquotes literally (parseDotenv reads back what we write)', parseDotenv('KEY=`a\\nb`').get('KEY') === 'a\\nb')
+
+const apostropheOnly = setDotenvValue('', 'K', "it's")
+check(
+  'value with an apostrophe but no backslash/quote uses double quotes',
+  apostropheOnly.trim() === 'K="it\'s"' && parseDotenv(apostropheOnly).get('K') === "it's"
+)
+
+const apostropheAndBackslash = setDotenvValue('', 'K', "it's a\\path")
+check(
+  'value with an apostrophe AND a backslash falls back to backticks',
+  apostropheAndBackslash.trim() === 'K=`it\'s a\\path`' &&
+    parseDotenv(apostropheAndBackslash).get('K') === "it's a\\path"
+)
+
+const unquotableValue = "it's a\\path with a `backtick`"
+let unquotableThrew = ''
+try {
+  setDotenvValue('', 'UNQUOTABLE_KEY', unquotableValue)
+} catch (e) {
+  unquotableThrew = String(e)
+}
+check(
+  'a value needing every quoting style throws, naming only the key, never the value',
+  unquotableThrew !== '' && unquotableThrew.includes('UNQUOTABLE_KEY') && !unquotableThrew.includes(unquotableValue)
 )
 
 /* ── hub-location ─────────────────────────────────────────────────────── */
@@ -407,8 +475,159 @@ section('setup-io: findHardcodedHubPaths')
     } else {
       check('junction skip test: creating a junction requires no special setup on this host', true, '(skipped — could not create a junction here)')
     }
+
+    // Fix round 2 (finding 1) — a dotfolder is a TOOL's own working state
+    // (seen in practice: a Kilo Code worktree copy under
+    // `mail-triage/.kilo/worktrees/<name>/`, duplicating the agent's own
+    // source) — never the agent's real tree. Any dot-prefixed folder must be
+    // skipped entirely, not just `.git`.
+    const dotDir = path.join(agentDir, '.kilo', 'worktrees', 'some-worktree')
+    mkdirSync(dotDir, { recursive: true })
+    writeFileSync(
+      path.join(dotDir, 'copy.ts'),
+      "const resultsDir = path.join(home, 'Documents', 'agents-hub', 'results', 'demo-agent')\n"
+    )
+
+    // Fix round 2 (finding 1) — a `*.test.*`/`*.spec.*` file asserting the
+    // DEFAULT path is correct (a test fixture, not a bug) must not be flagged.
+    writeFileSync(
+      path.join(agentDir, 'config.test.ts'),
+      "const expected = path.join(home, 'Documents', 'agents-hub')\n"
+    )
+    writeFileSync(
+      path.join(agentDir, 'config.spec.js'),
+      "const expected = path.join(home, 'Documents', 'agents-hub')\n"
+    )
+
+    const hitsAfterSkips = findHardcodedHubPaths(hubDir)
+    check(
+      'skips any dot-prefixed folder entirely (e.g. a tool\'s own worktree copy)',
+      !hitsAfterSkips.some((h) => h.file.includes(path.join('.kilo', 'worktrees')))
+    )
+    check(
+      'skips a *.test.* file asserting the default path',
+      !hitsAfterSkips.some((h) => h.file === path.join(agentDir, 'config.test.ts'))
+    )
+    check(
+      'skips a *.spec.* file asserting the default path',
+      !hitsAfterSkips.some((h) => h.file === path.join(agentDir, 'config.spec.js'))
+    )
+    check(
+      'a real (non-dot, non-test) file next to them is still flagged',
+      hitsAfterSkips.some((h) => h.file === path.join(agentDir, 'bad.ts'))
+    )
   } finally {
     rmSync(hubDir, { recursive: true, force: true })
+  }
+}
+
+/* ── setup-io: findScheduledTasksUsing (fix round 2 — finding 2) ─────────── */
+
+section('setup-io: findScheduledTasksUsing (fake runner — never spawns schtasks for real)')
+
+/** One CSV field, RFC4180-ish — mirrors exactly what `parseCsvLine` in setup-io.ts expects back. */
+function csvField(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`
+}
+
+async function checkFindScheduledTasksUsing(): Promise<void> {
+  const oldHub = 'C:\\Users\\PC\\Documents\\agents-hub'
+
+  const header = [
+    'HostName', 'TaskName', 'Next Run Time', 'Status', 'Logon Mode', 'Last Run Time', 'Last Result', 'Author',
+    'Task To Run', 'Start In', 'Comment', 'Scheduled Task State'
+  ]
+  const taskToRunValue = `wscript.exe "${oldHub}\\agents\\utel-study\\run-hidden.vbs"`
+  const matchingRow = [
+    'DESKTOP', '\\utel-study-reminder', 'N/A', 'Ready', 'Interactive/Background', 'N/A', '0', 'PC',
+    taskToRunValue, 'N/A', '', 'Enabled'
+  ]
+  const unrelatedRow = [
+    'DESKTOP', '\\unrelated-task', 'N/A', 'Ready', 'Interactive/Background', 'N/A', '0', 'PC',
+    'notepad.exe', 'N/A', '', 'Enabled'
+  ]
+  const csv = [header, matchingRow, unrelatedRow].map((fields) => fields.map(csvField).join(',')).join('\r\n')
+
+  const fake = fakeRunner({ code: 0, output: csv })
+  const hits = await findScheduledTasksUsing(oldHub, fake.runner)
+
+  check('findScheduledTasksUsing: runs schtasks /query /fo csv /v (read-only, via fake runner)', fake.calls.length === 1)
+  check(
+    'findScheduledTasksUsing: never passes /create, /change or any write verb',
+    fake.calls[0]?.args.join(' ') === '/query /fo csv /v'
+  )
+  check('findScheduledTasksUsing: finds the task pointing at the old hub', hits.some((h) => h.taskName === '\\utel-study-reminder'))
+  check('findScheduledTasksUsing: ignores an unrelated task', !hits.some((h) => h.taskName === '\\unrelated-task'))
+  check('findScheduledTasksUsing: exactly one hit for the fixture', hits.length === 1)
+
+  const differentCase = fakeRunner({ code: 0, output: csv })
+  const caseHits = await findScheduledTasksUsing(oldHub.toUpperCase(), differentCase.runner)
+  check(
+    'findScheduledTasksUsing: match is case-insensitive',
+    caseHits.some((h) => h.taskName === '\\utel-study-reminder')
+  )
+
+  const noMatch = fakeRunner({ code: 0, output: csv })
+  const noHits = await findScheduledTasksUsing('D:\\somewhere-else\\agents-hub', noMatch.runner)
+  check('findScheduledTasksUsing: no match → empty, never throws', noHits.length === 0)
+
+  const failing = fakeRunner({ code: 1, output: 'access denied' })
+  const failHits = await findScheduledTasksUsing(oldHub, failing.runner)
+  check('findScheduledTasksUsing: non-zero exit → empty, never throws', failHits.length === 0)
+
+  const malformed = fakeRunner({ code: 0, output: 'not,a,csv,header\nrow,row,row,row' })
+  const malformedHits = await findScheduledTasksUsing(oldHub, malformed.runner)
+  check('findScheduledTasksUsing: unrecognized header → empty, never throws', malformedHits.length === 0)
+}
+
+/* ── dotenv: round trip through the REAL readers (fix round 2 — finding 4) ── */
+
+section('dotenv: round trip through the real "dotenv" package and process.loadEnvFile')
+
+/**
+ * `writeEnvValue`/`setDotenvValue` is only safe if what it writes reads back
+ * identically through the TWO things that actually read these files in
+ * production: the `dotenv` package (`src/main/index.ts` and friends) and
+ * Node's own `process.loadEnvFile` (every external agent, per the hub
+ * contract). Our own `parseDotenv` agreeing with itself proves nothing here —
+ * this check writes a real file and reads it back with both real readers.
+ */
+async function checkDotenvRealReaderRoundTrip(): Promise<void> {
+  const { parse: parseWithDotenvPackage } = (await import('dotenv')) as { parse: (src: string) => Record<string, string> }
+  const dir = mkdtempSync(path.join(tmpdir(), 'albus-dotenv-roundtrip-'))
+  try {
+    const cases: Record<string, string> = {
+      HASH_AND_SPACE: 'a#b c',
+      EMBEDDED_DOUBLE_QUOTE: 'say "hi"',
+      APOSTROPHE: "it's",
+      WINDOWS_PATH: 'C:\\path\\to',
+      LITERAL_BACKSLASH_N: 'x\\ny' // literal backslash followed by "n" — NOT a real newline
+    }
+
+    let text = ''
+    for (const [key, value] of Object.entries(cases)) {
+      text = setDotenvValue(text, key, value)
+    }
+    const file = path.join(dir, '.env')
+    writeFileSync(file, text, 'utf8')
+
+    const viaDotenvPackage = parseWithDotenvPackage(readFileSync(file, 'utf8'))
+    const viaLoadEnvFile = loadEnvFileViaChildProcess(file, Object.keys(cases))
+
+    for (const [key, expected] of Object.entries(cases)) {
+      check(
+        `"${key}" round-trips through the real "dotenv" package`,
+        viaDotenvPackage[key] === expected,
+        `got ${JSON.stringify(viaDotenvPackage[key])}, expected ${JSON.stringify(expected)}`
+      )
+      check(
+        `"${key}" round-trips through process.loadEnvFile`,
+        viaLoadEnvFile[key] === expected,
+        `got ${JSON.stringify(viaLoadEnvFile[key])}, expected ${JSON.stringify(expected)}`
+      )
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
   }
 }
 
@@ -662,6 +881,8 @@ void (async () => {
   await checkAsyncRest()
   await checkSetHubDirValidation()
   await checkRunAgentCheckRedaction()
+  await checkFindScheduledTasksUsing()
+  await checkDotenvRealReaderRoundTrip()
 
   console.log('\n' + '='.repeat(60))
   console.log(failed === 0 ? `SETUP todo ✓ (${passed} ok)` : `SETUP ${failed} fallo(s), ${passed} ok`)

@@ -534,6 +534,19 @@ const SCAN_EXTENSIONS = new Set(['.ts', '.js', '.mjs', '.cjs', '.vbs', '.ps1'])
 const SKIP_DIR_NAMES = new Set(['node_modules', '.git'])
 
 /**
+ * A `.test.`/`.spec.` file asserting the default hub path is correct (e.g. a
+ * unit test for `hub-location.ts` itself) is not the bug this scan looks
+ * for — it is the literal the test is checking AGAINST. Matched on the
+ * filename only, never the full path, so an unrelated folder named
+ * `test-utils` is not caught by accident.
+ */
+const TEST_FILE_PATTERN = /\.(test|spec)\./
+
+function isTestFile(name: string): boolean {
+  return TEST_FILE_PATTERN.test(name)
+}
+
+/**
  * A literal hardcoded hub path, written as:
  *  - a single OR double backslash path (`Documents\agents-hub` — one
  *    backslash, exactly how a `.vbs`/`.ps1` string naturally reads once its
@@ -593,21 +606,32 @@ function collectScannableFiles(dir: string, out: string[], depth = 0): void {
     if (stats.isSymbolicLink()) continue
 
     if (stats.isDirectory()) {
+      // A dotfolder (`.git`, `.kilo`, `.vscode`, …) is a TOOL's own working
+      // state, not the agent's source — and some of those tools (Kilo Code
+      // seen in practice under `mail-triage/.kilo/worktrees/`) keep a full
+      // WORKTREE COPY of the agent's tree in there. Scanning it would flag
+      // every hit twice: once in the agent's real files, once in the tool's
+      // private copy of the same files.
+      if (entry.startsWith('.')) continue
       collectScannableFiles(full, out, depth + 1)
       continue
     }
 
-    if (SCAN_EXTENSIONS.has(extname(entry))) out.push(full)
+    if (SCAN_EXTENSIONS.has(extname(entry)) && !isTestFile(entry)) out.push(full)
   }
 }
 
 /**
  * Scans every installed agent's own files (`<hubDir>/agents/*`, skipping
- * `node_modules` and `.git`) for a hardcoded `Documents\agents-hub` /
+ * `node_modules`, every dotfolder (`.git`, `.kilo/worktrees`, …), and any
+ * `*.test.*`/`*.spec.*` file) for a hardcoded `Documents\agents-hub` /
  * `Documents/agents-hub` path — the exact bug `ALBUS_AGENTS_HUB_DIR`
  * (ruling applied in `env.ts`) exists to let an agent avoid. A line that
  * derives the path FROM that env var is not flagged, even if it also
- * mentions the literal fallback path on the same line.
+ * mentions the literal fallback path on the same line. A test file that
+ * asserts the default path IS `Documents\agents-hub` is not this bug either —
+ * it is the literal the test checks against, not an agent that forgot to
+ * read the env var.
  */
 export function findHardcodedHubPaths(hubDir: string): { file: string; line: number }[] {
   const agentsDir = join(hubDir, 'agents')
@@ -629,5 +653,95 @@ export function findHardcodedHubPaths(hubDir: string): { file: string; line: num
     })
   }
 
+  return hits
+}
+
+/** One Windows Task Scheduler task whose action points at the hub's old location. */
+export interface ScheduledTaskHit {
+  taskName: string
+  action: string
+}
+
+const SCHTASKS_TIMEOUT_MS = 30_000
+
+/**
+ * A single CSV line, RFC4180-ish: fields separated by `,`, a field optionally
+ * wrapped in `"`, a doubled `""` inside a quoted field meaning one literal
+ * `"`. `schtasks /fo csv` output is exactly this shape, including quoting
+ * every field unconditionally.
+ */
+function parseCsvLine(line: string): string[] {
+  const fields: string[] = []
+  let current = ''
+  let inQuotes = false
+
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i]
+    if (inQuotes) {
+      if (char === '"') {
+        if (line[i + 1] === '"') {
+          current += '"'
+          i++
+        } else {
+          inQuotes = false
+        }
+      } else {
+        current += char
+      }
+    } else if (char === '"') {
+      inQuotes = true
+    } else if (char === ',') {
+      fields.push(current)
+      current = ''
+    } else {
+      current += char
+    }
+  }
+  fields.push(current)
+  return fields
+}
+
+/**
+ * READ-ONLY lookup of Windows Task Scheduler tasks whose action ("Task To
+ * Run") mentions `oldHubPath`, case-insensitively — these are the tasks a hub
+ * move leaves behind. Moving the hub copies every agent's files and updates
+ * the `ALBUS_AGENTS_HUB_DIR` user env var, but a Task Scheduler action is a
+ * literal command line baked in when the task was registered (e.g. utel-study's
+ * `run-hidden.vbs`): it does NOT read that env var at run time, so after a move
+ * it keeps launching the OLD copy — and fails outright once the user deletes
+ * that old folder.
+ *
+ * Runs `schtasks /query /fo csv /v` through the same injectable `CommandRunner`
+ * every machine-touching call in this module uses — a real `schtasks /query`
+ * is read-only, but a check must still never be able to run it for real, so
+ * every check passes a fake with canned CSV instead. Never throws: a
+ * non-zero exit, a timeout, or CSV with no recognizable header all come back
+ * as "found nothing" rather than failing the setup flow over a feature that
+ * is advisory, not required.
+ */
+export async function findScheduledTasksUsing(
+  oldHubPath: string,
+  runner: CommandRunner = realRunner
+): Promise<ScheduledTaskHit[]> {
+  const result = await runner('schtasks', ['/query', '/fo', 'csv', '/v'], { timeoutMs: SCHTASKS_TIMEOUT_MS })
+  if (result.timedOut || result.code !== 0) return []
+
+  const lines = result.output.split(/\r\n|\n/).filter((line) => line.trim() !== '')
+  if (lines.length === 0) return []
+
+  const header = parseCsvLine(lines[0]).map((field) => field.trim())
+  const taskNameIndex = header.indexOf('TaskName')
+  const taskToRunIndex = header.indexOf('Task To Run')
+  if (taskNameIndex === -1 || taskToRunIndex === -1) return []
+
+  const needle = oldHubPath.toLowerCase()
+  const hits: ScheduledTaskHit[] = []
+  for (const line of lines.slice(1)) {
+    const fields = parseCsvLine(line)
+    const action = fields[taskToRunIndex] ?? ''
+    if (action.toLowerCase().includes(needle)) {
+      hits.push({ taskName: fields[taskNameIndex] ?? '(unknown)', action })
+    }
+  }
   return hits
 }

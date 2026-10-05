@@ -58,16 +58,31 @@ El primer paso de `npm run setup` en una máquina nueva es elegir la carpeta
 La elección se guarda en la variable de entorno **de usuario**
 `ALBUS_AGENTS_HUB_DIR` (`setx`, sin admin). `resolveHubDir()` la lee (recortada
 — un valor solo de espacios cae al default) y por default cae a
-`Documents\agents-hub`. Es de usuario y no de una app para que la vean todos
-por igual: Albus, `scripts/agents.ps1`, Orca, el programador de tareas y cada
-agente corriendo solo. `setx` no afecta a una terminal ya abierta: el TUI lo
-avisa al terminar.
+`Documents\agents-hub`. Es de usuario y no de una app para que la lean todos
+los procesos por igual: Albus, `scripts/agents.ps1`, Orca y cada agente
+corriendo solo. `setx` no afecta a una terminal ya abierta: el TUI lo avisa al
+terminar.
+
+**El programador de tareas de Windows es la excepción — NO sigue la
+variable.** Una tarea programada no relee `ALBUS_AGENTS_HUB_DIR` en cada
+disparo: su acción (`Task To Run`) es una línea de comando literal, grabada
+tal cual al crear la tarea con `schtasks /create` (por ejemplo, el
+`run-hidden.vbs` que dispara utel-study). Mover el hub nunca toca esa línea:
+la tarea sigue apuntando a la carpeta VIEJA y, en cuanto el usuario la borra,
+falla.
 
 Cambiar la ubicación con un hub que ya existe **copia, nunca mueve**: el TUI
 copia la carpeta entera (`.env`, `.secrets\`, resultados y trabajo sin
 commitear — nada de eso está en GitHub), verifica que cada agente quedó
 completo en el destino, recién entonces cambia la variable, y deja la carpeta
-vieja intacta para borrarla a mano cuando todo funcione.
+vieja intacta para borrarla a mano cuando todo funcione. Antes de borrarla: el
+TUI corre una búsqueda de solo lectura (`findScheduledTasksUsing`, vía
+`schtasks /query /fo csv /v`) y lista en la pantalla final cualquier tarea
+programada cuya acción todavía mencione la ruta vieja, para volver a
+registrarla a mano. Lo mismo vale para cualquier automatización de Orca que
+apunte a la carpeta vieja: ni el TUI ni nada en el proyecto la detecta
+automáticamente, así que es trabajo manual del usuario revisarlas antes de
+borrar la carpeta.
 
 **El guardia del literal:** todo lo que antes tenía `Documents\agents-hub`
 escrito a mano pasa a leer la variable primero, con el mismo orden en cada
@@ -137,7 +152,7 @@ regla que `runLabel` y `hidden`. Se valida en el mismo `manifest.ts`
 
 | Campo | Regla | Por qué |
 |---|---|---|
-| `tools` | nombres de binario, `^[a-z0-9._-]+$` | se buscan con `where`, igual que cualquier CLI del proyecto. Las conocidas (`git`, `node`, `gh`, `ffmpeg`, `whisper`, `claude`) traen su comando `winget install`; una desconocida se reporta sin ofrecer instalar nada |
+| `tools` | nombres de binario, `^[a-z0-9._-]+$` | se buscan con `where`, igual que cualquier CLI del proyecto. De las conocidas (`KNOWN_TOOLS` en `setup-io.ts`), solo `git`, `node`, `gh` y `ffmpeg` traen un instalador automático (`winget install`, un clic desde el TUI); `whisper`, `claude` y `pdftotext` también son conocidas pero sin instalador automático — el TUI solo muestra la pista para correrlo a mano (`pip install -U openai-whisper`, `npm install -g @anthropic-ai/claude-code`, `winget install oschwartz10612.Poppler`, respectivamente); una desconocida se reporta sin ofrecer instalar nada |
 | `env[].key` | `^[A-Z][A-Z0-9_]*$` | es un nombre de variable; cualquier otra cosa rompería el archivo |
 | `env[].secret` | default `true` | se pide enmascarado y **nunca** se imprime, ni en logs ni en errores |
 | `envFile` | `.env` (default) o `.env.local` | se resuelve dentro de la carpeta del agente; un `../` se rechaza |

@@ -6,7 +6,14 @@ import TextInput from 'ink-text-input'
 
 import { Confirm } from '../components/confirm'
 import { hubDirFromParent, validateHubParent } from '../../main/core/hub/hub-location'
-import { copyHub, findHardcodedHubPaths, setHubDirPersistently, verifyHubCopy } from '../../main/hub/setup-io'
+import {
+  copyHub,
+  findHardcodedHubPaths,
+  findScheduledTasksUsing,
+  setHubDirPersistently,
+  verifyHubCopy,
+  type ScheduledTaskHit
+} from '../../main/hub/setup-io'
 import { errorMessage } from '../setup-data'
 
 interface Props {
@@ -20,7 +27,15 @@ type Phase =
   | { name: 'confirm'; newHub: string; count: number }
   | { name: 'use-existing'; newHub: string }
   | { name: 'working'; message: string }
-  | { name: 'done'; changed: boolean; lines: string[]; warnings: string[] }
+  | {
+      name: 'done'
+      changed: boolean
+      lines: string[]
+      warnings: string[]
+      scheduledTasks: ScheduledTaskHit[]
+      /** The old hub path, when this run moved FROM one — drives the Task Scheduler warning line. */
+      oldHub: string | null
+    }
   | { name: 'failed'; lines: string[] }
 
 const MAX_WARNINGS = 15
@@ -140,7 +155,12 @@ export function HubLocation({ currentHub, onDone }: Props): ReactNode {
 
     // Past this point the setting HAS changed — nothing below may report otherwise.
     const lines = [`The hub is now ${newHub}.`]
-    if (copyFrom !== null) lines.push(`The old folder ${copyFrom} was left untouched.`)
+    if (copyFrom !== null) {
+      lines.push(`The old folder ${copyFrom} was left untouched.`)
+      lines.push(
+        'Scheduled tasks and Orca automations that point at the old folder keep running the OLD copy: re-register them before deleting it.'
+      )
+    }
     lines.push('Open a new terminal for the change to apply everywhere.')
     let warnings: string[]
     try {
@@ -148,7 +168,17 @@ export function HubLocation({ currentHub, onDone }: Props): ReactNode {
     } catch (err: unknown) {
       warnings = [`Could not scan the new hub for hardcoded paths: ${errorMessage(err)}`]
     }
-    setPhase({ name: 'done', changed: true, lines, warnings })
+    let scheduledTasks: ScheduledTaskHit[] = []
+    if (copyFrom !== null) {
+      try {
+        scheduledTasks = await findScheduledTasksUsing(copyFrom)
+      } catch {
+        // Read-only lookup, advisory only — a failure here must never block
+        // reporting that the hub move itself already succeeded.
+        scheduledTasks = []
+      }
+    }
+    setPhase({ name: 'done', changed: true, lines, warnings, scheduledTasks, oldHub: copyFrom })
   }
 
   const onSubmit = (value: string): void => {
@@ -162,14 +192,28 @@ export function HubLocation({ currentHub, onDone }: Props): ReactNode {
     const newHub = hubDirFromParent(value.trim())
     if (currentIsReal && samePath(newHub, currentHub)) {
       if (existsSync(currentHub)) {
-        setPhase({ name: 'done', changed: false, lines: [`The hub stays at ${currentHub}.`], warnings: [] })
+        setPhase({
+          name: 'done',
+          changed: false,
+          lines: [`The hub stays at ${currentHub}.`],
+          warnings: [],
+          scheduledTasks: [],
+          oldHub: null
+        })
       } else {
         // First run, the user kept the location the hub already resolves to
         // (the default, or the variable's value): it only has to exist —
         // there is no new setting to persist, so no setx.
         try {
           mkdirSync(currentHub, { recursive: true })
-          setPhase({ name: 'done', changed: true, lines: [`Created the hub at ${currentHub}.`], warnings: [] })
+          setPhase({
+            name: 'done',
+            changed: true,
+            lines: [`Created the hub at ${currentHub}.`],
+            warnings: [],
+            scheduledTasks: [],
+            oldHub: null
+          })
         } catch (err: unknown) {
           setPhase({ name: 'failed', lines: [`Could not create ${currentHub}.`, errorMessage(err)] })
         }
@@ -250,6 +294,17 @@ export function HubLocation({ currentHub, onDone }: Props): ReactNode {
               <Text key={line} color="yellow">
                 {'  '}
                 {line}
+              </Text>
+            ))}
+          </Box>
+        )}
+        {phase.name === 'done' && phase.scheduledTasks.length > 0 && (
+          <Box flexDirection="column" marginTop={1}>
+            <Text color="yellow">These Task Scheduler tasks still point at the OLD hub folder:</Text>
+            {phase.scheduledTasks.map((task) => (
+              <Text key={`${task.taskName}:${task.action}`} color="yellow">
+                {'  '}
+                {task.taskName} → {task.action}
               </Text>
             ))}
           </Box>
