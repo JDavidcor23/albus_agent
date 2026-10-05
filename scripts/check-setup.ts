@@ -9,8 +9,12 @@
  * Sale con código 1 si algo falla, para poder encadenarlo.
  */
 
-import { AgentJsonSchema, parseAgentJson } from '../src/main/core/hub/manifest'
+import path from 'node:path'
+
+import { AgentJsonSchema, parseAgentJson, type AgentSetup } from '../src/main/core/hub/manifest'
 import { parseDotenv, setDotenvValue } from '../src/main/core/hub/dotenv'
+import { HUB_FOLDER, hubDirFromParent, resolveHubDir, validateHubParent } from '../src/main/core/hub/hub-location'
+import { agentsHavingKey, computeSetupStatus, type DiskFacts } from '../src/main/core/hub/setup-status'
 
 let passed = 0
 let failed = 0
@@ -85,6 +89,112 @@ try {
   threw = String(e)
 }
 check('newline in value rejected without echoing it', threw !== '' && !threw.includes('line1'))
+
+/* ── hub-location ─────────────────────────────────────────────────────── */
+
+section('hub-location')
+
+check(
+  'hubDirFromParent joins HUB_FOLDER',
+  hubDirFromParent('C:\\Users\\PC\\Documents\\web') === path.win32.join('C:\\Users\\PC\\Documents\\web', HUB_FOLDER)
+)
+check(
+  'hubDirFromParent idempotent when already agents-hub',
+  hubDirFromParent('C:\\Users\\PC\\Documents\\web\\agents-hub') === 'C:\\Users\\PC\\Documents\\web\\agents-hub'
+)
+
+check('validateHubParent rejects relative', validateHubParent('relative') !== null)
+check('validateHubParent rejects empty', validateHubParent('') !== null)
+check('validateHubParent rejects ..', validateHubParent('C:\\a\\..\\b') !== null)
+check('validateHubParent accepts a clean absolute path', validateHubParent('C:\\Users\\PC\\Documents') === null)
+
+check(
+  'resolveHubDir uses the trimmed env var when set',
+  resolveHubDir({ ALBUS_AGENTS_HUB_DIR: '  D:\\custom-hub  ' }, 'C:\\Users\\PC') === 'D:\\custom-hub'
+)
+check(
+  'resolveHubDir falls back to default when blank',
+  resolveHubDir({ ALBUS_AGENTS_HUB_DIR: '   ' }, 'C:\\Users\\PC') ===
+    path.win32.join('C:\\Users\\PC', 'Documents', HUB_FOLDER)
+)
+check(
+  'resolveHubDir falls back to default when unset',
+  resolveHubDir({}, 'C:\\Users\\PC') === path.win32.join('C:\\Users\\PC', 'Documents', HUB_FOLDER)
+)
+
+/* ── setup-status ─────────────────────────────────────────────────────── */
+
+section('setup-status')
+
+const emptySetup: AgentSetup = { tools: [], env: [], envFile: '.env', auth: [] }
+const emptyFacts: DiskFacts = { envValues: new Map(), doneFiles: new Set(), tools: new Map() }
+const emptyStatus = computeSetupStatus(emptySetup, emptyFacts)
+check('empty setup → nothingToConfigure && ready', emptyStatus.nothingToConfigure && emptyStatus.ready)
+
+const setupWithEnv: AgentSetup = {
+  tools: [],
+  env: [
+    { key: 'REQUIRED_KEY', label: 'Required', help: '', secret: true, optional: false },
+    { key: 'OPTIONAL_KEY', label: 'Optional', help: '', secret: true, optional: true }
+  ],
+  envFile: '.env',
+  auth: []
+}
+
+const missingRequired = computeSetupStatus(setupWithEnv, {
+  envValues: new Map([['OPTIONAL_KEY', 'v']]),
+  doneFiles: new Set(),
+  tools: new Map()
+})
+check('missing required key → ready false', missingRequired.ready === false)
+
+const missingOptionalOnly = computeSetupStatus(setupWithEnv, {
+  envValues: new Map([['REQUIRED_KEY', 'v']]),
+  doneFiles: new Set(),
+  tools: new Map()
+})
+check(
+  'missing optional key → optional-missing state',
+  missingOptionalOnly.env.find((e) => e.key === 'OPTIONAL_KEY')?.state === 'optional-missing'
+)
+check('missing optional key only → ready true', missingOptionalOnly.ready === true)
+
+const emptyStringCounts = computeSetupStatus(setupWithEnv, {
+  envValues: new Map([
+    ['REQUIRED_KEY', ''],
+    ['OPTIONAL_KEY', 'v']
+  ]),
+  doneFiles: new Set(),
+  tools: new Map()
+})
+check('empty-string value counts as missing', emptyStringCounts.ready === false)
+
+const setupWithAuth: AgentSetup = {
+  tools: [],
+  env: [],
+  envFile: '.env',
+  auth: [{ label: 'Gmail', command: 'auth', doneWhen: '.secrets/gmail-token.json' }]
+}
+const authDone = computeSetupStatus(setupWithAuth, {
+  envValues: new Map(),
+  doneFiles: new Set(['.secrets/gmail-token.json']),
+  tools: new Map()
+})
+check('doneWhen present in doneFiles → auth ok', authDone.auth[0].state === 'ok' && authDone.ready)
+
+const authMissing = computeSetupStatus(setupWithAuth, emptyFacts)
+check('doneWhen absent → auth missing, ready false', authMissing.auth[0].state === 'missing' && !authMissing.ready)
+
+const having = agentsHavingKey(
+  'NOTION_TOKEN',
+  [
+    { agentId: 'self', env: new Map([['NOTION_TOKEN', 'abc']]) },
+    { agentId: 'other', env: new Map([['NOTION_TOKEN', 'xyz']]) },
+    { agentId: 'empty-one', env: new Map([['NOTION_TOKEN', '']]) }
+  ],
+  'self'
+)
+check('agentsHavingKey excludes self and empty values', having.length === 1 && having[0] === 'other')
 
 console.log('\n' + '='.repeat(60))
 console.log(failed === 0 ? `SETUP todo ✓ (${passed} ok)` : `SETUP ${failed} fallo(s), ${passed} ok`)

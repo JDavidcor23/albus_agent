@@ -2,6 +2,8 @@ import { app, shell } from 'electron'
 import { cpSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
+import { HUB_FOLDER, resolveHubDir } from './core/hub/hub-location'
+
 /**
  * Dónde viven los datos del USUARIO. Nunca en el repo, y ahora tampoco
  * enterrados entre los caches de Chromium.
@@ -221,9 +223,6 @@ export function udemyDir(): string {
   return join(dataDir(), 'udemy')
 }
 
-/** CONTRACT — root folder name for the agents hub. Renaming it orphans every installed agent and its results. */
-const AGENTS_HUB_FOLDER = 'agents-hub'
-
 /** CONTRACT — the code subfolder inside the hub. Renaming it hides every installed agent from discovery. */
 const AGENTS_HUB_CODE_FOLDER = 'agents'
 
@@ -243,12 +242,9 @@ const AGENTS_HUB_RESULTS_FOLDER = 'results'
  * reasoning as `dataDir()`'s `pruebas` folder.
  */
 export function agentsHubDir(): string {
-  if (isTestMode()) return join(cacheDir(), 'pruebas', AGENTS_HUB_FOLDER)
+  if (isTestMode()) return join(cacheDir(), 'pruebas', HUB_FOLDER)
 
-  const override = process.env.ALBUS_AGENTS_HUB_DIR?.trim()
-  if (override !== undefined && override !== '') return override
-
-  return join(documentsDir(), AGENTS_HUB_FOLDER)
+  return resolveHubDir(process.env, homeDir())
 }
 
 /** Where an external agent's own code (its own git repo) lives, one folder per agent id. */
