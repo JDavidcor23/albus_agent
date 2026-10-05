@@ -10,11 +10,25 @@
  */
 
 import path from 'node:path'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 
 import { AgentJsonSchema, parseAgentJson, type AgentSetup } from '../src/main/core/hub/manifest'
 import { parseDotenv, setDotenvValue } from '../src/main/core/hub/dotenv'
 import { HUB_FOLDER, hubDirFromParent, resolveHubDir, validateHubParent } from '../src/main/core/hub/hub-location'
 import { agentsHavingKey, computeSetupStatus, type DiskFacts } from '../src/main/core/hub/setup-status'
+import {
+  KNOWN_TOOLS,
+  currentHubDir,
+  findHardcodedHubPaths,
+  installTool,
+  listSetupTargets,
+  readEnvFile,
+  verifyHubCopy,
+  whichTool,
+  writeEnvValue
+} from '../src/main/hub/setup-io'
+import { albusSetupTarget } from '../src/main/hub/albus-setup'
 
 let passed = 0
 let failed = 0
@@ -212,7 +226,190 @@ const having = agentsHavingKey(
 )
 check('agentsHavingKey excludes self and empty values', having.length === 1 && having[0] === 'other')
 
-console.log('\n' + '='.repeat(60))
-console.log(failed === 0 ? `SETUP todo ✓ (${passed} ok)` : `SETUP ${failed} fallo(s), ${passed} ok`)
-console.log('='.repeat(60) + '\n')
-process.exit(failed === 0 ? 0 : 1)
+/* ── setup-io: readEnvFile / writeEnvValue ───────────────────────────────── */
+
+section('setup-io: dotenv file I/O')
+
+{
+  const dir = mkdtempSync(path.join(tmpdir(), 'albus-setup-io-'))
+  try {
+    check('readEnvFile of a missing file is an empty map', readEnvFile(dir, '.env').size === 0)
+
+    writeEnvValue(dir, '.env', 'FOO', 'bar')
+    check('writeEnvValue creates the file when missing', readEnvFile(dir, '.env').get('FOO') === 'bar')
+
+    writeEnvValue(dir, '.env', 'FOO', 'baz')
+    const afterUpdate = readEnvFile(dir, '.env')
+    check('writeEnvValue updates in place', afterUpdate.get('FOO') === 'baz')
+    check('writeEnvValue update does not duplicate the key', afterUpdate.size === 1)
+
+    const leftovers = readdirSync(dir).filter((name) => name.includes('.tmp-'))
+    check('writeEnvValue leaves no *.tmp file behind', leftovers.length === 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/* ── setup-io: findHardcodedHubPaths ─────────────────────────────────────── */
+
+section('setup-io: findHardcodedHubPaths')
+
+{
+  const hubDir = mkdtempSync(path.join(tmpdir(), 'albus-setup-hub-'))
+  try {
+    const agentDir = path.join(hubDir, 'agents', 'demo-agent')
+    mkdirSync(agentDir, { recursive: true })
+
+    writeFileSync(
+      path.join(agentDir, 'bad.ts'),
+      [
+        "import path from 'node:path'",
+        "const home = process.env.USERPROFILE",
+        "const resultsDir = path.join(home, 'Documents', 'agents-hub', 'results', 'demo-agent')",
+        ''
+      ].join('\n')
+    )
+
+    writeFileSync(
+      path.join(agentDir, 'good.ts'),
+      [
+        "import path from 'node:path'",
+        "const home = process.env.USERPROFILE",
+        "const hubDir = process.env.ALBUS_AGENTS_HUB_DIR ?? path.join(home, 'Documents', 'agents-hub')",
+        ''
+      ].join('\n')
+    )
+
+    // Never scanned: proves node_modules is skipped, not merely absent of hits.
+    mkdirSync(path.join(agentDir, 'node_modules', 'dep'), { recursive: true })
+    writeFileSync(
+      path.join(agentDir, 'node_modules', 'dep', 'index.js'),
+      "const x = path.join(home, 'Documents', 'agents-hub')\n"
+    )
+
+    const hits = findHardcodedHubPaths(hubDir)
+    check(
+      'flags the hardcoded path.join(...) line',
+      hits.some((h) => h.file === path.join(agentDir, 'bad.ts') && h.line === 3)
+    )
+    check(
+      'does NOT flag the line guarded by ALBUS_AGENTS_HUB_DIR',
+      !hits.some((h) => h.file === path.join(agentDir, 'good.ts'))
+    )
+    check(
+      'skips node_modules entirely',
+      !hits.some((h) => h.file.includes(path.join('node_modules', 'dep')))
+    )
+  } finally {
+    rmSync(hubDir, { recursive: true, force: true })
+  }
+}
+
+/* ── setup-io: currentHubDir / whichTool / installTool guard ────────────── */
+
+section('setup-io: currentHubDir, whichTool, installTool guard')
+
+{
+  const before = process.env.ALBUS_AGENTS_HUB_DIR
+  process.env.ALBUS_AGENTS_HUB_DIR = 'D:\\custom-hub-for-check'
+  check('currentHubDir honors ALBUS_AGENTS_HUB_DIR', currentHubDir() === 'D:\\custom-hub-for-check')
+  if (before === undefined) delete process.env.ALBUS_AGENTS_HUB_DIR
+  else process.env.ALBUS_AGENTS_HUB_DIR = before
+}
+
+check(
+  'KNOWN_TOOLS: git/node/gh/ffmpeg declare a winget id',
+  KNOWN_TOOLS.git.winget === 'Git.Git' &&
+    KNOWN_TOOLS.node.winget === 'OpenJS.NodeJS.LTS' &&
+    KNOWN_TOOLS.gh.winget === 'GitHub.cli' &&
+    KNOWN_TOOLS.ffmpeg.winget === 'Gyan.FFmpeg'
+)
+check(
+  'KNOWN_TOOLS: whisper/claude/pdftotext have a hint but no winget id',
+  KNOWN_TOOLS.whisper.winget === undefined &&
+    KNOWN_TOOLS.claude.winget === undefined &&
+    KNOWN_TOOLS.pdftotext.winget === undefined
+)
+
+/* ── albus-setup: setup.json loads as a valid target ─────────────────────── */
+
+section('albus-setup: setup.json')
+
+{
+  const target = albusSetupTarget()
+  check('setup.json loads as a valid target', target.manifest !== null && target.problem === '')
+  check('target id is "albus"', target.id === 'albus')
+  check('target dir is the repo root (has package.json)', existsSync(path.join(target.dir, 'package.json')))
+  check(
+    'setup.json\'s 7 env entries parse, secret defaults applied',
+    target.manifest !== null &&
+      target.manifest.setup.env.length === 7 &&
+      target.manifest.setup.env.find((e) => e.key === 'SUPABASE_URL')?.secret === false &&
+      target.manifest.setup.env.find((e) => e.key === 'SUPABASE_SERVICE_ROLE_KEY')?.secret === true
+  )
+  check(
+    'setup.json tools and commands parse',
+    target.manifest !== null &&
+      target.manifest.setup.tools.join(',') === 'git,node,gh' &&
+      target.manifest.commands.check === 'npm run notion:check'
+  )
+}
+
+/* ── setup-io: verifyHubCopy (pure fs, no robocopy spawned) ──────────────── */
+
+section('setup-io: verifyHubCopy')
+
+async function checkVerifyHubCopy(): Promise<void> {
+  const from = mkdtempSync(path.join(tmpdir(), 'albus-setup-from-'))
+  const to = mkdtempSync(path.join(tmpdir(), 'albus-setup-to-'))
+  try {
+    mkdirSync(path.join(from, 'agents', 'copied-ok'), { recursive: true })
+    writeFileSync(path.join(from, 'agents', 'copied-ok', 'agent.json'), '{}')
+    mkdirSync(path.join(from, 'agents', 'missing-in-dest'), { recursive: true })
+    writeFileSync(path.join(from, 'agents', 'missing-in-dest', 'agent.json'), '{}')
+
+    mkdirSync(path.join(to, 'agents', 'copied-ok'), { recursive: true })
+    writeFileSync(path.join(to, 'agents', 'copied-ok', 'agent.json'), '{}')
+
+    const problems = await verifyHubCopy(from, to)
+    check('verifyHubCopy: present agent has no problem', !problems.some((p) => p.includes('copied-ok')))
+    check('verifyHubCopy: missing agent is reported', problems.some((p) => p.includes('missing-in-dest')))
+  } finally {
+    rmSync(from, { recursive: true, force: true })
+    rmSync(to, { recursive: true, force: true })
+  }
+}
+
+/* ── setup-io: whichTool, installTool guard, listSetupTargets ────────────── */
+
+section('setup-io: whichTool, installTool guard, listSetupTargets')
+
+async function checkAsyncRest(): Promise<void> {
+  check('whichTool finds "node" on PATH', await whichTool('node'))
+  check('whichTool reports false for a bogus name', !(await whichTool('definitely-not-a-real-tool-xyz')))
+
+  // Only exercises the early-return guard — never actually spawns `winget`.
+  const installGuard = await installTool('whisper')
+  check('installTool refuses a tool with no winget id, without spawning winget', !installGuard.ok)
+
+  const hubDir = mkdtempSync(path.join(tmpdir(), 'albus-setup-targets-'))
+  try {
+    const targets = await listSetupTargets(hubDir)
+    check('listSetupTargets lists Albus first', targets[0]?.id === 'albus')
+    check('listSetupTargets has no external agents in an empty hub', targets.length === 1)
+  } finally {
+    rmSync(hubDir, { recursive: true, force: true })
+  }
+}
+
+// `tsx` compiles this script to CJS, where there is no top-level `await` —
+// same reason `scripts/check-hub.ts` wraps its async section in `main()`.
+void (async () => {
+  await checkVerifyHubCopy()
+  await checkAsyncRest()
+
+  console.log('\n' + '='.repeat(60))
+  console.log(failed === 0 ? `SETUP todo ✓ (${passed} ok)` : `SETUP ${failed} fallo(s), ${passed} ok`)
+  console.log('='.repeat(60) + '\n')
+  process.exit(failed === 0 ? 0 : 1)
+})()

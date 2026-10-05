@@ -1,0 +1,18 @@
+{
+  "name": "Albus (the app)",
+  "commands": { "gmail-auth": "npm run gmail:auth", "check": "npm run notion:check" },
+  "setup": {
+    "tools": ["git", "node", "gh"],
+    "envFile": ".env",
+    "env": [
+      { "key": "SUPABASE_URL", "label": "Supabase URL", "help": "Supabase → Project Settings → API → Project URL", "secret": false },
+      { "key": "SUPABASE_SERVICE_ROLE_KEY", "label": "Supabase service_role key", "help": "Supabase → Project Settings → API → service_role. Bypasses RLS: this machine only" },
+      { "key": "GOOGLE_CLIENT_ID", "label": "Google OAuth client id (Desktop app)", "help": "Google Cloud console → Credentials", "secret": false },
+      { "key": "GOOGLE_CLIENT_SECRET", "label": "Google OAuth client secret", "help": "Same Desktop OAuth client" },
+      { "key": "GOOGLE_REFRESH_TOKEN", "label": "Google refresh token", "help": "Run the Google permission below; it prints the token to paste here" },
+      { "key": "NOTION_TOKEN", "label": "Notion integration token (personal workspace)", "help": "notion.so/my-integrations → Secret" },
+      { "key": "NOTION_JOBS_DATABASE_ID", "label": "Notion jobs database id", "help": "The job tracker database URL, the 32-char id", "secret": false, "optional": true }
+    ],
+    "auth": []
+  }
+}

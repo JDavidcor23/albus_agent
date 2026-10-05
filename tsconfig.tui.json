@@ -14,7 +14,14 @@
   // `../agents/questions`, which this spike does not need and which pull in
   // more of the Electron-main surface than the TUI should depend on. Later
   // tasks add their own files here as the TUI grows.
-  "include": ["src/tui/**/*", "src/main/core/**/*", "src/main/hub/discover.ts", "src/main/hub/process.ts"],
+  "include": [
+    "src/tui/**/*",
+    "src/main/core/**/*",
+    "src/main/hub/discover.ts",
+    "src/main/hub/process.ts",
+    "src/main/hub/setup-io.ts",
+    "src/main/hub/albus-setup.ts"
+  ],
   "compilerOptions": {
     "composite": false,
     "jsx": "react-jsx",

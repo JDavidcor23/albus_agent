@@ -43,7 +43,13 @@ const SYSTEM_VAR_ALLOWLIST = [
   'TERM',
   'NUMBER_OF_PROCESSORS',
   'PROCESSOR_ARCHITECTURE',
-  'OS'
+  'OS',
+  /**
+   * Not a secret — just where the hub lives. Agents now read it themselves
+   * (the setup TUI passes it through, and a hub agent may need to know its
+   * own install root) instead of only Albus knowing it.
+   */
+  'ALBUS_AGENTS_HUB_DIR'
 ]
 
 const ALLOWLIST_LOWER = new Set(SYSTEM_VAR_ALLOWLIST.map((key) => key.toLowerCase()))
