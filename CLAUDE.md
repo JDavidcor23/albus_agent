@@ -20,6 +20,7 @@ My Notes escribe; Albus lee y escribe de vuelta.
 | sharp, tesseract, CDP, un DOM ajeno, un error raro de Supabase | `.claude/docs/gotchas.md` |
 | algo que "está mal" y parece obvio de arreglar | `.claude/docs/known-debt.md` · `src/main/devtools/README.md` |
 | un video, un audio, "analizá esta grabación", `src/main/video/`, `core/video/` | `.claude/docs/video-analysis.md` — Claude no acepta video: hay que convertirlo, y whisper INVENTA sobre el silencio |
+| un comando que usa el usuario (`package.json` scripts, `scripts/agents.ps1`), o qué viaja entre máquinas | `docs/MANUAL.md` — es el manual de Jorge, en español simple. **Si agregás, renombrás o borrás un comando suyo, se actualiza en el mismo commit** |
 | un agente EXTERNO, `agent.json`, `src/main/hub/`, `core/hub/`, "instalar un agente" | `.claude/docs/agents-hub.md` — el agente NO hereda el env de Albus (tiene el `service_role`), y sus comandos nunca tocan un shell |
 
 ## Los dos repos: la frontera de seguridad
