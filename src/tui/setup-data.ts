@@ -98,6 +98,9 @@ export async function loadSetupData(hubDir: string): Promise<SetupData> {
 export function summarize(row: TargetRow): { text: string; color: 'green' | 'yellow' | 'red' | 'gray' } {
   if (row.target.problem !== '') return { text: `broken: ${row.target.problem}`, color: 'red' }
   if (row.status === null) return { text: 'broken: no valid manifest', color: 'red' }
+  // A draft is "not published yet", not "broken" — no missing-key nagging,
+  // just say so. Home also groups it separately (see home.tsx).
+  if (row.target.manifest?.draft === true) return { text: 'draft', color: 'gray' }
 
   if (!row.status.ready) {
     const missing = [

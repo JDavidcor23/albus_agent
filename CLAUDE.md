@@ -17,16 +17,19 @@ secreto por chat**, eso es trabajo del usuario en el TUI.
 |---|---|
 | Listar agentes y su estado | `npm run hub -- list` |
 | Correr uno | `npm run hub -- run <id> [comando]` |
-| Estado (ahead/behind/dirty/local-only) | `powershell -File scripts/agents.ps1 status` |
+| Estado (ahead/behind/dirty, por agente y del repo) | `powershell -File scripts/agents.ps1 status` |
 | Traer los que faltan / actualizar los instalados | `powershell -File scripts/agents.ps1 clone` / `update` |
 
 Resultados en `<hub>\results\<id>\`, con `<hub>` = `ALBUS_AGENTS_HUB_DIR` si
 está seteada, si no `Documents\agents-hub`.
 
 **Agente nuevo:** carpeta física en el hub (`agents-hub/agents/<id>/`, nunca en
-otra carpeta ni con `--link`) + repo privado con el topic `albus-agent` +, si
-necesita claves, herramientas o permisos, el bloque `setup` en su `agent.json`
-— el usuario completa eso después con `npm run setup`.
+otra carpeta ni con `--link`), commiteada y empujada al monorepo
+`agents-hub` (ya no un repo propio ni un topic — eso es historia, ver
+`.claude/docs/agents-hub.md`) con `"draft": true` en su `agent.json` desde el
+primer commit +, si necesita claves, herramientas o permisos, el bloque
+`setup` — el usuario completa eso después con `npm run setup` y saca el
+`draft` cuando decide publicarlo.
 
 ## Índice — este archivo es lo único que se carga solo; el resto hay que ir a buscarlo
 
@@ -96,11 +99,15 @@ Podés renombrar el identificador, **nunca el valor**. El porqué de cada uno, e
 
 ## Convenciones que NO se rompen
 
-- **Todo agente vive FÍSICAMENTE en el hub:** `Documents/agents-hub/agents/<id>/`, con su
-  `.git`, su `.env` y su estado adentro. Nunca se crea el código de un agente en otra
-  carpeta (`my_proyects/…`, `web/…`) ni se instala con `--link`: una junction deja el
-  agente en dos lugares a la vez, y el usuario ya pidió que eso no pase nunca más
-  (2026-10-04). Un agente nuevo se crea directo en `agents-hub/agents/<id>/`.
+- **Todo agente vive FÍSICAMENTE en el hub:** `Documents/agents-hub/agents/<id>/`, una
+  carpeta plana commiteada en el monorepo único `agents-hub` (ya no un repo git propio
+  por agente — eso cambió el 2026-10-06, ver `.claude/docs/agents-hub.md`), con su `.env`
+  y su estado local adentro (gitignored, nunca commiteado). Nunca se crea el código de un
+  agente en otra carpeta (`my_proyects/…`, `web/…`) ni se instala con `--link`: una
+  junction deja el agente en dos lugares a la vez, y el usuario ya pidió que eso no pase
+  nunca más (2026-10-04). Un agente nuevo se crea directo en `agents-hub/agents/<id>/`,
+  con `"draft": true` desde el primer commit, y se empuja enseguida — el push ES el
+  backup, publicarlo (sacarle el `draft`) es una decisión aparte de Jorge.
 
 - **IPC como sobre tipado:** toda respuesta es `{ok:true,data} | {ok:false,error:{code,message}}`,
   siempre vía `registerHandler`. El renderer nunca recibe excepciones crudas, y el

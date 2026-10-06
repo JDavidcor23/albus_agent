@@ -63,6 +63,9 @@ function buildManifest(parsed: z.infer<typeof AlbusSetupJsonSchema>): AgentManif
     exitCodes: {},
     runLabel: '',
     hidden: false,
+    // Albus itself is never a draft: that flag is for agents being built in
+    // the hub, and Albus is the host app, not something the hub installs.
+    draft: false,
     setup: parsed.setup,
     // Albus is the host, never a hub provider or consumer — it is out of
     // scope for the agent-services contract (see `.claude/docs/agent-services.md`'s

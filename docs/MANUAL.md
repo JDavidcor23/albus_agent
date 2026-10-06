@@ -10,7 +10,7 @@ Esto es lo que **tú** necesitas para instalar Albus, traerte todo y usar los co
 | Pieza | Dónde vive | Qué es |
 |---|---|---|
 | **Albus** | `Documents\web\albus_agent\` | La app. Repo `JDavidcor23/albus_agent` |
-| **Tus agentes** | `Documents\agents-hub\agents\<agente>\` | Uno por carpeta, cada uno con su propio repo privado en GitHub |
+| **Tus agentes** | `Documents\agents-hub\agents\<agente>\` | Uno por carpeta, todos juntos en UN solo repo privado en GitHub (`agents-hub`) |
 | **Tus datos** | `Documents\albus_agent\` y `Documents\agents-hub\results\` | Reglas, conexiones, videos, resultados. **No están en GitHub** |
 
 ---
@@ -37,17 +37,21 @@ cd albus_agent; npm install
 ```
 
 **4. `npm run setup`** (el TUI, con flechas y Enter): elige en qué carpeta
-guardar tus agentes (el hub), sincroniza los que ya tienes en GitHub, te pide
-una por una las claves que falten y abre los permisos de Google.
+guardar tus agentes (el hub), clona el repo `agents-hub` con todos los que ya
+tienes en GitHub, te pide una por una las claves que falten y abre los
+permisos de Google.
 
-La pantalla principal del TUI tiene dos grupos: **Connections** (Google,
-Notion, WhatsApp — ahí entras UNA sola vez por cuenta) y **Agents** (el
-resto). Ya no hace falta pegar el mismo token de Notion o volver a autorizar
-Google en cada agente nuevo: configuras la conexión una vez en Connections y
-cualquier agente que la necesite la usa sola. Si a un agente le falta una
-conexión, el TUI te lo dice con un aviso tipo `needs google (gmail-read)` —
-entras a esa conexión en Connections, la terminas de configurar, y el aviso
-desaparece solo.
+La pantalla principal del TUI tiene tres grupos: **Connections** (Google,
+Notion, WhatsApp — ahí entras UNA sola vez por cuenta), **Agents** (el resto,
+ya publicados) y, solo si tienes alguno sin terminar, **Drafts (not
+published)** al final, en gris — agentes guardados y a salvo en GitHub pero
+que todavía no le pediste a Claude que publique (ver la regla 3 más abajo). Ya
+no hace falta pegar el mismo token de Notion o volver a autorizar Google en
+cada agente nuevo: configuras la conexión una vez en Connections y cualquier
+agente que la necesite la usa sola. Si a un agente le falta una conexión, el
+TUI te lo dice con un aviso tipo `needs google (gmail-read)` — entras a esa
+conexión en Connections, la terminas de configurar, y el aviso desaparece
+solo.
 
 **5. Lo que GitHub no lleva: cópialo del otro PC con una USB.** Nunca por WhatsApp, correo
 ni Drive.
@@ -84,12 +88,13 @@ comando usar.
 
 | Comando | Qué hace |
 |---|---|
-| `update-agents` | Actualiza **todos** tus agentes con lo último de GitHub |
-| `clone-agents` | Baja los agentes que todavía no tienes en esta máquina |
-| `sync-agents` | Las dos cosas |
-| `agents-status` | Te dice qué tiene cambios sin guardar o sin subir. No cambia nada |
+| `update-agents` | Trae lo último del repo `agents-hub` (todos tus agentes a la vez) |
+| `clone-agents` | Si esta máquina todavía no tiene el repo, lo baja completo |
+| `sync-agents` | Lo que aplique: baja el repo si falta, o lo actualiza si ya lo tienes |
+| `agents-status` | Te dice qué tiene cambios sin guardar o sin subir, agente por agente. No cambia nada |
 
-Nunca te borra trabajo: si un agente tiene cambios sin commitear, lo salta y te avisa.
+Nunca te borra trabajo: si hay cambios sin commitear que se pisarían al actualizar,
+el comando se detiene y te dice cuáles son — no hace `reset` ni te los pisa.
 
 ### Albus (desde `Documents\web\albus_agent`)
 
@@ -114,12 +119,14 @@ Nunca te borra trabajo: si un agente tiene cambios sin commitear, lo salta y te 
 
 ## Reglas de oro
 
-1. **Antes de cambiar de máquina: `agents-status`.** Si dice "to push", haz `git push` en
-   ese agente. Si no, la otra máquina no ve tus cambios.
+1. **Antes de cambiar de máquina: `agents-status`.** Si dice "not pushed", haz `git push`
+   en el repo del hub (`cd` a `agents-hub`, o pídeselo a Claude). Si no, la otra máquina
+   no ve tus cambios.
 2. **Al llegar a la otra máquina: `update-agents`.**
-3. **Agente nuevo = repo privado + etiqueta `albus-agent`.** Sin la etiqueta, la otra
-   máquina no lo ve. `agents-status` lo marca como `[local only]` para que no se te
-   olvide. Si lo crea Claude, ya sabe hacerlo.
+3. **Agente nuevo = borrador hasta que tú digas "publícalo".** Claude lo guarda y lo sube
+   a GitHub enseguida — eso ya es tu respaldo, no se pierde — pero lo marca como
+   borrador (`[draft]` en `agents-status`, gris en el TUI) y no aparece en la app de
+   Albus hasta que tú decides que está listo y le pides a Claude que lo publique.
 4. **Lo que corre solo va en UNA máquina:** WhatsApp, el triage de las 8:00, el outbox de
    UTEL. Si corren en las dos, se pelean o te duplican cosas en Notion.
 
@@ -131,7 +138,7 @@ Nunca te borra trabajo: si un agente tiene cambios sin commitear, lo salta y te 
 |---|---|
 | `gh is not logged in as JDavidcor23` | `gh auth login` con tu cuenta personal |
 | `Authentication failed` al hacer `git push` en este PC | En este PC gh usa por defecto la cuenta de 30X. Antes del push: `$env:GH_TOKEN = gh auth token -u JDavidcor23` |
-| `[skipped] … uncommitted changes` | Commitea o guarda tus cambios en ese agente y vuelve a correr `update-agents` |
-| `[diverged]` | Cambiaste el mismo agente en las dos máquinas sin sincronizar. Pídele a Claude que lo junte |
+| `update failed` con un mensaje sobre cambios sin commitear | Commitea o guarda esos cambios y vuelve a correr `update-agents` |
+| `diverged` | Cambiaste algo en las dos máquinas sin sincronizar. Pídele a Claude que lo junte |
 | `update-agents` no se reconoce | Corre `powershell -ExecutionPolicy Bypass -File scripts\agents.ps1 install` una vez: instala estos atajos en tu perfil de PowerShell. Si ya lo hiciste, abre una ventana nueva |
 | Quiero la última versión de estos comandos | Corre `powershell -File scripts\agents.ps1 install` de nuevo: baja la versión nueva del script |

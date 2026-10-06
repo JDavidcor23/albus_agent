@@ -83,9 +83,14 @@ export function Home({ data, loadError, loading, onNavigate, onRefresh, focusKey
 
     // Connections (providers: `provides` non-empty — Google, Notion,
     // WhatsApp, each configured ONCE here) come first, Agents (the
-    // consumers) after. See `.claude/docs/agent-services.md`.
-    const providerRows = data.rows.filter((row) => (row.target.manifest?.provides.length ?? 0) > 0)
-    const agentRows = data.rows.filter((row) => (row.target.manifest?.provides.length ?? 0) === 0)
+    // consumers) after. See `.claude/docs/agent-services.md`. A draft agent
+    // (not published yet — see `.claude/docs/agents-hub.md`) never lands in
+    // either group: it gets its own dimmed group at the end, so the owner
+    // sees it is there without mixing it into agents the user actually runs.
+    const published = data.rows.filter((row) => row.target.manifest?.draft !== true)
+    const draftRows = data.rows.filter((row) => row.target.manifest?.draft === true)
+    const providerRows = published.filter((row) => (row.target.manifest?.provides.length ?? 0) > 0)
+    const agentRows = published.filter((row) => (row.target.manifest?.provides.length ?? 0) === 0)
 
     const connectionItems: SelectItem[] = [
       sectionHeader('h:connections', 'Connections'),
@@ -99,8 +104,14 @@ export function Home({ data, loadError, loading, onNavigate, onRefresh, focusKey
         ? [{ key: 'n:agents', selectable: false, label: <Text dimColor>  none installed yet</Text> }]
         : agentRows.map(targetItem))
     ]
+    const draftItems: SelectItem[] = draftRows.length === 0
+      ? []
+      : [
+          { key: 'h:drafts', selectable: false, label: <Text bold dimColor>Drafts (not published)</Text> },
+          ...draftRows.map((row) => ({ ...targetItem(row), label: <Text dimColor>{targetItem(row).label}</Text> }))
+        ]
 
-    return [hubItem, toolsItem, ...connectionItems, ...agentItems]
+    return [hubItem, toolsItem, ...connectionItems, ...agentItems, ...draftItems]
   }, [data])
 
   const onSelect = (item: SelectItem): void => {

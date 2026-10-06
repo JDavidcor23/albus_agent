@@ -40,10 +40,11 @@ async function cmdList(): Promise<void> {
   }
   for (const a of agents) {
     const status = a.manifest !== null && a.problem === '' ? 'ok' : `problem: ${a.problem}`
-    // The CLI prints every agent, hidden ones included — `hidden` only opts
-    // an agent out of the renderer's list, never out of `hub -- list`.
+    // The CLI prints every agent, hidden or draft ones included — both flags
+    // only opt an agent out of the renderer's list, never out of `hub -- list`.
     const hiddenTag = a.manifest?.hidden === true ? '  (hidden)' : ''
-    console.log(`${a.id}  [${status}]${hiddenTag}  ${a.dir}`)
+    const draftTag = a.manifest?.draft === true ? '  (draft)' : ''
+    console.log(`${a.id}  [${status}]${hiddenTag}${draftTag}  ${a.dir}`)
   }
 }
 

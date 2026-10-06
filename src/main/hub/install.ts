@@ -334,6 +334,25 @@ export async function installAgent(options: InstallOptions): Promise<InstallRepo
     return { ok: false, id, dir: targetDir, steps }
   }
 
+  // The hub itself is ONE git repo since 2026-10-06 (agents-hub, monorepo).
+  // A cloned third-party agent still carries its OWN `.git` after the move
+  // above — left alone, that is a nested repo inside the monorepo, which
+  // either needs its own entry in the hub's root .gitignore (easy to forget,
+  // and then `git status` reports it as "modified content, untracked
+  // content" forever) or gets embedded as a gitlink nobody asked for. Strip
+  // it instead: only what was COMMITTED in the source ever reached this
+  // folder (see the clone step above), so losing `.git` loses nothing except
+  // the ability to `git log` the agent's upstream history from inside the
+  // hub — the agent is now a plain folder, committed into agents-hub like
+  // any other. Best-effort: a failure here does not fail the install.
+  try {
+    rmSync(join(targetDir, '.git'), { recursive: true, force: true })
+  } catch {
+    // Not fatal — worst case the folder keeps its nested .git and the hub's
+    // own `git status` flags it, same as `findHardcodedHubPaths` flags other
+    // things WARN-only. See `.claude/docs/agents-hub.md`.
+  }
+
   await installDependenciesAndCheck(id, targetDir, parsed.manifest, options.hubDir, false, addStep, options.onQuestion)
   return { ok: true, id, dir: targetDir, steps }
 }

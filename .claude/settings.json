@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/hub-reminder.mjs",
+            "timeout": 8
+          }
+        ]
+      }
+    ]
+  }
+}

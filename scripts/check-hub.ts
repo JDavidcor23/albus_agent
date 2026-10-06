@@ -100,6 +100,13 @@ const withHidden = AgentJsonSchema.safeParse({ ...WHATSAPP_EXAMPLE, hidden: true
 check('hidden: true se parsea tal cual', withHidden.success && withHidden.data.hidden === true)
 
 check(
+  'draft no declarado (manifiesto viejo) por defecto queda false',
+  AgentJsonSchema.parse(WHATSAPP_EXAMPLE).draft === false
+)
+const withDraft = AgentJsonSchema.safeParse({ ...WHATSAPP_EXAMPLE, draft: true })
+check('draft: true se parsea tal cual', withDraft.success && withDraft.data.draft === true)
+
+check(
   'provides/grants/uses no declarados (manifiesto viejo) quedan en sus defaults vacíos',
   (() => {
     const m = AgentJsonSchema.parse(WHATSAPP_EXAMPLE)

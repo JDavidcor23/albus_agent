@@ -75,13 +75,26 @@ ventaja: el consumidor conserva su código (`@notionhq/client` acepta un `fetch`
 propio; los wrappers de Gmail ya reciben `fetchFn`) y solo cambia **quién**
 hace el request.
 
-### El cliente: una copia por consumidor, a propósito
+### El cliente: una sola copia en `shared/`
 
-`src/shared/agent-call.ts` (≈60 líneas) se copia en cada consumidor. Un paquete
-compartido obligaría a publicar algo privado o a importar entre repos; el
-contrato es chico y está versionado por `protocol`. La copia canónica vive en
-el agente `notion`: `src/client/agent-call.ts` y `src/client/notion-agent-fetch.ts`
-(el `fetch` que se le pasa a `new Client({ fetch })` de `@notionhq/client`).
+Hasta que el hub pasó a ser un monorepo (2026-10-06) `agent-call.ts` se copiaba
+a mano en cada consumidor — una por `notion`, otra por `outreach`, otra por
+`whatsapp-digest`, etc. Ya no hace falta: con todos los agentes en el mismo
+repo, la copia vive UNA sola vez en `agents-hub/shared/` —
+`shared/agent-call.ts` y `shared/notion-agent-fetch.ts` (el `fetch` que se le
+pasa a `new Client({ fetch })` de `@notionhq/client`), cada uno con su
+`shared/agent-call.test.ts` / `shared/notion-agent-fetch.test.ts` al lado,
+corridos con `node --test shared/*.test.ts` desde la raíz del hub.
+`shared/package.json` es nada más `{"private": true, "type": "module"}`: existe
+solo para que `tsc` (modo `nodenext`) trate la carpeta como ESM, no para armar
+un workspace de npm — no hay `workspaces` en el `package.json` raíz del hub, cada
+agente sigue instalando sus propias dependencias por separado.
+
+Cada consumidor importa por ruta relativa, sin ningún paso de build ni paquete
+publicado: `import { callAgent } from '../../../../shared/agent-call.ts'` (la
+cantidad de `../` depende de la profundidad del archivo que importa dentro de
+`agents/<id>/`). El contrato sigue versionado por `protocol`, igual que antes —
+lo que cambió es dónde vive el archivo, no el contrato en sí.
 
 ## `agent.json`: tres campos nuevos (opcionales, protocolo sigue en 1)
 

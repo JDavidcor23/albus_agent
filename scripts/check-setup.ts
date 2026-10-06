@@ -111,6 +111,7 @@ const base = { protocol: 1, id: 'demo', name: 'Demo', commands: { run: 'npm run 
 
 const noSetup = AgentJsonSchema.parse(base)
 check('no setup → empty default', noSetup.setup.env.length === 0 && noSetup.setup.envFile === '.env')
+check('no draft declared → defaults to false (published)', noSetup.draft === false)
 
 const full = parseAgentJson(
   'demo',

@@ -265,17 +265,29 @@ cancelar se mata el **árbol** (`taskkill /T /F`): matar solo a `npm` deja vivo 
 
 | Fuente | Qué hace |
 |---|---|
-| URL git (`https://`, `git@`, `ssh://`) | `git clone --depth 1` a una carpeta de staging |
-| Carpeta local con `.git` | `git clone` desde la carpeta: **solo lo commiteado**. Sesiones, `.env` y datos privados (que están en `.gitignore`) no viajan |
+| URL git (`https://`, `git@`, `ssh://`) | `git clone --depth 1` a una carpeta de staging, se mueve a `agents/<id>` y se le borra el `.git` propio (ver nota abajo) |
+| Carpeta local con `.git` | `git clone` desde la carpeta: **solo lo commiteado**. Sesiones, `.env` y datos privados (que están en `.gitignore`) no viajan. Mismo borrado de `.git` al final |
 | Carpeta local sin `.git` | copia, salteando `node_modules`, `.git`, `.next`, `.env*`, `dist`, `out` |
 | Carpeta local con `link: true` | **junction** `agents/<id>` → la carpeta original. **No usar para los agentes del usuario** (ver abajo) |
 
-**Regla del usuario (2026-10-04): todo agente vive físicamente en `agents-hub/agents/<id>/`.**
-Un agente nuevo se crea ahí desde el primer commit, con su `.git`, su `.env` y su estado
-local adentro (así vive `whatsapp-digest`). Nada de crear el código en `my_proyects/` e
-instalarlo con `--link`: la junction deja el mismo agente en dos lugares, y el usuario ya no
-sabe cuál es "el agente". Pasó con `mail-triage` y se corrigió moviéndolo. Para sacar una
-junction: `rmdir <ruta>` **sin** `/s` — un borrado recursivo destruye la carpeta original.
+**El hub entero es un repo git desde el 2026-10-06 (ver "Dos máquinas" más abajo),
+así que un `.git` propio adentro de `agents/<id>/` sería un repo anidado dentro del
+monorepo.** Por eso, para las dos fuentes que clonan, `installAgent` borra ese
+`.git` después de mover la carpeta a su lugar final — lo único que se pierde es
+poder hacer `git log` del historial de origen desde adentro del hub; el código ya
+viajó entero (solo lo commiteado) antes del borrado. Un agente instalado con
+`link: true` no se toca: es una junction a una carpeta externa, no vive físicamente
+en el hub.
+
+**Regla del usuario (vigente desde el 2026-10-04, hub monorepo desde el 2026-10-06):
+todo agente vive FÍSICAMENTE en `agents-hub/agents/<id>/`, commiteado en el
+monorepo.** Un agente nuevo se crea ahí desde el primer commit — con `"draft": true`
+en su `agent.json` hasta que Jorge lo publique, ver "Backup vs. publicar" más abajo
+— y ESE commit se empuja enseguida: no hace falta que funcione todavía, el push ya
+es el backup. Nada de crear el código en `my_proyects/` e instalarlo con `--link`:
+la junction deja el mismo agente en dos lugares, y el usuario ya no sabe cuál es "el
+agente". Pasó con `mail-triage` y se corrigió moviéndolo. Para sacar una junction:
+`rmdir <ruta>` **sin** `/s` — un borrado recursivo destruye la carpeta original.
 
 Después: leer `agent.json` del staging (el id sale de ahí), mover a `agents/<id>`
 (si ya existe, falla: no hay "actualizar" todavía), `npm ci` o `npm install` si
@@ -288,31 +300,82 @@ motivo.
 `rmSync({ recursive: true })` equivocado borra la carpeta ORIGINAL del agente. Va
 cuando haya tiempo de probarlo con cuidado.
 
-## Dos máquinas: GitHub es el puente (2026-10-05)
+## Dos máquinas: GitHub es el puente (2026-10-06 — monorepo)
 
-El usuario trabaja en el desktop y en una laptop. **Cada agente es un repo PRIVADO en
-`JDavidcor23` con el topic de GitHub `albus-agent`**, y eso es todo lo que hace falta
-para que la otra máquina lo vea. `scripts/agents.ps1` (Windows PowerShell 5.1, ASCII)
-lista por la API autenticada los repos con ese topic, nombra cada carpeta con el `id` de
-su `agent.json` (por eso `whatssapp-groups` cae en `agents/whatsapp-digest/`) y los clona
-o les hace fast-forward. Una vez instalado (`install` agrega funciones al `$PROFILE`):
-`clone-agents`, `update-agents`, `sync-agents`, `agents-status`.
+> Reemplaza el diseño "un repo por agente + topic `albus-agent`" del 2026-10-05.
+> Esos 12 repos viejos se están archivando en GitHub — nada en el proyecto ni
+> en la cabeza de Claude debería volver a buscarlos por topic.
 
-- **Un agente nuevo sin el topic no existe para la laptop.** Al crearlo:
-  `gh repo create JDavidcor23/<id> --private` + `gh repo edit --add-topic albus-agent`.
-  `agents-status` lo marca `[local only]` mientras falte.
-- **Nunca pisa trabajo:** con cambios sin commitear, o con commits divergentes, lo salta
-  y lo reporta. Nunca `reset`, nunca `pull` con merge.
+El usuario trabaja en el desktop y en una laptop. Desde el 2026-10-06 el hub entero
+(`Documents/agents-hub`, o `ALBUS_AGENTS_HUB_DIR`) es **UN solo repo git**, privado,
+`https://github.com/JDavidcor23/agents-hub`, rama `main`. Cada agente es una carpeta
+plana `agents/<id>/` COMMITEADA ahí — ya no tiene su propio `.git`, ni se le pone el
+topic `albus-agent`: el repo entero reemplaza esa marca. El `.gitignore` de la raíz
+excluye `results/`, `node_modules`, `.env*`, `.secrets/` y `.wa-data/` para todo el
+árbol de una sola vez, en vez de que cada agente repita su propio `.gitignore`.
+
+`scripts/agents.ps1` (Windows PowerShell 5.1, ASCII) opera sobre ESE repo único —
+ya no lista nada por topic. Una vez instalado (`install` agrega funciones al
+`$PROFILE`): `clone-agents`, `update-agents`, `sync-agents`, `agents-status`.
+
+| Comando | Qué hace ahora |
+|---|---|
+| `clone` | hub ausente o vacío → clona el monorepo. Hub con contenido pero SIN `.git` (el layout viejo, p. ej. una laptop que no se tocó desde antes del 2026-10-06) → lo archiva a `<hub>-old-<yyyyMMdd-HHmm>` (nunca lo borra), clona el monorepo fresco y copia de vuelta, por cada agente presente en ambas copias, SOLO lo local y gitignored: `.env`, `.env.local`, `.secrets\`, `.wa-data\`, más el árbol `results\` completo. Hub ya con `.git` → lo avisa y hace `update` |
+| `update` | `git pull --ff-only`. Diverge (commits locales Y remotos) → lo reporta y no toca nada. Falla el `pull` por un archivo sin commitear que el merge pisaría → reporta ESE archivo, nunca resetea. Después de un pull que sí avanzó: corre `npm install`/`npm ci` en cada agente cuyo `package.json`/`package-lock.json` cambió entre el HEAD viejo y el nuevo, o que tiene `package.json` pero nunca tuvo `node_modules` |
+| `sync` | `clone`-o-`update`, lo que aplique |
+| `status` | una línea del repo (rama, ahead/behind de `origin` después de un fetch, archivos sin commitear) + una línea por agente (archivos sin commitear, y `[draft]` si su `agent.json` tiene `draft: true`). **Ya no existe el concepto `[local only]`**: un agente o está en el commit del monorepo o no está, no hay "instalado pero sin subir a un repo propio" |
+
+### Backup vs. publicar — el flag `draft`
+
+Un agente nuevo nace con `"draft": true` en su `agent.json` desde el PRIMER commit,
+y ese commit se empuja al monorepo sin pedir permiso — **ese push ES su backup**.
+Nada obliga a que esté terminado para vivir ahí: lo que antes era "¿lo subo ya o
+espero a que funcione?" ahora es "subilo siempre; marcalo `draft` hasta que esté
+listo". Jorge decide cuándo deja de ser borrador — corre el `check` del agente en
+verde y borra esa línea de `agent.json` — nunca Claude por su cuenta.
+
+Mientras `draft: true`:
+
+- **Invisible en la app Albus**: `hub/agent-info.ts` lo filtra del `agents:list` que
+  ve el renderer, igual que `hidden`, pero por un motivo distinto — `hidden` es un
+  opt-out permanente del dueño, `draft` es "todavía no publicado".
+- **Sigue andando para desarrollo**: `npm run hub -- list` lo imprime marcado
+  `(draft)`, `npm run hub -- run <id>` lo corre igual, `scripts/agents.ps1 status`
+  lo marca `[draft]`.
+- **Visible en el TUI**, pero aparte: `npm run setup` (Home) lo agrupa en un tercer
+  bloque atenuado, "Drafts (not published)", después de Connections y Agents — ni
+  mezclado con los agentes reales ni oculto del todo, porque esta pantalla es para
+  Jorge, no para el usuario final de Albus.
+
+Ver `src/main/core/hub/manifest.ts` (el campo) y `src/main/hub/agent-info.ts` (el filtro).
+
+### Lo que cambió, lo que no
+
+- **Los 12 repos viejos (topic `albus-agent`) se están archivando en GitHub.** No
+  hay que volver a listarlos por topic ni asumir que un agente sigue teniendo su
+  propio remoto — el monorepo es la única fuente.
+- **Backup local de esos `.git` viejos:** `Documents\agents-hub-git-backup\<id>.git`
+  guarda una copia de cada repo per-agente tal como estaba antes de la migración
+  (incluido `mail-triage.kilo`, un worktree viejo de una herramienta, no un agente).
+  Es solo un respaldo manual — nada del proyecto lo lee ni escribe ahí.
+- **Nunca pisa trabajo:** con cambios sin commitear que un `pull --ff-only` pisaría,
+  o con commits divergentes, el script lo reporta y no toca nada. Nunca `reset`.
 - **`gh` tiene la cuenta de 30X como activa en el desktop.** El script mete el token de
-  `JDavidcor23` en `GH_TOKEN` solo durante la corrida y lo restaura. Un `git push` a mano
-  necesita lo mismo: `export GH_TOKEN=$(gh auth token -u JDavidcor23)`.
-- **Lo que NO viaja:** `.env`, `.secrets/`, `.wa-data/`. Se copian a mano y por USB. La
-  sesión de WhatsApp y las tareas programadas viven en UNA sola máquina: dos vigilantes
-  de Baileys se pelean la conexión, y dos triages duplican filas en Notion.
+  `JDavidcor23` en `GH_TOKEN` solo durante la corrida y lo restaura — y eso alcanza
+  para autenticar también el `git clone`/`git pull` planos, porque `gh auth
+  setup-git` registra a `gh` como credential helper y ese helper mira `GH_TOKEN`
+  igual que `gh auth token`. Un `git push` a mano necesita lo mismo:
+  `export GH_TOKEN=$(gh auth token -u JDavidcor23)`.
+- **Lo que NO viaja (sigue igual):** `.env`, `.env.local`, `.secrets/`, `.wa-data/`.
+  Se copian a mano y por USB, o las carga el `clone` de una migración vieja (ver la
+  tabla de arriba). La sesión de WhatsApp y las tareas programadas viven en UNA sola
+  máquina: dos vigilantes de Baileys se pelean la conexión, y dos triages duplican
+  filas en Notion.
 - **La llave SSH de hermes-vps no se copia:** cada máquina genera la suya y se autoriza
   en el VPS. Perder la laptop significa borrar una línea de `authorized_keys`.
-- jq dentro del script **sin literales de string**: PowerShell 5.1 se come las comillas
-  internas al pasarle argumentos a un `.exe` (`join(",")` le llega a gh como `join(,)`).
+- **`hub install <url>` de un agente de terceros** todavía clona ese repo con SU
+  propio `.git` dentro de `agents/<id>/` — un repo anidado dentro del monorepo. Ver
+  "Instalar" más abajo para cómo se resuelve.
 
 ## En la pestaña de agentes
 

@@ -129,6 +129,20 @@ export const AgentJsonSchema = z.object({
    */
   hidden: z.boolean().default(false),
   /**
+   * An explicit "not ready yet" marker set by whoever is building the agent:
+   * it lives in the monorepo (committed and pushed — that IS its backup) but
+   * is not a real agent for the user yet. Defaults to `false` so a manifest
+   * written before this field existed, or one that never sets it, is treated
+   * as published exactly like today. Same filtering spot as `hidden` —
+   * `hub/agent-info.ts` drops a draft from the Albus app's agent list — but a
+   * DIFFERENT reason: `hidden` is the owner's permanent "CLI only", `draft` is
+   * "not reviewed/published yet" and is meant to be removed once the owner
+   * runs the agent's `check` green and deletes this line. `hub -- list` still
+   * prints it, marked `(draft)`, and `hub -- run <id>` still runs it — same
+   * rule as `hidden`, development must keep working while a manifest is a draft.
+   */
+  draft: z.boolean().default(false),
+  /**
    * Optional setup contract: tools, environment variables, files, and auth commands.
    * The TUI reads this to guide the user through initial setup of a newly installed agent.
    * Defaults to empty when not present — old manifests stay valid.

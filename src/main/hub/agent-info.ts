@@ -25,6 +25,13 @@ import { activeRuns } from './runner'
  * its problem, exactly as `discover.ts` documents. `listExternalAgents` itself
  * stays unfiltered — `runner.ts` and the hub CLI need to find a hidden agent
  * by id to run it.
+ *
+ * `manifest.draft` is filtered out the same way, for a different reason: it
+ * is not a permanent opt-out but "not published yet" — the agent is being
+ * built, committed and pushed to the hub monorepo (that commit IS its
+ * backup), and stays invisible to the Albus app until its owner clears the
+ * flag. The TUI (a different surface, for the owner, not the end user) shows
+ * drafts in their own dimmed group instead of hiding them — see `home.tsx`.
  */
 export async function externalAgentInfos(builtinIds: ReadonlySet<string>): Promise<AgentInfo[]> {
   const entries = await listExternalAgents()
@@ -33,6 +40,7 @@ export async function externalAgentInfos(builtinIds: ReadonlySet<string>): Promi
 
   for (const entry of entries) {
     if (entry.manifest?.hidden === true) continue
+    if (entry.manifest?.draft === true) continue
 
     const rules = readRules(entry.id, '')
     const name = entry.manifest?.name ?? entry.id
