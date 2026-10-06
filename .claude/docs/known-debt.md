@@ -49,6 +49,20 @@ es contexto para que nadie lo "descubra" de nuevo y lo arregle mal.
   `ai-job-search`, que es la fuente de verdad del usuario. Meter una tercera copia
   del estado antes de que la UI la necesite es deuda, no arquitectura.
 
+## Video
+
+- **El pipeline de video se mudó al agente `transcriber`** del hub
+  (`agents-hub/agents/transcriber`, repo `JDavidcor23/transcriber`, 2026-10-06).
+  Ahí vive la ÚNICA copia de cada regla: parseo y pegado de tramos, filtro de
+  alucinaciones a −50 dB, whisper `small` de a dos tramos, la página, y además
+  la selección de capturas por cambio de texto (OCR). `src/main/core/video/` y
+  `src/main/video/` quedan como **copias deprecadas**, vivas solo porque la
+  pantalla de video de Electron las usa, hasta retirar esa pantalla. **No se
+  arreglan ni se mejoran acá:** un cambio de regla va al `transcriber`; dos
+  copias del filtro de alucinaciones que divergen es exactamente lo que
+  `video-analysis.md` advierte. Al retirar la pantalla se borran las dos
+  carpetas, `scripts/check-video.ts` y `npm run video:check`, en el mismo commit.
+
 ## Idioma
 
 - **El código está en inglés; los comentarios, la copy de la UI y la prosa de los
