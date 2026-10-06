@@ -55,9 +55,18 @@ ni Drive.
 | Copia esto | Por qué |
 |---|---|
 | `Documents\albus_agent\` (la carpeta entera) | Tus reglas para los agentes, conexiones y videos |
+| `agents-hub\agents\google\.env` y `agents-hub\agents\google\.secrets\` | Google personal ya autorizado (leer correo, enviar, Drive y Calendar). Con esto no vuelves a autorizar nada |
+| `agents-hub\agents\notion\.env` | Tu token de Notion |
 
-Las sesiones (WhatsApp, LinkedIn, Google en el navegador) se rehacen a mano; las
-claves ya no viajan por USB, se ingresan en el TUI (`npm run setup`).
+Son las ÚNICAS credenciales de Google y Notion que existen: ningún otro agente
+tiene las suyas. Si prefieres no copiarlas, entra en el TUI a Connections →
+Google / Notion y cárgalas ahí.
+
+**WhatsApp va en UNA sola máquina.** No vincules la laptop mientras el PC lo
+tenga: dos sesiones se pelean la conexión. Si algún día lo mudas, en la nueva
+máquina entra en Connections → WhatsApp → link y escanea el QR.
+
+Las sesiones del navegador (LinkedIn, UTEL) se rehacen a mano.
 
 **6. Listo.** Abre Albus con `npm run dev`.
 

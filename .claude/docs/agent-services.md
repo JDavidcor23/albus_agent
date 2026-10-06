@@ -79,8 +79,9 @@ hace el request.
 
 `src/shared/agent-call.ts` (≈60 líneas) se copia en cada consumidor. Un paquete
 compartido obligaría a publicar algo privado o a importar entre repos; el
-contrato es chico y está versionado por `protocol`. La copia canónica es la de
-`mail-triage`.
+contrato es chico y está versionado por `protocol`. La copia canónica vive en
+el agente `notion`: `src/client/agent-call.ts` y `src/client/notion-agent-fetch.ts`
+(el `fetch` que se le pasa a `new Client({ fetch })` de `@notionhq/client`).
 
 ## `agent.json`: tres campos nuevos (opcionales, protocolo sigue en 1)
 
