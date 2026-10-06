@@ -18,10 +18,27 @@ mismas claves agente por agente.
 |---|---|---|---|
 | `google` | todo HTTP contra Google de la cuenta **personal** | 1 OAuth client + 1 token por grupo de scopes en `.secrets/<grupo>.json` | `fetch`, `drive.upload`, `drive.doc`, `calendar.create` |
 | `notion` | todo HTTP contra el Notion **personal** | `NOTION_TOKEN` en su `.env` | `fetch` |
-| `whatsapp` | la sesión Baileys del WhatsApp **personal** | `.wa-data/auth/` | `status`, `sync`, `groups`, `messages`, `send` |
+| `whatsapp` | la sesión Baileys del WhatsApp **personal**, **solo lectura y solo grupos** | `.wa-data/auth/` | `status`, `sync`, `groups`, `messages` |
 
 La cuenta de Google de **30X** no pasa por `google`: `gemini-notes` la alcanza
 con los conectores de claude.ai, sin tokens propios.
+
+### WhatsApp personal: solo lectura
+
+> Decidido con el usuario el 2026-10-06: "solo se puede permitir leer". No hay
+> interruptor para desbloquearlo: **enviar requiere un cambio de código +
+> revisión, nunca una config, un grant ni una variable de entorno**.
+
+| Capa | Qué hace |
+|---|---|
+| Sin código de envío | `send` no existe: `call.ts` contesta `unknown_service`. `grants` solo lista servicios de lectura |
+| Guardia estática | `npm test` y `npm run check` (exit 4) fallan si el código del agente nombra una API de escritura de Baileys (`sendMessage`, `readMessages`, `sendPresenceUpdate`, `chatModify`, grupos, perfil…), si otro agente del hub importa Baileys (salvo `hermes-vps`: bot Business en el VPS), o si un upgrade de Baileys trae un miembro sin clasificar |
+| Trampa en runtime | el socket es un Proxy con allowlist de lectura (`ev`, `user`, `end`, `groupFetchAllParticipating`, `groupMetadata`); cualquier otro miembro lanza `ReadOnlyViolation`, queda en log y avisa a Jorge por `hermes-vps/scripts/notify.ts` |
+| Solo grupos | todo jid que no sea `@g.us` (chats 1:1, `status@broadcast`, listas, newsletters) se descarta al entrar, al cargar el store y al leer |
+| Invisible | `markOnlineOnConnect: false`, nunca confirmaciones de lectura ni presencia |
+
+Albus y los LLM nunca tocan el socket: solo reciben datos de grupos por los
+servicios de lectura de `call.ts`.
 
 ### Grupos de scopes de Google (mínimo privilegio)
 
