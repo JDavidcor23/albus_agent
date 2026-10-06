@@ -104,6 +104,12 @@ Nunca te borra trabajo: si un agente tiene cambios sin commitear, lo salta y te 
 | `npm run gmail:auth` | Conecta tu Google. **Una vez** por máquina |
 | `npm run jobs:login` | Inicia sesión en LinkedIn dentro de Albus. **Una vez** |
 
+### Albus en el VPS (desde `Documents\agents-hub\agents\hermes-vps`)
+
+| Comando | Qué hace |
+|---|---|
+| `npm run gmail:vps-auth` | Le da a Albus del WhatsApp permiso para leer y enviar tu Gmail personal. **Una vez**. Se abre el navegador dos veces: elige tu cuenta personal las dos. Para enviar, Albus siempre te pide tu "sí" y un código que te llega como imagen |
+
 ---
 
 ## Reglas de oro

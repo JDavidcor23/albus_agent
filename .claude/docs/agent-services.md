@@ -113,9 +113,33 @@ lista.
 `google/.secrets/`, `notion/.env`, `whatsapp/.wa-data/`. Y la sesión de WhatsApp
 vive en UNA sola máquina (dos Baileys se pelean el socket).
 
+## Excepción deliberada: el proveedor de correo del VPS
+
+> Decidido con el usuario el 2026-10-06. El VPS es OTRA máquina y tiene que
+> leer y enviar correo 24/7 con el PC apagado: no puede llamar a `google`.
+
+En el VPS el único dueño de Gmail es el servidor MCP `gmail` del agente
+`hermes-vps` (`hermes/mcp/gmail/`, corre en el host, fuera del Docker de
+Hermes). Responsabilidad única allá también: nada más en el VPS tiene un token
+de Google.
+
+| | |
+|---|---|
+| Tokens | `~/.albus-secrets/gmail-read.json` (`gmail.readonly`) y `gmail-send.json` (`gmail.send`): dos refresh tokens, mismos grupos que `google`, **el mismo OAuth client** (se lee del `.env` de `google` en el PC) |
+| Quién los crea | el usuario, con `npm run gmail:vps-auth` en `hermes-vps` (o el TUI). Viajan por stdin de ssh, nunca en una línea de comando |
+| Herramientas | `search_emails`, `read_email`, `request_send`, `confirm_send` |
+| Enviar | `request_send` guarda el borrador en el host y manda al usuario por WhatsApp el texto + un código de 4 dígitos **como imagen**; solo `confirm_send` con ese código envía. `hermes send` copia el TEXTO de cada mensaje a la conversación del modelo, por eso el código nunca va en texto |
+| Lo que NO se monta en el sandbox | `~/.albus-secrets/` y `~/.albus-mail/` (borradores con su código). Si se montan, el modelo lee el código y la aprobación deja de existir |
+
+No es un segundo proveedor en el PC: nada del PC llama a ese MCP. Los datos del
+PC llegan al VPS con `hermes-vps/scripts/publish.ts` (→
+`~/albus-bridge/data/<agente>/latest.json`); `mail-triage` publica ahí su
+clasificación después de cada triage.
+
 ## Fuera de alcance (todavía)
 
 - Albus (Electron) mantiene su propio Google/Notion (`src/main/connections/`,
   `src/main/notion/`): es la app interna de job-search. Migrarlo a los
   proveedores es la siguiente fase.
 - `hermes-vps` usa Notion por MCP en el VPS, otra máquina. No llama a `notion`.
+  Gmail en el VPS: ver la excepción de arriba.
