@@ -171,6 +171,24 @@ agentes del hub.
 sin commitear cuando se escribió esto): aparece en el TUI como "nada que
 configurar", no como roto, hasta que se le agregue.
 
+### Agentes proveedores: `provides` / `grants` / `uses`
+
+Tres campos opcionales más de `agent.json`, sumados el 2026-10-06 para que
+Google, Notion y WhatsApp vivan en **un** agente proveedor cada uno en vez de
+que cada consumidor traiga su propio token. El contrato completo — el
+protocolo de llamada entre agentes, los tres proveedores, los grupos de
+scopes de Google — está en `.claude/docs/agent-services.md`; acá va solo la
+forma del campo, igual que el resto de esta tabla.
+
+| Campo | Regla | Por qué |
+|---|---|---|
+| `provides` | `string[]`, default `[]`. Cada entrada matchea `^[a-z0-9.*-]+$` | los servicios que expone `scripts/call.ts` de ESTE agente (p. ej. `["fetch", "drive.upload"]`). No vacío ⇒ el TUI lo agrupa en **Connections**, no en **Agents** |
+| `grants` | `{ <caller id>: [<servicio o grupo>, ...] }`, default `{}`. La clave matchea el patrón de `id` de agente; cada entrada del array matchea `^[a-z0-9.*-]+$` | el allowlist del PROVEEDOR: a quién le presta qué. `"*"` en el array = todos los servicios. Un caller no listado se queda sin nada — `grants` nunca es un pedido del consumidor, es la decisión del dueño del proveedor |
+| `uses` | `string[]`, default `[]`. Cada entrada matchea `^[a-z0-9][a-z0-9-]{1,48}:[a-z0-9.*-]+$` (`<proveedor>:<servicio o grupo>`) | lo que ESTE agente llama en otros, p. ej. `["google:gmail-read", "notion:fetch"]`. `core/hub/services.ts#resolveServices` (puro) lo resuelve contra el `provides`/`grants` de todos los manifiestos; `npm run hub:check` imprime un WARN (nunca FALLA) por cada entrada sin resolver, y el TUI usa la misma función para pintar `needs <proveedor> (<servicio>)` en Home y los ✔/✘ de la pantalla del agente |
+
+Un manifiesto viejo sin estos tres campos sigue siendo válido — quedan en sus
+defaults vacíos, mismo patrón que `runLabel`/`hidden`/`setup`.
+
 ### Los comandos: allowlist, no shell
 
 Un comando es una línea que **se parte en espacios**, sin comillas ni escapes:

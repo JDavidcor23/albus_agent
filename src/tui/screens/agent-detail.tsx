@@ -43,6 +43,13 @@ function header(key: string, title: string): SelectItem {
   return { key, selectable: false, label: <Text bold>{title}</Text> }
 }
 
+/** Why a `uses` entry is not `ok` — matches `UseFindingRow['status']` in `setup-data.ts`. */
+function useReason(status: 'provider-not-installed' | 'not-granted' | 'provider-not-ready'): string {
+  if (status === 'provider-not-installed') return 'provider not installed'
+  if (status === 'not-granted') return 'provider does not grant this'
+  return 'provider not ready — finish its setup in Connections'
+}
+
 /**
  * One target's setup: Keys / Permissions / Commands / Check.
  *
@@ -85,6 +92,24 @@ export function AgentDetail({ id, rows, onNavigate, onBack, onRefresh }: Props):
   const items = useMemo((): SelectItem[] => {
     if (row === undefined || manifest === null || status === null) return []
     const result: SelectItem[] = []
+
+    if (row.uses.length > 0) {
+      result.push(header('h:uses', 'Uses'))
+      for (const use of row.uses) {
+        const reason = use.status === 'ok' ? '' : useReason(use.status)
+        result.push({
+          key: `use:${use.use}`,
+          selectable: false,
+          label: (
+            <Text>
+              {'  '}
+              {reason === '' ? <Text color="green">✔</Text> : <Text color="red">✘</Text>} {use.use}
+              {reason !== '' && <Text dimColor> — {reason}</Text>}
+            </Text>
+          )
+        })
+      }
+    }
 
     result.push(header('h:keys', 'Keys'))
     if (status.env.length === 0) result.push({ key: 'n:keys', selectable: false, label: <Text dimColor>  none declared</Text> })

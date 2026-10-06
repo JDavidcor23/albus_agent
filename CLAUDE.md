@@ -44,6 +44,7 @@ necesita claves, herramientas o permisos, el bloque `setup` en su `agent.json`
 | un video, un audio, "analizá esta grabación", `src/main/video/`, `core/video/` | `.claude/docs/video-analysis.md` — Claude no acepta video: hay que convertirlo, y whisper INVENTA sobre el silencio |
 | un comando que usa el usuario (`package.json` scripts, `scripts/agents.ps1`), o qué viaja entre máquinas | `docs/MANUAL.md` — es el manual de Jorge, en español simple. **Si agregás, renombrás o borrás un comando suyo, se actualiza en el mismo commit** |
 | un agente EXTERNO, `agent.json`, `src/main/hub/`, `core/hub/`, "instalar un agente" | `.claude/docs/agents-hub.md` — el agente NO hereda el env de Albus (tiene el `service_role`), y sus comandos nunca tocan un shell |
+| `provides`/`uses`/`grants`, un agente llamando a Google/Notion/WhatsApp | `.claude/docs/agent-services.md` — un agente proveedor por servicio externo, nadie más tiene el token |
 
 ## Los dos repos: la frontera de seguridad
 

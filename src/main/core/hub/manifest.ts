@@ -30,6 +30,22 @@ export const CommandsSchema = z
 const ENV_KEY_PATTERN = /^[A-Z][A-Z0-9_]*$/
 const TOOL_PATTERN = /^[a-z0-9._-]+$/
 
+/**
+ * A service name, as it appears in `provides`, as a value inside `grants`, or
+ * after the `:` in a `uses` entry — lowercase, digits, dot (for a namespaced
+ * name like `drive.upload`), hyphen, or the literal `*` (only meaningful in
+ * `grants`, where it means "every service this provider has"). See
+ * `.claude/docs/agent-services.md`.
+ */
+const SERVICE_PATTERN = /^[a-z0-9.*-]+$/
+
+/**
+ * A `uses` entry: `<provider id>:<service or group>`. The provider half
+ * reuses `AGENT_ID_PATTERN` (it IS an agent id — the folder name of whoever
+ * provides the service), the service half is `SERVICE_PATTERN`.
+ */
+const USES_PATTERN = /^[a-z0-9][a-z0-9-]{1,48}:[a-z0-9.*-]+$/
+
 /** A path relative to the agent folder that can never climb out of it. */
 const InsidePath = z.string().min(1).refine(
   (p) => !p.split(/[\\/]/).includes('..') && !/^([a-zA-Z]:|[\\/])/.test(p),
@@ -117,7 +133,33 @@ export const AgentJsonSchema = z.object({
    * The TUI reads this to guide the user through initial setup of a newly installed agent.
    * Defaults to empty when not present — old manifests stay valid.
    */
-  setup: SetupSchema
+  setup: SetupSchema,
+  /**
+   * The services this agent's `scripts/call.ts` exposes to OTHER agents on
+   * this hub, e.g. `["fetch", "drive.upload"]`. Non-empty is what makes an
+   * agent a PROVIDER in the TUI's Connections group. Empty (the default, and
+   * what every manifest written before this field existed parses to) means
+   * "not a provider" — it stays a plain agent. See `.claude/docs/agent-services.md`.
+   */
+  provides: z.array(z.string().regex(SERVICE_PATTERN)).default([]),
+  /**
+   * Who this provider lets call which of its services: `{ <caller id>:
+   * [<service or group>, ...] }`. `"*"` in the array means every service this
+   * provider exposes. A caller id not listed here gets `not_granted` from the
+   * provider at call time — `grants` is the provider's OWN allowlist, not a
+   * request the caller makes. Defaults to `{}`: a provider that declares no
+   * grants grants nothing, which is the safe default for a fresh install.
+   */
+  grants: z.record(z.string().regex(AGENT_ID_PATTERN), z.array(z.string().regex(SERVICE_PATTERN))).default({}),
+  /**
+   * The services this agent calls on OTHER agents, as `<provider id>:<service
+   * or group>`, e.g. `["google:gmail-read", "notion:fetch"]`. Informative for
+   * `hub:check` and the TUI (`core/hub/services.ts` resolves it against every
+   * manifest's `provides`/`grants`) — Albus itself never spawns the call,
+   * each agent calls the provider directly. Defaults to `[]`: old manifests,
+   * and any agent with no external dependency, stay valid.
+   */
+  uses: z.array(z.string().regex(USES_PATTERN)).default([])
 })
 
 export type AgentManifest = z.infer<typeof AgentJsonSchema>

@@ -17,6 +17,7 @@ import { join, resolve } from 'node:path'
 import { AgentJsonSchema, parseAgentJson } from '../src/main/core/hub/manifest'
 import { parseCommand } from '../src/main/core/hub/command'
 import { buildAgentEnv, buildSystemEnv } from '../src/main/core/hub/env'
+import { resolveServices, type ManifestEntry } from '../src/main/core/hub/services'
 // `resolveHubDir`, not `agentsHubDir()` from `src/main/paths.ts`: that file
 // imports `electron`, which this script never does (it runs under plain
 // `tsx`), AND its test-mode branch would return a throwaway folder under
@@ -97,6 +98,95 @@ check(
 )
 const withHidden = AgentJsonSchema.safeParse({ ...WHATSAPP_EXAMPLE, hidden: true })
 check('hidden: true se parsea tal cual', withHidden.success && withHidden.data.hidden === true)
+
+check(
+  'provides/grants/uses no declarados (manifiesto viejo) quedan en sus defaults vacíos',
+  (() => {
+    const m = AgentJsonSchema.parse(WHATSAPP_EXAMPLE)
+    return m.provides.length === 0 && Object.keys(m.grants).length === 0 && m.uses.length === 0
+  })()
+)
+
+const withServices = AgentJsonSchema.safeParse({
+  ...WHATSAPP_EXAMPLE,
+  provides: ['fetch', 'drive.upload'],
+  grants: { 'mail-triage': ['gmail-read'], outreach: ['*'] },
+  uses: ['google:gmail-read', 'notion:fetch']
+})
+check('provides/grants/uses del doc parsean tal cual', withServices.success)
+check(
+  'grants acepta el wildcard "*"',
+  withServices.success && withServices.data.grants.outreach?.includes('*') === true
+)
+
+check('provides rechaza un nombre con mayúsculas', !AgentJsonSchema.safeParse({ ...WHATSAPP_EXAMPLE, provides: ['Fetch'] }).success)
+check(
+  'grants rechaza una clave de caller que no es un id de agente válido',
+  !AgentJsonSchema.safeParse({ ...WHATSAPP_EXAMPLE, grants: { 'not an id': ['fetch'] } }).success
+)
+check(
+  'uses rechaza una entrada sin "proveedor:servicio"',
+  !AgentJsonSchema.safeParse({ ...WHATSAPP_EXAMPLE, uses: ['google'] }).success
+)
+check(
+  'uses acepta un grupo con punto en el servicio (proveedor:grupo.de.scopes)',
+  AgentJsonSchema.safeParse({ ...WHATSAPP_EXAMPLE, uses: ['google:workspace.drive'] }).success
+)
+
+section('services: resolveServices (puro, sin disco)')
+
+function entry(id: string, overrides: Partial<AgentManifestLike> = {}): ManifestEntry {
+  return {
+    id,
+    manifest: AgentJsonSchema.parse({
+      protocol: 1,
+      id,
+      name: id,
+      commands: { run: 'npm run x' },
+      ...overrides
+    })
+  }
+}
+
+// `AgentManifestLike` only exists to give `entry()`'s `overrides` a loose
+// shape (provides/grants/uses) without importing the full `AgentManifest`
+// type — every call goes straight back through `AgentJsonSchema.parse`,
+// which is the real validation.
+type AgentManifestLike = { provides?: string[]; grants?: Record<string, string[]>; uses?: string[] }
+
+{
+  const google = entry('google', { provides: ['fetch'], grants: { 'mail-triage': ['gmail-read'], outreach: ['gmail-send'] } })
+  const notion = entry('notion', { provides: ['fetch'], grants: { 'mail-triage': ['*'] } })
+  const mailTriage = entry('mail-triage', { uses: ['google:gmail-read', 'notion:fetch'] })
+  const outreach = entry('outreach', { uses: ['google:gmail-read'] }) // asks for a scope it was NOT granted
+  const orphan = entry('orphan-agent', { uses: ['ghost-provider:fetch'] }) // provider does not exist
+  const plain = entry('plain-agent', {}) // declares nothing, must not show up at all
+
+  const resolved = resolveServices([google, notion, mailTriage, outreach, orphan, plain])
+  const byId = new Map(resolved.map((r) => [r.consumerId, r.findings]))
+
+  check('un agente sin "uses" no aparece en el resultado', !byId.has('plain-agent'))
+  check(
+    'mail-triage: ambos "uses" resuelven ok (grant directo + wildcard)',
+    byId.get('mail-triage')?.every((f) => f.status === 'ok') === true
+  )
+  check(
+    'outreach: pide un scope que no tiene → not-granted',
+    byId.get('outreach')?.[0]?.status === 'not-granted'
+  )
+  check(
+    'orphan-agent: el proveedor no existe → provider-not-installed',
+    byId.get('orphan-agent')?.[0]?.status === 'provider-not-installed'
+  )
+
+  const brokenProvider: ManifestEntry = { id: 'broken', manifest: null }
+  const usesBroken = entry('uses-broken', { uses: ['broken:fetch'] })
+  const resolvedBroken = resolveServices([brokenProvider, usesBroken])
+  check(
+    'un proveedor con manifiesto roto (null) cuenta como no instalado',
+    resolvedBroken.find((r) => r.consumerId === 'uses-broken')?.findings[0]?.status === 'provider-not-installed'
+  )
+}
 
 section('command: el allowlist de línea')
 
@@ -212,6 +302,38 @@ if (!existsSync(join(realHubDir, 'agents'))) {
 // `tsx` compila a CJS y ahí no hay top-level await — de ahí el envoltorio
 // `main()` para todo lo que necesita `await`, incluida la sección de abajo.
 async function main(): Promise<void> {
+  section('hub real: contrato de servicios (uses → provides/grants), WARN nunca FALLA')
+
+  /*
+   * Mismo hub real que la sección de rutas harcodeadas de arriba, y misma
+   * regla: un `uses` que apunta a un proveedor sin instalar o que no otorga
+   * el grant es un problema DEL AGENTE que lo declaró, no de Albus — nunca
+   * toca `failed`. Ver `.claude/docs/agent-services.md`.
+   */
+  if (!existsSync(join(realHubDir, 'agents'))) {
+    console.log(`  (sin hub instalado en ${realHubDir}; se omite esta sección)`)
+  } else {
+    const realEntries = await listExternalAgents(realHubDir)
+    const manifestEntries: ManifestEntry[] = realEntries.map((e) => ({ id: e.id, manifest: e.manifest }))
+    const resolved = resolveServices(manifestEntries)
+
+    let anyUnsatisfied = false
+    for (const consumer of resolved) {
+      for (const finding of consumer.findings) {
+        if (finding.status === 'ok') continue
+        anyUnsatisfied = true
+        const reason =
+          finding.status === 'provider-not-installed'
+            ? `el proveedor "${finding.providerId}" no está instalado`
+            : `"${finding.providerId}" no le otorga el grant "${finding.service}" a "${consumer.consumerId}"`
+        console.log(`  WARN  ${consumer.consumerId} usa "${finding.use}" pero ${reason}`)
+      }
+    }
+    if (!anyUnsatisfied) {
+      console.log(`  ok    todo "uses" declarado en ${realHubDir} está instalado y otorgado`)
+    }
+  }
+
   section('discover: hidden no se filtra en listExternalAgents')
 
   {

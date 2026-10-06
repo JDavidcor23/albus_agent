@@ -40,6 +40,15 @@ cd albus_agent; npm install
 guardar tus agentes (el hub), sincroniza los que ya tienes en GitHub, te pide
 una por una las claves que falten y abre los permisos de Google.
 
+La pantalla principal del TUI tiene dos grupos: **Connections** (Google,
+Notion, WhatsApp — ahí entras UNA sola vez por cuenta) y **Agents** (el
+resto). Ya no hace falta pegar el mismo token de Notion o volver a autorizar
+Google en cada agente nuevo: configuras la conexión una vez en Connections y
+cualquier agente que la necesite la usa sola. Si a un agente le falta una
+conexión, el TUI te lo dice con un aviso tipo `needs google (gmail-read)` —
+entras a esa conexión en Connections, la terminas de configurar, y el aviso
+desaparece solo.
+
 **5. Lo que GitHub no lleva: cópialo del otro PC con una USB.** Nunca por WhatsApp, correo
 ni Drive.
 

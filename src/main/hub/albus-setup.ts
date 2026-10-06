@@ -63,7 +63,13 @@ function buildManifest(parsed: z.infer<typeof AlbusSetupJsonSchema>): AgentManif
     exitCodes: {},
     runLabel: '',
     hidden: false,
-    setup: parsed.setup
+    setup: parsed.setup,
+    // Albus is the host, never a hub provider or consumer — it is out of
+    // scope for the agent-services contract (see `.claude/docs/agent-services.md`'s
+    // "Fuera de alcance" section), so these always parse to empty.
+    provides: [],
+    grants: {},
+    uses: []
   }
 }
 

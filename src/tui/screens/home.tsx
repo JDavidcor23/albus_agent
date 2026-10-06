@@ -4,7 +4,7 @@ import { Box, Text, useApp, useInput } from 'ink'
 import { Logo } from '../components/logo'
 import { SelectList, type SelectItem } from '../components/select-list'
 import type { Screen } from '../screen'
-import { summarize, type SetupData } from '../setup-data'
+import { summarize, type SetupData, type TargetRow } from '../setup-data'
 import { syncAgents } from '../sync-agents'
 
 interface Props {
@@ -22,6 +22,23 @@ const TOOLS_KEY = 'tools'
 
 function mark(present: boolean): ReactNode {
   return present ? <Text color="green">✔</Text> : <Text color="red">✘</Text>
+}
+
+/** A non-selectable section header, same pattern as `agent-detail.tsx`'s. */
+function sectionHeader(key: string, title: string): SelectItem {
+  return { key, selectable: false, label: <Text bold>{title}</Text> }
+}
+
+function targetItem(row: TargetRow): SelectItem {
+  const summary = summarize(row)
+  return {
+    key: `agent:${row.target.id}`,
+    label: (
+      <Text>
+        {row.target.name} <Text dimColor>({row.target.id})</Text> <Text color={summary.color}>{summary.text}</Text>
+      </Text>
+    )
+  }
 }
 
 export function Home({ data, loadError, loading, onNavigate, onRefresh, focusKey }: Props): ReactNode {
@@ -64,19 +81,26 @@ export function Home({ data, loadError, loading, onNavigate, onRefresh, focusKey
       )
     }
 
-    const targetItems = data.rows.map((row): SelectItem => {
-      const summary = summarize(row)
-      return {
-        key: `agent:${row.target.id}`,
-        label: (
-          <Text>
-            {row.target.name} <Text dimColor>({row.target.id})</Text> <Text color={summary.color}>{summary.text}</Text>
-          </Text>
-        )
-      }
-    })
+    // Connections (providers: `provides` non-empty — Google, Notion,
+    // WhatsApp, each configured ONCE here) come first, Agents (the
+    // consumers) after. See `.claude/docs/agent-services.md`.
+    const providerRows = data.rows.filter((row) => (row.target.manifest?.provides.length ?? 0) > 0)
+    const agentRows = data.rows.filter((row) => (row.target.manifest?.provides.length ?? 0) === 0)
 
-    return [hubItem, toolsItem, ...targetItems]
+    const connectionItems: SelectItem[] = [
+      sectionHeader('h:connections', 'Connections'),
+      ...(providerRows.length === 0
+        ? [{ key: 'n:connections', selectable: false, label: <Text dimColor>  none installed yet</Text> }]
+        : providerRows.map(targetItem))
+    ]
+    const agentItems: SelectItem[] = [
+      sectionHeader('h:agents', 'Agents'),
+      ...(agentRows.length === 0
+        ? [{ key: 'n:agents', selectable: false, label: <Text dimColor>  none installed yet</Text> }]
+        : agentRows.map(targetItem))
+    ]
+
+    return [hubItem, toolsItem, ...connectionItems, ...agentItems]
   }, [data])
 
   const onSelect = (item: SelectItem): void => {
