@@ -117,6 +117,36 @@ el comando se detiene y te dice cuáles son — no hace `reset` ni te los pisa.
 
 ---
 
+## Sesiones de feedback y psicología
+
+Cada mes, después de una conversación de feedback (Camila, Natalie, etc.) o
+de tu sesión con la psicóloga, tres pasos desde `Documents\agents-hub\agents`:
+
+```powershell
+# 1. Transcribe la grabación (carpeta transcriber)
+cd transcriber
+npm run transcribe -- "C:\ruta\a\la grabación.mp4" --title "Camila octubre"
+
+# 2. Analízala con el lente que corresponda (carpeta growth)
+cd ..\growth
+npm run ingest -- "<nombre de la unidad que imprimió transcriber>" --lens work-feedback --with "Camila"
+# para psicología: --lens therapy --with "Nombre de tu psicóloga"
+
+# 3. Cuando ya cargaste todas las sesiones del mes, arma el plan y publícalo
+npm run plan
+```
+
+`npm run plan` actualiza la página **Plan de mejora** y la base **Crecimiento**
+en tu Notion personal (adentro de la página Albus). Después puedes preguntarle
+a Albus por WhatsApp "qué debo mejorar" o "qué me dijo Camila" y te contesta
+desde ahí — no hace falta que abras Notion.
+
+Lo de psicología es privado: queda solo en tu Notion personal y en
+`agents-hub\results\growth` (nunca en GitHub), y Albus nunca lo repite en un
+grupo ni a nadie más que a ti.
+
+---
+
 ## Reglas de oro
 
 1. **Antes de cambiar de máquina: `agents-status`.** Si dice "not pushed", haz `git push`
