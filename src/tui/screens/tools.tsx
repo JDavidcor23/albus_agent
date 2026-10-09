@@ -3,7 +3,7 @@ import { Box, Text, useInput } from 'ink'
 
 import { Confirm } from '../components/confirm'
 import { SelectList, type SelectItem } from '../components/select-list'
-import { KNOWN_TOOLS, installTool } from '../../main/hub/setup-io'
+import { KNOWN_TOOLS, installTool } from '../../hub/setup-io'
 import type { Screen } from '../screen'
 import type { SetupData } from '../setup-data'
 

@@ -1,5 +1,5 @@
 /**
- * Verificador del hub de agentes externos. Corre sin Electron y sin red:
+ * Verificador del hub de agentes externos. Corre sin red:
  *
  *   npx tsx scripts/check-hub.ts
  *
@@ -14,21 +14,16 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-import { AgentJsonSchema, parseAgentJson } from '../src/main/core/hub/manifest'
-import { parseCommand } from '../src/main/core/hub/command'
-import { buildAgentEnv, buildSystemEnv } from '../src/main/core/hub/env'
-import { resolveServices, type ManifestEntry } from '../src/main/core/hub/services'
-// `resolveHubDir`, not `agentsHubDir()` from `src/main/paths.ts`: that file
-// imports `electron`, which this script never does (it runs under plain
-// `tsx`), AND its test-mode branch would return a throwaway folder under
-// `cacheDir()` instead of the REAL installed hub this WARN section needs to
-// scan.
-import { resolveHubDir } from '../src/main/core/hub/hub-location'
-import { parseEventLine, resolveResultPath, type AgentEvent } from '../src/main/core/hub/protocol'
-import { listExternalAgents } from '../src/main/hub/discover'
-import { installAgent } from '../src/main/hub/install'
-import { activeRuns, cancelRun, runAgent } from '../src/main/hub/runner'
-import { findHardcodedHubPaths } from '../src/main/hub/setup-io'
+import { AgentJsonSchema, parseAgentJson } from '../src/core/hub/manifest'
+import { parseCommand } from '../src/core/hub/command'
+import { buildAgentEnv, buildSystemEnv } from '../src/core/hub/env'
+import { resolveServices, type ManifestEntry } from '../src/core/hub/services'
+import { resolveHubDir } from '../src/core/hub/hub-location'
+import { parseEventLine, resolveResultPath, type AgentEvent } from '../src/core/hub/protocol'
+import { listExternalAgents } from '../src/hub/discover'
+import { installAgent } from '../src/hub/install'
+import { activeRuns, cancelRun, runAgent } from '../src/hub/runner'
+import { findHardcodedHubPaths } from '../src/hub/setup-io'
 
 let passed = 0
 let failed = 0

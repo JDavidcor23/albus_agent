@@ -5,7 +5,7 @@ import { Box, Text, useInput } from 'ink'
 import TextInput from 'ink-text-input'
 
 import { Confirm } from '../components/confirm'
-import { hubDirFromParent, validateHubParent } from '../../main/core/hub/hub-location'
+import { hubDirFromParent, validateHubParent } from '../../core/hub/hub-location'
 import {
   copyHub,
   findHardcodedHubPaths,
@@ -13,7 +13,7 @@ import {
   setHubDirPersistently,
   verifyHubCopy,
   type ScheduledTaskHit
-} from '../../main/hub/setup-io'
+} from '../../hub/setup-io'
 import { errorMessage } from '../setup-data'
 
 interface Props {

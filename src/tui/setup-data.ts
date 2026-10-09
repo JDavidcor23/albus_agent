@@ -1,6 +1,6 @@
-import { computeSetupStatus, type DiskFacts, type SetupStatus } from '../main/core/hub/setup-status'
-import { resolveServices, type ManifestEntry, type UseStatus } from '../main/core/hub/services'
-import { gatherFacts, listSetupTargets, type SetupTarget } from '../main/hub/setup-io'
+import { computeSetupStatus, type DiskFacts, type SetupStatus } from '../core/hub/setup-status'
+import { resolveServices, type ManifestEntry, type UseStatus } from '../core/hub/services'
+import { gatherFacts, listSetupTargets, type SetupTarget } from '../hub/setup-io'
 
 /**
  * Everything the screens read, loaded in one pass: every target, the disk

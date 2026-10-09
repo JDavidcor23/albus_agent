@@ -1,5 +1,5 @@
 /**
- * Verificador del campo `setup` en agent.json. Corre sin Electron y sin red:
+ * Verificador del campo `setup` en agent.json. Corre sin red:
  *
  *   npm run setup:check
  *
@@ -16,17 +16,16 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
-  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 
-import { AgentJsonSchema, parseAgentJson, type AgentSetup } from '../src/main/core/hub/manifest'
-import { parseDotenv, setDotenvValue } from '../src/main/core/hub/dotenv'
-import { HUB_FOLDER, hubDirFromParent, resolveHubDir, validateHubParent } from '../src/main/core/hub/hub-location'
-import { agentsHavingKey, computeSetupStatus, type DiskFacts } from '../src/main/core/hub/setup-status'
+import { AgentJsonSchema, parseAgentJson, type AgentSetup } from '../src/core/hub/manifest'
+import { parseDotenv, setDotenvValue } from '../src/core/hub/dotenv'
+import { HUB_FOLDER, hubDirFromParent, resolveHubDir, validateHubParent } from '../src/core/hub/hub-location'
+import { agentsHavingKey, computeSetupStatus, type DiskFacts } from '../src/core/hub/setup-status'
 import {
   KNOWN_TOOLS,
   copyHub,
@@ -43,8 +42,8 @@ import {
   writeEnvValue,
   type CommandRunner,
   type RunnerResult
-} from '../src/main/hub/setup-io'
-import { albusSetupTarget } from '../src/main/hub/albus-setup'
+} from '../src/hub/setup-io'
+import { albusSetupTarget } from '../src/hub/albus-setup'
 
 let passed = 0
 let failed = 0
@@ -583,18 +582,16 @@ async function checkFindScheduledTasksUsing(): Promise<void> {
 
 /* ── dotenv: round trip through the REAL readers (fix round 2 — finding 4) ── */
 
-section('dotenv: round trip through the real "dotenv" package and process.loadEnvFile')
+section('dotenv: round trip through process.loadEnvFile')
 
 /**
  * `writeEnvValue`/`setDotenvValue` is only safe if what it writes reads back
- * identically through the TWO things that actually read these files in
- * production: the `dotenv` package (`src/main/index.ts` and friends) and
- * Node's own `process.loadEnvFile` (every external agent, per the hub
- * contract). Our own `parseDotenv` agreeing with itself proves nothing here —
- * this check writes a real file and reads it back with both real readers.
+ * identically through what actually reads these files in production: Node's
+ * own `process.loadEnvFile` (every agent, per the hub contract). Our own
+ * `parseDotenv` agreeing with itself proves nothing here — this check writes
+ * a real file and reads it back with the real reader.
  */
 async function checkDotenvRealReaderRoundTrip(): Promise<void> {
-  const { parse: parseWithDotenvPackage } = (await import('dotenv')) as { parse: (src: string) => Record<string, string> }
   const dir = mkdtempSync(path.join(tmpdir(), 'albus-dotenv-roundtrip-'))
   try {
     const cases: Record<string, string> = {
@@ -612,15 +609,9 @@ async function checkDotenvRealReaderRoundTrip(): Promise<void> {
     const file = path.join(dir, '.env')
     writeFileSync(file, text, 'utf8')
 
-    const viaDotenvPackage = parseWithDotenvPackage(readFileSync(file, 'utf8'))
     const viaLoadEnvFile = loadEnvFileViaChildProcess(file, Object.keys(cases))
 
     for (const [key, expected] of Object.entries(cases)) {
-      check(
-        `"${key}" round-trips through the real "dotenv" package`,
-        viaDotenvPackage[key] === expected,
-        `got ${JSON.stringify(viaDotenvPackage[key])}, expected ${JSON.stringify(expected)}`
-      )
       check(
         `"${key}" round-trips through process.loadEnvFile`,
         viaLoadEnvFile[key] === expected,
@@ -668,17 +659,14 @@ section('albus-setup: setup.json')
   check('target id is "albus"', target.id === 'albus')
   check('target dir is the repo root (has package.json)', existsSync(path.join(target.dir, 'package.json')))
   check(
-    'setup.json\'s 7 env entries parse, secret defaults applied',
-    target.manifest !== null &&
-      target.manifest.setup.env.length === 7 &&
-      target.manifest.setup.env.find((e) => e.key === 'SUPABASE_URL')?.secret === false &&
-      target.manifest.setup.env.find((e) => e.key === 'SUPABASE_SERVICE_ROLE_KEY')?.secret === true
+    'setup.json asks for no keys: the hub holds none, the provider agents do',
+    target.manifest !== null && target.manifest.setup.env.length === 0
   )
   check(
     'setup.json tools and commands parse',
     target.manifest !== null &&
       target.manifest.setup.tools.join(',') === 'git,node,gh' &&
-      target.manifest.commands.check === 'npm run notion:check'
+      target.manifest.commands.check === 'npm run hub:check'
   )
 }
 

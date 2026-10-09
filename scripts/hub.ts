@@ -7,10 +7,10 @@
  *   npx tsx scripts/hub.ts run <id> [command]
  *   npx tsx scripts/hub.ts install <source> [--link]
  */
-import type { AgentEvent } from '../src/main/core/hub/protocol'
-import { listExternalAgents } from '../src/main/hub/discover'
-import { installAgent } from '../src/main/hub/install'
-import { runAgent } from '../src/main/hub/runner'
+import type { AgentEvent } from '../src/core/hub/protocol'
+import { listExternalAgents } from '../src/hub/discover'
+import { installAgent } from '../src/hub/install'
+import { runAgent } from '../src/hub/runner'
 
 function printEvent(event: AgentEvent): void {
   switch (event.type) {

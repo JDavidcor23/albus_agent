@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 
-import { killTree } from '../main/hub/process'
+import { killTree } from '../hub/process'
 import type { RunResult } from './screen'
 
 /** `src/tui/` is its own ESM package, so the repo root comes from this file's URL, never from cwd. */

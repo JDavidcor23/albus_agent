@@ -71,7 +71,7 @@ stdout → última línea no vacía = sobre JSON
   `APPDATA`, `LOCALAPPDATA`, `TEMP`, `TMP`, `USERNAME`, `ALBUS_AGENTS_HUB_DIR`,
   más `AGENT_CALLER=<id>`. Los secretos del consumidor nunca llegan al proveedor,
   y los del proveedor nunca salen de él.
-- **Sobre de respuesta** (mismo que el IPC de Albus):
+- **Sobre de respuesta** (el mismo en todo el hub):
   `{"ok":true,"data":…}` | `{"ok":false,"error":{"code":"…","message":"…"}}`.
   Los logs del proveedor van por **stderr**; stdout es solo el sobre.
 - **Códigos de error**: `not_granted`, `unknown_service`, `bad_input`,
@@ -168,8 +168,5 @@ clasificación después de cada triage.
 
 ## Fuera de alcance (todavía)
 
-- Albus (Electron) mantiene su propio Google/Notion (`src/main/connections/`,
-  `src/main/notion/`): es la app interna de job-search. Migrarlo a los
-  proveedores es la siguiente fase.
 - `hermes-vps` usa Notion por MCP en el VPS, otra máquina. No llama a `notion`.
   Gmail en el VPS: ver la excepción de arriba.

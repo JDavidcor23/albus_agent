@@ -9,9 +9,9 @@ Esto es lo que **tú** necesitas para instalar Albus, traerte todo y usar los co
 
 | Pieza | Dónde vive | Qué es |
 |---|---|---|
-| **Albus** | `Documents\web\albus_agent\` | La app. Repo `JDavidcor23/albus_agent` |
+| **Albus** | `Documents\web\albus_agent\` | El CLI que corre tus agentes (`npm run hub`) y el TUI de configuración (`npm run setup`). Repo `JDavidcor23/albus_agent` |
 | **Tus agentes** | `Documents\agents-hub\agents\<agente>\` | Uno por carpeta, todos juntos en UN solo repo privado en GitHub (`agents-hub`) |
-| **Tus datos** | `Documents\albus_agent\` y `Documents\agents-hub\results\` | Reglas, conexiones, videos, resultados. **No están en GitHub** |
+| **Tus datos** | `Documents\albus_agent\` y `Documents\agents-hub\results\` | Reglas y resultados. **No están en GitHub** |
 
 ---
 
@@ -58,7 +58,7 @@ ni Drive.
 
 | Copia esto | Por qué |
 |---|---|
-| `Documents\albus_agent\` (la carpeta entera) | Tus reglas para los agentes, conexiones y videos |
+| `Documents\albus_agent\` (la carpeta entera) | Tus reglas para los agentes y las preguntas que ya contestaste |
 | `agents-hub\agents\google\.env` y `agents-hub\agents\google\.secrets\` | Google personal ya autorizado (leer correo, enviar, Drive y Calendar). Con esto no vuelves a autorizar nada |
 | `agents-hub\agents\notion\.env` | Tu token de Notion |
 
@@ -72,7 +72,7 @@ máquina entra en Connections → WhatsApp → link y escanea el QR.
 
 Las sesiones del navegador (LinkedIn, UTEL) se rehacen a mano.
 
-**6. Listo.** Abre Albus con `npm run dev`.
+**6. Listo.** Comprueba que todo está con `npm run hub -- list`.
 
 ---
 
@@ -100,14 +100,9 @@ el comando se detiene y te dice cuáles son — no hace `reset` ni te los pisa.
 
 | Comando | Qué hace |
 |---|---|
-| `npm run dev` | Abre Albus |
 | `npm run hub -- list` | Lista tus agentes y si están bien instalados |
-| `npm run hub -- run <agente>` | Corre un agente sin abrir la app. Ej: `npm run hub -- run mail-triage` |
-| `npm run video:check -- "grabacion.mp4"` | Transcribe una grabación y saca capturas |
-| `npm run notion:check` | ¿Notion responde? |
-| `npm run drive:check` | ¿Google Drive responde? |
-| `npm run gmail:auth` | Conecta tu Google. **Una vez** por máquina |
-| `npm run jobs:login` | Inicia sesión en LinkedIn dentro de Albus. **Una vez** |
+| `npm run hub -- run <agente>` | Corre un agente. Ej: `npm run hub -- run mail-triage` |
+| `npm run setup` | El TUI: dónde vive el hub, claves, permisos de Google y Notion, vincular WhatsApp |
 
 ### Albus en el VPS (desde `Documents\agents-hub\agents\hermes-vps`)
 
@@ -155,8 +150,7 @@ grupo ni a nadie más que a ti.
 2. **Al llegar a la otra máquina: `update-agents`.**
 3. **Agente nuevo = borrador hasta que tú digas "publícalo".** Claude lo guarda y lo sube
    a GitHub enseguida — eso ya es tu respaldo, no se pierde — pero lo marca como
-   borrador (`[draft]` en `agents-status`, gris en el TUI) y no aparece en la app de
-   Albus hasta que tú decides que está listo y le pides a Claude que lo publique.
+   borrador (`[draft]` en `agents-status`, gris en el TUI) hasta que tú decides que está listo y le pides a Claude que lo publique.
 4. **Lo que corre solo va en UNA máquina:** WhatsApp, el triage de las 8:00, el outbox de
    UTEL. Si corren en las dos, se pelean o te duplican cosas en Notion.
 

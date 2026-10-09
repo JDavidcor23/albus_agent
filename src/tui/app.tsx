@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Box } from 'ink'
 
-import { currentHubDir } from '../main/hub/setup-io'
+import { currentHubDir } from '../hub/setup-io'
 import type { Screen } from './screen'
 import { AgentDetail } from './screens/agent-detail'
 import { Home } from './screens/home'

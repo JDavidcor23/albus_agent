@@ -109,7 +109,7 @@ hardcodea la ruta literal en vez de leer `ALBUS_AGENTS_HUB_DIR`.
   "timeoutMinutes": 30,
   "needs": ["sesión de WhatsApp vinculada"],
   "schedule": "daily 08:00",
-  "exitCodes": { "2": "La sesión de WhatsApp venció: vincúlala de nuevo con npm run dev" }
+  "exitCodes": { "2": "La sesión de WhatsApp venció: vincúlala de nuevo con npm run link" }
 }
 ```
 
@@ -125,7 +125,7 @@ hardcodea la ruta literal en vez de leer `ALBUS_AGENTS_HUB_DIR`.
 | `schedule` | string libre, informativo | Albus no programa: lo hace Orca o el SO, para que corra con Albus cerrado |
 | `exitCodes` | `{ "<código>": "mensaje" }` | el `2 = hay que escanear el QR` de WhatsApp, generalizado. Es dato, no un `if` por agente |
 | `runLabel` | string, 0–40 caracteres, default `''` | la etiqueta del botón primario en la pantalla del agente (p. ej. `"Generate digest"`). `''` (o un manifiesto viejo sin el campo) hace que la UI muestre `"Run"` — ningún `.min(1)`: un `runLabel: ""` explícito cae en el mismo fallback en vez de rechazar el manifiesto por un campo cosmético |
-| `hidden` | boolean, default `false` | opt-out EXPLÍCITO del dueño del agente: "corro esto solo desde CLI/Orca, no lo quiero en la lista de Albus". Un manifiesto viejo sin el campo sigue viéndose, igual que siempre. Se filtra únicamente en `hub/agent-info.ts` (lo que arma `agents:list` para el renderer) — `hub/discover.ts#listExternalAgents` nunca lo filtra, porque `runner.ts` y `npm run hub -- run <id>` tienen que seguir encontrando el agente por id. `npm run hub -- list` también lo sigue imprimiendo, marcado `(hidden)`. **No es la misma regla que un `agent.json` roto**: un manifiesto inválido siempre se lista con su problema (`entry.manifest === null`, nunca `hidden`); `hidden: true` es lo contrario — un manifiesto SANO que el dueño pidió no mostrar |
+| `hidden` | boolean, default `false` | opt-out EXPLÍCITO del dueño del agente: "corro esto solo desde CLI/Orca, no lo quiero en la lista del TUI". Un manifiesto viejo sin el campo sigue viéndose, igual que siempre. Se filtra únicamente en `hub/agent-info.ts` (lo que arma `agents:list` para el renderer) — `hub/discover.ts#listExternalAgents` nunca lo filtra, porque `runner.ts` y `npm run hub -- run <id>` tienen que seguir encontrando el agente por id. `npm run hub -- list` también lo sigue imprimiendo, marcado `(hidden)`. **No es la misma regla que un `agent.json` roto**: un manifiesto inválido siempre se lista con su problema (`entry.manifest === null`, nunca `hidden`); `hidden: true` es lo contrario — un manifiesto SANO que el dueño pidió no mostrar |
 
 ### El campo `setup`: lo que guía a `npm run setup`
 
@@ -336,9 +336,6 @@ verde y borra esa línea de `agent.json` — nunca Claude por su cuenta.
 
 Mientras `draft: true`:
 
-- **Invisible en la app Albus**: `hub/agent-info.ts` lo filtra del `agents:list` que
-  ve el renderer, igual que `hidden`, pero por un motivo distinto — `hidden` es un
-  opt-out permanente del dueño, `draft` es "todavía no publicado".
 - **Sigue andando para desarrollo**: `npm run hub -- list` lo imprime marcado
   `(draft)`, `npm run hub -- run <id>` lo corre igual, `scripts/agents.ps1 status`
   lo marca `[draft]`.
@@ -347,7 +344,7 @@ Mientras `draft: true`:
   mezclado con los agentes reales ni oculto del todo, porque esta pantalla es para
   Jorge, no para el usuario final de Albus.
 
-Ver `src/main/core/hub/manifest.ts` (el campo) y `src/main/hub/agent-info.ts` (el filtro).
+Ver `src/core/hub/manifest.ts` (el campo).
 
 ### Lo que cambió, lo que no
 
@@ -375,81 +372,4 @@ Ver `src/main/core/hub/manifest.ts` (el campo) y `src/main/hub/agent-info.ts` (e
   en el VPS. Perder la laptop significa borrar una línea de `authorized_keys`.
 - **`hub install <url>` de un agente de terceros** todavía clona ese repo con SU
   propio `.git` dentro de `agents/<id>/` — un repo anidado dentro del monorepo. Ver
-  "Instalar" más abajo para cómo se resuelve.
-
-## En la pestaña de agentes
-
-Los externos entran a la misma lista (`agents:list`) con `origin: 'external'` y
-`screen: 'external'`: una pantalla genérica con ejecutar, cancelar, el progreso en
-vivo, abrir la carpeta de resultados y los últimos resultados. Los internos no
-cambian.
-
-Un `agent.json` roto **se lista apagado con el motivo**, no desaparece: misma
-regla que `agents.md` ("un agente que se esconde es un agente que el usuario cree
-que nunca existió").
-
-## Fase 5: la migración de los internos — CHOCA con una decisión documentada
-
-El prompt pide extraer video, udemy y job-search a `agents/<id>/`. **No se hizo,
-y no por falta de tiempo.**
-
-| Agente | ¿Puede correr solo, sin Albus? | Por qué |
-|---|---|---|
-| `video-analysis` | **Sí** | ffmpeg + whisper son CLIs; `core/video/` ya es dominio puro |
-| `job-search` | **No, tal como está** | usa el navegador de Electron (`BrowserPort` sobre `webContents`) y la partición `persist:albus-jobs`, donde vive tu sesión de LinkedIn y Google |
-| `udemy` | **No, tal como está** | igual: la sesión de Udemy está en esa partición |
-
-La norma 4 ("un agente debe poder correr solo") es incompatible con depender de
-la sesión del navegador de Albus. Opciones:
-
-1. **El agente trae su navegador** (Playwright con un perfil persistente propio en
-   `results/<id>/.profile` o similar). Corre solo de verdad. Costo: loguearse de
-   nuevo una vez por agente, y reescribir `browser/page.ts` contra Playwright.
-2. **Albus ofrece el navegador como servicio** (expone CDP o una API local). Costo:
-   el agente solo corre con Albus abierto, que es justo lo que la norma 4 quiere
-   evitar.
-3. **Se quedan internos** hasta decidir. Costo: dos clases de agentes por un
-   tiempo.
-
-Recomendación: **3 ahora, 1 después**, empezando por video (que no tiene el
-problema). Y la migración de resultados `albus_agent/video` →
-`results/video-analysis` va **en el mismo commit** que el agente de video externo,
-nunca antes. Si se mueve la carpeta y el panel sigue leyendo `videoDir()`, la
-biblioteca aparece vacía sin ningún error. Es el contrato congelado de `video/`,
-`meta.json` y `transcript.srt` de `frozen-contracts.md`. Se copia entrada por
-entrada con `copyMissing`, nunca se mueve.
-
-## Reportes HTML
-
-Cualquier agente puede escribir un `.html` en su carpeta de resultados (la
-misma `results/<id>/` de siempre, sin convención de nombre ni de ubicación
-adicional). Si lo hace, Albus lo muestra en la pantalla del agente, dentro de
-un `<iframe sandbox="">` sin `allow-scripts`, sin `allow-same-origin` y sin
-`allow-popups`: el HTML viene de un tercero y puede traer texto generado por
-un modelo, así que Albus no le da ni ejecución de script ni origen propio ni
-capacidad de abrir ventanas. Los links de adentro no navegan por eso mismo —
-para eso queda el botón "open in browser", que abre el archivo con
-`hub:open`/`target: 'file'`, el mismo camino que ya usaba cualquier otro
-resultado.
-
-El contrato es una línea: **un resultado con ruta `.html` es un reporte que
-se puede ver.** No hay que declarar nada en `agent.json` ni avisarle a Albus
-de ninguna otra forma — es el mismo principio que el resto del hub: el agente
-dueño de su presentación, Albus genérico. El canal que lee el archivo es
-`hub:read-report` (`{agentId, relPath}` → `{relPath, html, modifiedAt}`),
-separado de `hub:open`: ese le pide al sistema operativo que abra un path,
-este le entrega los bytes al renderer para pintarlos. Mismas reglas de
-seguridad que el resto del hub — `relPath` se resuelve con
-`resolveInsideResults` y se rechaza si se escapa de `results/<id>/` — más un
-límite de 2 MB: un reporte se lee entero a memoria antes de mandarlo por
-IPC, y eso lo mantiene barato.
-
-## Lo que NO cambió y conviene saber
-
-- El provider `claude-code.ts` sigue sin aislar el contexto. La sesión de WhatsApp
-  midió ~227k tokens contra ~1,3k con `--setting-sources "" --strict-mcp-config
-  --tools ""`. Pidió que se le consultara antes de tocarlo. Ver
-  `my_proyects/whatsapp/docs/albus-whatsapp-agent-prompt.md`.
-- No hay vista específica del resumen de WhatsApp dentro de Albus. La pantalla es
-  genérica a propósito: una vista por agente es volver a "hay que compilar Albus
-  para sumar un agente".
+  "Instalar" más arriba para cómo se resuelve.
