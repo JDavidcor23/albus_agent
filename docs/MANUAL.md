@@ -142,6 +142,34 @@ grupo ni a nadie más que a ti.
 
 ---
 
+## Publicar un proyecto (video a Drive + Notion)
+
+El agente **`publishing`** (`Documents\agents-hub\agents\publishing`) sube tus videos
+aprobados de LinkedIn a tu Drive personal y mantiene al día tu tabla **Publicaciones**
+en Notion. Es parte del flujo `/publica` (Claude Code): tú casi nunca escribes estos
+comandos a mano, pero aquí están por si los necesitas.
+
+```powershell
+cd Documents\agents-hub\agents\publishing
+
+# Crea (o encuentra) la carpeta "<Proyecto>/Videos" en tu Drive y te da el link
+node scripts/folder.ts --project "PixelForge"
+
+# Sube un video YA APROBADO por ti. --approved es obligatorio: sin él, el agente
+# se niega a subir nada. Nunca le pidas que suba "todos los de la carpeta".
+node scripts/upload.ts "C:\ruta\al\video.mp4" --poster "C:\ruta\al\poster.png" `
+  --title "Título exacto del post" --project "PixelForge" --approved
+
+# Marca una fila de Publicaciones como publicada (lo usa /publica, paso 4, para "Artículo web")
+node scripts/mark-published.ts --tipo "Artículo web" --title "Título exacto" `
+  --link "https://tu-sitio.com/articulo" --project "PixelForge"
+```
+
+`--project` tiene que ser un nombre que ya esté en `~/.claude/publishing/projects.md`
+(hoy: PixelForge). Un proyecto del trabajo (30X) nunca se acepta ahí por defecto.
+
+---
+
 ## Reglas de oro
 
 1. **Antes de cambiar de máquina: `agents-status`.** Si dice "not pushed", haz `git push`
