@@ -19,7 +19,8 @@ mismas claves agente por agente.
 | `google` | todo HTTP contra Google de la cuenta **personal** | 1 OAuth client + 1 token por grupo de scopes en `.secrets/<grupo>.json` | `fetch`, `drive.upload`, `drive.doc`, `calendar.create` |
 | `notion` | todo HTTP contra el Notion **personal** | `NOTION_TOKEN` en su `.env` | `fetch` |
 | `whatsapp` | la sesión Baileys del WhatsApp **personal**, **solo lectura y solo grupos** | `.wa-data/auth/` | `status`, `sync`, `groups`, `messages` |
-| `elevenlabs` (2026-10-16, `draft`) | efectos de sonido y música; devuelve el mp3 en base64 | `ELEVENLABS_API_KEY` en su `.env` | `sound`, `music` (hoy solo para `pixel-video`) |
+| `elevenlabs` (2026-10-16, `draft`) | efectos de sonido y música; devuelve el mp3 en base64 | `ELEVENLABS_API_KEY` en su `.env` | `sound` (`animator`), `music` (`animator`, `video-editor`) |
+| `transcriber` (proveedor desde 2026-10-16) | voz → texto: el ÚNICO que corre whisper; sigue procesando reuniones como antes | ninguna (whisper local) | `subtitles` (archivo local → `.srt`, para `video-editor`) |
 
 La cuenta de Google de **30X** no pasa por `google`: `gemini-notes` la alcanza
 con los conectores de claude.ai, sin tokens propios.

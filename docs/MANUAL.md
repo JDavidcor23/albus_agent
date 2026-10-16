@@ -170,25 +170,35 @@ node scripts/mark-published.ts --tipo "Artículo web" --title "Título exacto" `
 
 ---
 
-## Hacer un video pixel-art (con sonidos)
+## Videos: animar y editar
 
-El agente **`pixel-video`** (`Documents\agents-hub\agents\pixel-video`) hace videos
-animados estilo pixel-art, como el intro de PixelForge. Lo normal es pedírselo a
-Claude en esta carpeta ("hazme un video de…" y pegas el prompt): Claude escribe la
-escena, te muestra fotogramas y renderiza. Los sonidos los genera el agente
-**`elevenlabs`**, que es el único que guarda tu clave.
+Lo normal es pedírselo a Claude en esta carpeta ("hazme una animación de…",
+"edita este video para LinkedIn…"): Claude elige los agentes, te muestra
+fotogramas y te entrega el video. Cada agente hace UNA cosa:
+
+| Agente | Qué hace |
+|---|---|
+| **`animator`** | crea animaciones desde cero (hoy pixel-art, como el intro de PixelForge) |
+| **`video-editor`** | edita videos que ya tienes: cortar, formato de LinkedIn (cuadrado, 4:5, vertical), subtítulos, pegar un intro de `animator`, música |
+| **`transcriber`** | le da los subtítulos a `video-editor` (además de transcribir tus reuniones) |
+| **`elevenlabs`** | genera efectos de sonido y música; es el único que guarda tu clave |
 
 **Una sola vez:** `npm run setup` → agente **ElevenLabs** → pega tu API key
 (elevenlabs.io → Developers → API Keys). Nunca la pegues en el chat.
 
 ```powershell
-cd Documents\agents-hub\agents\pixel-video
-npm run check                               # ¿la máquina tiene todo? (Python, ffmpeg, elevenlabs)
-npm run list                                # los videos que existen
-npm run render -- pixelforge-intro          # vuelve a hacer un video
+cd Documents\agents-hub\agents\animator
+npm run list                                # las animaciones que existen
+npm run render -- pixelforge-intro          # vuelve a hacer una
+
+cd Documents\agents-hub\agents\video-editor
+npm run list                                # las ediciones que existen
+npm run edit -- <nombre>                    # vuelve a correr una edición
 ```
 
-El video queda en `Documents\agents-hub\results\pixel-video\<nombre>\video.mp4`.
+Los videos quedan en `Documents\agents-hub\results\animator\<nombre>\video.mp4` y
+`...\results\video-editor\<nombre>\video.mp4` (con `subtitles.srt` al lado si tiene
+subtítulos: LinkedIn te deja subirlo como archivo de subtítulos).
 
 ---
 
