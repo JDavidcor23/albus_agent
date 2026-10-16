@@ -170,6 +170,28 @@ node scripts/mark-published.ts --tipo "Artículo web" --title "Título exacto" `
 
 ---
 
+## Hacer un video pixel-art (con sonidos)
+
+El agente **`pixel-video`** (`Documents\agents-hub\agents\pixel-video`) hace videos
+animados estilo pixel-art, como el intro de PixelForge. Lo normal es pedírselo a
+Claude en esta carpeta ("hazme un video de…" y pegas el prompt): Claude escribe la
+escena, te muestra fotogramas y renderiza. Los sonidos los genera el agente
+**`elevenlabs`**, que es el único que guarda tu clave.
+
+**Una sola vez:** `npm run setup` → agente **ElevenLabs** → pega tu API key
+(elevenlabs.io → Developers → API Keys). Nunca la pegues en el chat.
+
+```powershell
+cd Documents\agents-hub\agents\pixel-video
+npm run check                               # ¿la máquina tiene todo? (Python, ffmpeg, elevenlabs)
+npm run list                                # los videos que existen
+npm run render -- pixelforge-intro          # vuelve a hacer un video
+```
+
+El video queda en `Documents\agents-hub\results\pixel-video\<nombre>\video.mp4`.
+
+---
+
 ## Reglas de oro
 
 1. **Antes de cambiar de máquina: `agents-status`.** Si dice "not pushed", haz `git push`
