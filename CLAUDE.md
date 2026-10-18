@@ -27,6 +27,13 @@ secreto por chat**, eso es trabajo del usuario en el TUI.
 Resultados en `<hub>\results\<id>\`, con `<hub>` = `ALBUS_AGENTS_HUB_DIR` si
 está seteada, si no `Documents\agents-hub`.
 
+**Todo entregable va ahí, también los hechos a mano** (videos, posts, trabajos
+de UTEL, borradores): `<hub>\results\<id-del-agente-dueño>\<tema>\`. Nunca en la
+raíz de `Documents` ni en otra carpeta suelta. Así "limpia lo que hicimos" es
+una sola carpeta. Las reglas y preguntas de cada agente viven en su propia
+carpeta (`agents\<id>\rules.md`, `preguntas.json`, fuera de git); no hay otra
+carpeta de datos.
+
 **Agente nuevo:** carpeta física en el hub (`agents-hub/agents/<id>/`, nunca en
 otra carpeta ni con `--link`), commiteada y empujada al monorepo `agents-hub`
 con `"draft": true` en su `agent.json` desde el primer commit +, si necesita

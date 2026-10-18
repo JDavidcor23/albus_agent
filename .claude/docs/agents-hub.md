@@ -33,7 +33,7 @@ Documents/albus_agent/           ← solo el estado de Albus: albus.yml, connect
 ```
 
 **[DECIDIDO SIN CONFIRMAR]** La raíz es `Documents/agents-hub`, calculada a mano
-igual que `dataDir()` (nunca `app.getPath('documents')`: ver el comentario de
+(nunca `app.getPath('documents')`: ver el comentario de
 `documentsDir()` en `paths.ts`, colgaba el arranque con OneDrive).
 
 **Valores nuevos congelados**: `agents-hub`, `agents`, `results`, `agent.json`.

@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { z } from 'zod'
-import { agentsDir } from '../paths'
+import { agentStateDir } from '../paths'
 import { rulesPath } from './rules'
 
 /**
@@ -70,8 +70,7 @@ const StoredQuestionSchema = z.object({
 
 /** El archivo es JSON y no markdown: esto es una COLA, no algo que se edite. */
 function questionsPath(agentId: string): string {
-  const clean = agentId.replace(/[^a-z0-9-]/gi, '')
-  return join(agentsDir(), `${clean}.preguntas.json`)
+  return join(agentStateDir(agentId), 'preguntas.json')
 }
 
 export function readQuestions(agentId: string): StoredQuestion[] {

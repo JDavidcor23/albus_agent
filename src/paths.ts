@@ -7,9 +7,9 @@ import { resolveHubDir } from './core/hub/hub-location'
  *
  * Two places, split by whether the data can be regenerated:
  *
- * - `dataDir()` — `Documents/albus_agent`. What would be lost forever: the
- *   rules each agent reads and its queue of open questions. Visible and
- *   backup-able.
+ * - `agentStateDir(id)` — the agent's own folder in the hub. What would be
+ *   lost forever: the rules it reads and its queue of open questions, next to
+ *   its `.env` and never committed (the hub's `.gitignore` lists them).
  * - `cacheDir()` — disposable: the diagnostic log of every hub run.
  *
  * Every folder name below is a FROZEN CONTRACT (see
@@ -20,9 +20,6 @@ import { resolveHubDir } from './core/hub/hub-location'
 /** CONTRACT — the cache folder name. It was Electron's `userData`; the run logs still live there. */
 const APP_NAME = 'albus-agent'
 
-/** CONTRACT — the user's visible folder. Renaming it orphans every rule and question. */
-const DATA_FOLDER = 'albus_agent'
-
 /** CONTRACT — the code subfolder inside the hub. Renaming it hides every installed agent from discovery. */
 const AGENTS_HUB_CODE_FOLDER = 'agents'
 
@@ -31,21 +28,6 @@ const AGENTS_HUB_RESULTS_FOLDER = 'results'
 
 function homeDir(): string {
   return process.env.USERPROFILE ?? process.env.HOME ?? process.cwd()
-}
-
-/**
- * The root of what the user would lose if it were deleted.
- *
- * `Documents` is computed by hand on purpose: on a OneDrive machine the
- * shell's "known folder" points somewhere else, and two callers disagreeing
- * on the path means one of them reads an empty folder. Whoever needs the
- * redirected folder sets `ALBUS_DATA_DIR` — explicit, never guessed.
- */
-export function dataDir(): string {
-  const override = process.env.ALBUS_DATA_DIR?.trim()
-  if (override !== undefined && override !== '') return override
-
-  return join(homeDir(), 'Documents', DATA_FOLDER)
 }
 
 /** The disposable side. Deleting it costs the user nothing. */
@@ -58,9 +40,14 @@ export function cacheDir(): string {
   return join(home, '.config', APP_NAME)
 }
 
-/** Each agent's rules (`<id>.md`) and question queue (`<id>.preguntas.json`). */
-export function agentsDir(): string {
-  return join(dataDir(), 'agents')
+/**
+ * Each agent's rules (`rules.md`) and question queue (`preguntas.json`) live
+ * in its own code folder, so everything about one agent is in one place.
+ */
+export function agentStateDir(agentId: string): string {
+  // The id ends up in a path, so a stray `..` must not write outside this folder.
+  const clean = agentId.replace(/[^a-z0-9-]/gi, '')
+  return join(agentsCodeDir(), clean)
 }
 
 /**

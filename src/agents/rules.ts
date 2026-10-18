@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { agentsDir } from '../paths'
+import { agentStateDir } from '../paths'
 
 /**
  * Las reglas de cada agente, en un `.md` que el usuario edita.
@@ -28,8 +28,8 @@ import { agentsDir } from '../paths'
  *
  * ## Dónde vive
  *
- * `userData/agentes/<id>.md`. **Nunca en el repo**, ni siquiera en desarrollo:
- * lo que el usuario escribe es suyo, no del código fuente. Ver `paths.ts`.
+ * `agents-hub/agents/<id>/rules.md`, in the agent's own folder and never
+ * committed: what the user writes is theirs, not source code. See `paths.ts`.
  */
 
 export interface NotionRef {
@@ -55,15 +55,11 @@ export interface AgentRules {
   drive: NotionRef[]
 }
 
-export function rulesDir(): string {
-  return agentsDir()
-}
+/** CONTRACT — the rules file name inside each agent's folder. */
+const RULES_FILE = 'rules.md'
 
 export function rulesPath(agentId: string): string {
-  // El id sale del registro, no del usuario, pero igual no se concatena algo
-  // que pueda tener `..` o barras: un id raro no va a escribir fuera de acá.
-  const clean = agentId.replace(/[^a-z0-9-]/gi, '')
-  return join(rulesDir(), `${clean}.md`)
+  return join(agentStateDir(agentId), RULES_FILE)
 }
 
 /**

@@ -19,16 +19,14 @@ Hay DOS carpetas y la línea entre ellas es si el dato se puede regenerar
 
 | | Ruta | Qué guarda |
 |---|---|---|
-| `dataDir()` | `Documents/albus_agent` | lo que se perdería para siempre: las reglas de cada agente y su cola de preguntas. `ALBUS_DATA_DIR` la mueve |
+| `agentStateDir(id)` | `agents-hub/agents/<id>/` | lo que se perdería para siempre: las reglas de cada agente y su cola de preguntas, fuera de git (`.gitignore` del hub). Hasta el 2026-10-18 vivían en `Documents/albus_agent/agents/`; esa carpeta ya no existe |
 | `cacheDir()` | `%APPDATA%/albus-agent` | lo desechable: el log de cada corrida del hub |
 
 | Valor congelado | Dónde | Qué se rompe en silencio |
 |---|---|---|
-| `albus_agent` (carpeta) | `paths.ts` → `DATA_FOLDER` | el hub arranca mirando una carpeta vacía: el agente corre sin las reglas del usuario |
 | `'albus-agent'` | `paths.ts` → `APP_NAME` | los logs de corridas anteriores quedan en la carpeta vieja |
-| `agents` (dentro de `albus_agent`) | `paths.ts` → `agentsDir()` | los `.md` de reglas se vuelven invisibles; a cada agente le llega un `AGENT_RULES_PATH` que no existe |
-| `<id>.md` | `agents/rules.ts` → `rulesPath()` | lo mismo, agente por agente |
-| `<id>.preguntas.json` y sus claves (`pregunta`, `contexto`, `creada`, `opciones`, `respuesta`, `respondida`) | `agents/questions.ts` | se pierde la cola de preguntas ya respondidas; el agente vuelve a preguntar lo mismo |
+| `rules.md` (dentro de la carpeta del agente) | `agents/rules.ts` → `RULES_FILE` | las reglas se vuelven invisibles; a cada agente le llega un `AGENT_RULES_PATH` que no existe. `mail-triage` repite este nombre en su `config.ts` |
+| `preguntas.json` (dentro de la carpeta del agente) y sus claves (`pregunta`, `contexto`, `creada`, `opciones`, `respuesta`, `respondida`) | `agents/questions.ts` | se pierde la cola de preguntas ya respondidas; el agente vuelve a preguntar lo mismo |
 
 ### El formato de las respuestas del agente
 
