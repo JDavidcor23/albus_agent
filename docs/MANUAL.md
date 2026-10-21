@@ -66,6 +66,24 @@ Son las ÚNICAS credenciales de Google y Notion que existen: ningún otro agente
 tiene las suyas. Si prefieres no copiarlas, entra en el TUI a Connections →
 Google / Notion y cárgalas ahí.
 
+**Todo de una vez, sin copiar archivo por archivo.** Hay dos comandos que
+empaquetan lo que git no lleva (todos los `.env`, `.secrets`, tus skills y
+reglas locales, `~/.claude`, `~/.claude.json`, `~/.gitconfig` y la memoria de
+Claude) en UN archivo con contraseña:
+
+```powershell
+# En el PC viejo (una vez para ver la lista de nombres, otra para crearlo; pide contraseña)
+scoop install 7zip
+powershell -File scripts\migrate-export.ps1 -DryRun
+powershell -File scripts\migrate-export.ps1        # deja albus-migration.7z en tu Escritorio
+
+# En la máquina nueva, con el .7z en la USB (-Overwrite solo si quieres pisar lo que ya exista)
+powershell -File scripts\migrate-import.ps1 -Archive E:\albus-migration.7z
+```
+
+Al terminar te recuerda lo que no viaja: los logins de `gh`, las sesiones del
+navegador y WhatsApp.
+
 **WhatsApp va en UNA sola máquina.** No vincules la laptop mientras el PC lo
 tenga: dos sesiones se pelean la conexión. Si algún día lo mudas, en la nueva
 máquina entra en Connections → WhatsApp → link y escanea el QR.
