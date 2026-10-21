@@ -121,6 +121,9 @@ el comando se detiene y te dice cuáles son — no hace `reset` ni te los pisa.
 | `npm run hub -- list` | Lista tus agentes y si están bien instalados |
 | `npm run hub -- run <agente>` | Corre un agente. Ej: `npm run hub -- run mail-triage` |
 | `npm run setup` | El TUI: dónde vive el hub, claves, permisos de Google y Notion, vincular WhatsApp |
+| `powershell -File scripts\postula-mama.ps1` | Postula a tu mamá en Computrabajo a trabajos de atención al cliente desde la casa. Una vez al día. Necesita Orca abierto con la sesión de ella iniciada en una pestaña. Te manda el resumen por WhatsApp. Dentro de Claude es `/postula-mama` |
+| Dentro de Claude, en tus palabras: "búscale trabajo a mi mamá", "revisa las respuestas de mi mamá" o "ciclo de mi mamá" (las dos cosas: primero respuestas, después postular) | Entrada única para todo lo de empleo de tu mamá (skill `empleo-mama`): postula en todas las plataformas listas y revisa respuestas. Hoy solo está Computrabajo; Magneto y elempleo vienen después |
+| `/resumen-correo-mama` (dentro de Claude) | Revisa el correo y el Computrabajo de tu mamá y te manda por WhatsApp cada oferta que le pide algo: entrevista, test, prueba psicológica, formulario o papeles. Solo lee, no responde nada. Necesita Orca abierto con el Gmail de ella iniciado |
 
 ### Albus en el VPS (desde `Documents\agents-hub\agents\hermes-vps`)
 
