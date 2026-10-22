@@ -152,6 +152,11 @@ npm run ingest -- "<nombre de la unidad que imprimió transcriber>" --lens work-
 npm run plan
 ```
 
+`transcribe` acepta `--engine api` para que la transcripción la haga Groq en la nube
+(más rápido, centavos por hora; necesita la clave `GROQ_API_KEY` en `npm run setup`).
+Con `api` el AUDIO sale de tu PC: las sesiones de psicología o reuniones sensibles
+se quedan con el modo normal (`local`, el de siempre, no hay que escribir nada).
+
 `npm run plan` actualiza la página **Plan de mejora** y la base **Crecimiento**
 en tu Notion personal (adentro de la página Albus). Después puedes preguntarle
 a Albus por WhatsApp "qué debo mejorar" o "qué me dijo Camila" y te contesta
