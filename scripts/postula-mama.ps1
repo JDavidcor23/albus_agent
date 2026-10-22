@@ -4,4 +4,6 @@
 $ErrorActionPreference = 'Stop'
 Set-Location (Split-Path $PSScriptRoot -Parent)
 
-claude -p "/postula-mama" --model sonnet --allowedTools "Bash(orca *)" "Bash(sleep *)""Bash(node C:/Users/PC/Documents/agents-hub/agents/claude-relay/scripts/send-file.ts *)" "Read" "Write" "Edit" "Glob" "Grep" "Skill"
+# Without this, headless claude kills the application subagent after 10 minutes.
+$env:CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS = '0'
+claude -p "/postula-mama" --model sonnet --allowedTools "Bash(orca *)" "Bash(sleep *)" "Bash(node C:/Users/PC/Documents/agents-hub/agents/claude-relay/scripts/send-file.ts *)" "Read" "Write" "Edit" "Glob" "Grep" "Skill"
