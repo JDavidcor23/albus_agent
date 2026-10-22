@@ -25,6 +25,10 @@ function mergeRuns(row: LogoCell[]): Run[] {
 
 const MIN_COLUMNS_FOR_ART = 40
 const MIN_COLUMNS_FOR_ROW_LAYOUT = 70
+// The art is 25 rows and the home screen needs ~20 more below it. If the
+// output is taller than the terminal, Ink cannot erase what scrolled off and
+// leaves a stale copy of the logo on every re-render.
+const MIN_ROWS_FOR_ART = 46
 
 /**
  * Albus's face, drawn with Unicode half blocks + truecolor (see
@@ -32,13 +36,15 @@ const MIN_COLUMNS_FOR_ROW_LAYOUT = 70
  * Terminal image protocols (Sixel/Kitty) are not reliable across Windows
  * Terminal, Orca and plain conhost, so this is the portable path.
  *
- * Degrades to the bold wordmark alone below 40 columns, or when `NO_COLOR`
- * is set — half-block art needs truecolor, and there is nowhere for a
- * 30-column drawing to shrink to below that width anyway.
+ * Degrades to the bold wordmark alone below 40 columns, below 46 rows, or
+ * when `NO_COLOR` is set — half-block art needs truecolor, and there is
+ * nowhere for a 30-column drawing to shrink to below that width anyway.
  */
 export function Logo(): ReactNode {
   const columns = process.stdout.columns ?? 80
-  const plain = columns < MIN_COLUMNS_FOR_ART || process.env.NO_COLOR !== undefined
+  const rows = process.stdout.rows ?? 50
+  const plain =
+    columns < MIN_COLUMNS_FOR_ART || rows < MIN_ROWS_FOR_ART || process.env.NO_COLOR !== undefined
 
   if (plain) {
     return <Text bold>ALBUS</Text>
